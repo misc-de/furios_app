@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Audio-Umschalter
+Name[en]=Audio Switch
+Comment=Zwischen PulseAudio und PipeWire am Android-HAL umschalten
+Comment[en]=Switch between PulseAudio and PipeWire on the Android HAL
+Exec=/usr/local/bin/furios-audio-switch
+Icon=de.furios.audioswitch
+Terminal=false
+Categories=AudioVideo;Audio;Settings;
+Keywords=Audio;PipeWire;PulseAudio;Bluetooth;Ton;
+StartupNotify=true
+X-Purism-FormFactor=Workstation;Mobile;
