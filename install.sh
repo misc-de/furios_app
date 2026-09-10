@@ -1,4 +1,6 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2026 misc-de
+# SPDX-License-Identifier: MIT
 # Installs the audio switcher (GTK4/libadwaita) with its icon and launcher
 # entry. Changes nothing about the active audio profile.
 set -e

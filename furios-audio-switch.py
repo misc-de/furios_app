@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: Copyright (c) 2026 misc-de
+# SPDX-License-Identifier: MIT
 """A small switch for the FuriPhone's audio stack.
 
 One switch: PipeWire talks directly to the Android HAL - or it does not, and
