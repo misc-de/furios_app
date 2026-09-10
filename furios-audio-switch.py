@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Kleine Schaltflaeche fuer den Audiostack des FuriPhone.
+"""A small switch for the FuriPhone's audio stack.
 
-Ein Schalter: PipeWire spricht direkt mit dem Android-HAL - oder eben nicht,
-dann haelt PulseAudio ihn wie im Auslieferungszustand. Die Arbeit macht
-audioctl; diese Oberflaeche ruft es nur auf und zeigt, was wirklich laeuft.
+One switch: PipeWire talks directly to the Android HAL - or it does not, and
+then PulseAudio holds it the way the device shipped. audioctl does the work;
+this front end only calls it and shows what is actually running.
 
-Bewusst schlicht gehalten: auf einem Telefon will man einen Knopf, keine
-Schaltzentrale.
+Deliberately plain: on a phone you want a button, not a control room.
 """
 
 import gi
@@ -19,16 +18,16 @@ from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 APP_ID = "de.furios.audioswitch"
 import shutil
 
-# Aus dem Paket liegt es in /usr/bin, aus dem Quellbaum in /usr/local/bin.
+# From the package it lives in /usr/bin, from the source tree in /usr/local/bin.
 AUDIOCTL = shutil.which("audioctl") or "/usr/bin/audioctl"
 DMNR = shutil.which("furios-audio-dmnr") or "/usr/bin/furios-audio-dmnr"
 
 
 def server_in_words(raw):
-    """PipeWires PulseAudio-Schnittstelle meldet sich als
-    "PulseAudio (on PipeWire 1.6.6)". Wer das unter einem Schalter liest, der
-    "PipeWire haelt den HAL" sagt, haelt es zu Recht fuer einen Widerspruch.
-    Also uebersetzen."""
+    """PipeWire's PulseAudio interface announces itself as
+    "PulseAudio (on PipeWire 1.6.6)". Reading that underneath a switch which
+    says "PipeWire holds the HAL" rightly looks like a contradiction. So
+    translate it."""
     if not raw or raw == "-":
         return "not reachable"
     if "PipeWire" in raw:
@@ -44,12 +43,12 @@ def server_in_words(raw):
 
 
 def run_async(argv, on_done, on_line=None):
-    """audioctl laeuft bis zu 15 Sekunden (es wartet auf einen Sink).
-    Deshalb niemals blockierend aufrufen - sonst friert das Fenster ein.
+    """audioctl runs for up to 15 seconds (it waits for a sink), so never
+    call it blocking - the window would freeze.
 
-    Wird on_line uebergeben, kommen die Zeilen einzeln herein, waehrend das
-    Programm noch laeuft. Das ist der Unterschied zwischen "es tut sich was"
-    und einem Fenster, das zehn Sekunden lang tot wirkt."""
+    If on_line is passed, lines arrive one by one while the program is still
+    running. That is the difference between "something is happening" and a
+    window that looks dead for ten seconds."""
     try:
         proc = Gio.Subprocess.new(
             argv, Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_MERGE
@@ -81,7 +80,7 @@ def run_async(argv, on_done, on_line=None):
         except GLib.Error as err:
             on_done(False, str(err))
             return
-        if line is None:                      # Ende der Ausgabe
+        if line is None:                      # end of output
             proc.wait_async(None, waited)
             return
         line = line.strip()
@@ -133,10 +132,10 @@ class Window(Adw.ApplicationWindow):
         )
         grp.add(self.persist_row)
 
-        # Fortschritt: bewusst pulsierend statt mit Prozentzahl. Wie lange das
-        # Umschalten dauert, weiss niemand vorher - audioctl wartet bis zu 15
-        # Sekunden auf einen Sink. Eine erfundene Prozentzahl, die bei 90 %
-        # haengen bleibt, waere schlechter als gar keine.
+        # Progress: deliberately pulsing instead of a percentage. Nobody
+        # knows in advance how long the switch takes - audioctl waits up to 15
+        # seconds for a sink. An invented percentage that gets stuck at 90 %
+        # would be worse than none at all.
         self.progress = Gtk.ProgressBar(show_text=True, text="")
         self.progress.set_margin_top(6)
         self.progress.set_margin_bottom(6)
@@ -161,11 +160,11 @@ class Window(Adw.ApplicationWindow):
             info.add(row)
         page.add(info)
 
-        # --- Echo im Gespraech ---
+        # --- echo during a call ---
         #
-        # MediaTeks Zweimikrofonverfahren gegen Stoergeraeusche und Echo ist
-        # auf diesem Geraet fuer den Anruf abgeschaltet, obwohl der Chip es
-        # koennte. Der Schalter legt eine geaenderte Abstimmungsdatei darueber.
+        # MediaTek's dual-microphone method against noise and echo is disabled
+        # for calls on this device, although the chip could do it. The switch
+        # lays a modified tuning file over the vendor's.
         echo_grp = Adw.PreferencesGroup(
             title="Call echo",
             description="The vendor disabled MediaTek's dual-mic echo "
@@ -225,17 +224,17 @@ class Window(Adw.ApplicationWindow):
         )
 
     def on_status(self, ok, out):
-        profile, server, sinks = "unbekannt", "-", "-"
+        profile, server, sinks = "unknown", "-", "-"
         warn = None
         testmode = False
         for line in out.splitlines():
-            if line.startswith("Profil (aktiv):"):
+            if line.startswith("Profile (active):"):
                 profile = line.split(":", 1)[1].strip()
-            elif line.startswith("ACHTUNG:"):
+            elif line.startswith("WARNING:"):
                 warn = line.split(":", 1)[1].strip()
-            elif line.startswith("Testmodus:"):
-                testmode = line.split(":", 1)[1].strip().startswith("ja")
-            elif line.startswith("Pulse-Server:"):
+            elif line.startswith("Test mode:"):
+                testmode = line.split(":", 1)[1].strip().startswith("yes")
+            elif line.startswith("Pulse server:"):
                 server = line.split(":", 1)[1].strip()
             elif line.startswith("Sinks:"):
                 sinks = line.split(":", 1)[1].strip()
@@ -306,8 +305,8 @@ class Window(Adw.ApplicationWindow):
         run_async(argv, self.on_switched, on_line=self.on_progress_line)
 
     def on_progress_line(self, line):
-        """Zeigt den Schritt, den audioctl gerade meldet - gekuerzt, damit er
-        in eine Zeile passt."""
+        """Shows the step audioctl is currently reporting - shortened so it
+        fits on one line."""
         self.progress.set_text(line[:60])
 
     def on_switched(self, ok, out):
@@ -325,7 +324,7 @@ class Window(Adw.ApplicationWindow):
             return
         self.set_busy(True)
         self.pulse_start("Switching echo suppression …")
-        run_async([DMNR, "an" if row.get_active() else "aus"], self.on_dmnr_done,
+        run_async([DMNR, "on" if row.get_active() else "off"], self.on_dmnr_done,
                   on_line=self.on_progress_line)
 
     def on_dmnr_done(self, ok, out):
@@ -342,8 +341,8 @@ class Window(Adw.ApplicationWindow):
             return
         self.set_busy(True)
         self.pulse_start("Restoring …")
-        # Dieselbe Wiederherstellung wie auf der Kommandozeile - eine Wahrheit,
-        # nicht zwei Fassungen, die auseinanderlaufen koennen.
+        # The same recovery as on the command line - one truth, not two
+        # versions that can drift apart.
         run_async([AUDIOCTL, "rescue"], self.on_rescued,
                   on_line=self.on_progress_line)
 
