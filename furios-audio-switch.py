@@ -285,15 +285,9 @@ class Window(Adw.ApplicationWindow):
             return
         self.set_busy(True)
         self.pulse_start("Restoring …")
-        script = (
-            "set -e\n"
-            f"{AUDIOCTL} set standard\n"
-            "pactl set-sink-mute @DEFAULT_SINK@ 0 || true\n"
-            "pactl set-sink-volume @DEFAULT_SINK@ 65% || true\n"
-            "pactl set-sink-port sink.primary_output output-speaker || true\n"
-            "pactl set-source-mute @DEFAULT_SOURCE@ 0 || true\n"
-        )
-        run_async(["/bin/sh", "-c", script], self.on_rescued,
+        # Dieselbe Wiederherstellung wie auf der Kommandozeile - eine Wahrheit,
+        # nicht zwei Fassungen, die auseinanderlaufen koennen.
+        run_async([AUDIOCTL, "rescue"], self.on_rescued,
                   on_line=self.on_progress_line)
 
     def on_rescued(self, ok, out):
