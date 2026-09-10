@@ -26,16 +26,16 @@ def server_in_words(raw):
     "PipeWire haelt den HAL" sagt, haelt es zu Recht fuer einen Widerspruch.
     Also uebersetzen."""
     if not raw or raw == "-":
-        return "nicht erreichbar"
+        return "not reachable"
     if "PipeWire" in raw:
         ver = ""
         for token in raw.replace(")", " ").split():
             if token[:1].isdigit():
                 ver = " " + token
                 break
-        return f"PipeWire{ver} - spricht PulseAudio fuer alte Programme mit"
+        return f"PipeWire{ver} - also speaks PulseAudio for older apps"
     if raw.lower().startswith("pulseaudio"):
-        return "PulseAudio - der Auslieferungszustand"
+        return "PulseAudio - the shipped setup"
     return raw
 
 
@@ -98,7 +98,7 @@ def run_async(argv, on_done, on_line=None):
 
 class Window(Adw.ApplicationWindow):
     def __init__(self, app):
-        super().__init__(application=app, title="Audio-Umschalter")
+        super().__init__(application=app, title="Audio Switch")
         self.set_default_size(360, 480)
         self.busy = False
         self._syncing = False
@@ -108,24 +108,24 @@ class Window(Adw.ApplicationWindow):
         toolbar.add_top_bar(header)
 
         self.refresh_btn = Gtk.Button(icon_name="view-refresh-symbolic")
-        self.refresh_btn.set_tooltip_text("Zustand neu einlesen")
+        self.refresh_btn.set_tooltip_text("Reload status")
         self.refresh_btn.connect("clicked", lambda *_: self.refresh())
         header.pack_end(self.refresh_btn)
 
         page = Adw.PreferencesPage()
 
         # --- Der eigentliche Schalter ---
-        grp = Adw.PreferencesGroup(title="Audiostack")
+        grp = Adw.PreferencesGroup(title="Audio stack")
         self.switch_row = Adw.SwitchRow(
-            title="PipeWire haelt den HAL",
-            subtitle="Aus: PulseAudio wie im Auslieferungszustand",
+            title="PipeWire owns the HAL",
+            subtitle="Off: PulseAudio, exactly as shipped",
         )
         self.switch_row.connect("notify::active", self.on_switch)
         grp.add(self.switch_row)
 
         self.persist_row = Adw.SwitchRow(
-            title="Auswahl behalten",
-            subtitle="Aus: ein Neustart fuehrt zurueck zum Auslieferungszustand",
+            title="Remember this choice",
+            subtitle="Off: a reboot returns to the shipped state",
         )
         grp.add(self.persist_row)
 
@@ -148,10 +148,10 @@ class Window(Adw.ApplicationWindow):
         self._pulse_id = 0
 
         # --- Was gerade wirklich laeuft ---
-        info = Adw.PreferencesGroup(title="Zustand")
-        self.row_profile = Adw.ActionRow(title="Wer haelt den HAL", subtitle="wird gelesen …")
-        self.row_server = Adw.ActionRow(title="Wer nimmt den Ton an", subtitle="…")
-        self.row_sinks = Adw.ActionRow(title="Ausgaenge", subtitle="…")
+        info = Adw.PreferencesGroup(title="Status")
+        self.row_profile = Adw.ActionRow(title="Owns the Android HAL", subtitle="reading …")
+        self.row_server = Adw.ActionRow(title="Sound server", subtitle="…")
+        self.row_sinks = Adw.ActionRow(title="Outputs", subtitle="…")
         for row in (self.row_profile, self.row_server, self.row_sinks):
             row.set_subtitle_selectable(True)
             info.add(row)
@@ -159,11 +159,11 @@ class Window(Adw.ApplicationWindow):
 
         # --- Notnagel ---
         rescue = Adw.PreferencesGroup(
-            title="Wenn nichts zu hoeren ist",
-            description="Stellt den Auslieferungszustand her und schaltet den "
-            "Ton auf den Lautsprecher, hoerbar laut und nicht stumm.",
+            title="If you hear nothing",
+            description="Returns to the shipped state and sends sound to the "
+            "speaker - audible volume, unmuted.",
         )
-        btn = Gtk.Button(label="Ton wiederherstellen")
+        btn = Gtk.Button(label="Restore sound")
         btn.add_css_class("pill")
         btn.add_css_class("suggested-action")
         btn.set_halign(Gtk.Align.CENTER)
@@ -202,20 +202,20 @@ class Window(Adw.ApplicationWindow):
                 sinks = line.split(":", 1)[1].strip()
 
         if profile == "pw-hal":
-            text = "PipeWire haelt den HAL"
+            text = "PipeWire owns the HAL"
         elif profile == "standard":
-            text = "PulseAudio haelt den HAL (Auslieferungszustand)"
+            text = "PulseAudio owns the HAL (as shipped)"
         elif profile == "pw-tunnel":
-            text = "PulseAudio haelt den HAL, PipeWire bekommt einen Sink"
+            text = "PulseAudio owns the HAL, PipeWire gets a sink"
         else:
             text = profile
         if testmode:
-            text += " - nur bis zum Neustart"
+            text += " - until reboot"
         if warn:
             text += f" | {warn}"
         self.row_profile.set_subtitle(text)
         self.row_server.set_subtitle(server_in_words(server))
-        self.row_sinks.set_subtitle(sinks.replace(",", ", ") or "keine")
+        self.row_sinks.set_subtitle(sinks.replace(",", ", ") or "none")
 
         # Schalter nachfuehren, ohne dabei ein Umschalten auszuloesen.
         self._syncing = True
@@ -247,11 +247,11 @@ class Window(Adw.ApplicationWindow):
         self.persist_row.set_sensitive(not busy)
         self.refresh_btn.set_sensitive(not busy)
         if busy:
-            self.switch_row.set_subtitle("Wird umgeschaltet, das dauert einen Moment …")
+            self.switch_row.set_subtitle("Switching, this takes a moment …")
         elif self.switch_row.get_active():
-            self.switch_row.set_subtitle("An: PipeWire spricht direkt mit dem HAL")
+            self.switch_row.set_subtitle("On: PipeWire talks to the HAL directly")
         else:
-            self.switch_row.set_subtitle("Aus: PulseAudio wie im Auslieferungszustand")
+            self.switch_row.set_subtitle("Off: PulseAudio, exactly as shipped")
 
     # ------------------------------------------------------------ Aktionen
 
@@ -262,7 +262,7 @@ class Window(Adw.ApplicationWindow):
         mode = "set" if self.persist_row.get_active() else "try"
         argv = [AUDIOCTL, mode, "pw-hal"] if want_pw else [AUDIOCTL, "set", "standard"]
         self.set_busy(True)
-        self.pulse_start("Wird umgeschaltet …")
+        self.pulse_start("Switching …")
         run_async(argv, self.on_switched, on_line=self.on_progress_line)
 
     def on_progress_line(self, line):
@@ -273,18 +273,18 @@ class Window(Adw.ApplicationWindow):
     def on_switched(self, ok, out):
         self.pulse_stop()
         if not ok:
-            self.toast("Umschalten fehlgeschlagen")
-            self.report(out or "Keine Ausgabe.")
+            self.toast("Switching failed")
+            self.report(out or "No output.")
         else:
             last = [l for l in out.splitlines() if l.strip()]
-            self.toast(last[-1].strip() if last else "Fertig")
+            self.toast(last[-1].strip() if last else "Done")
         self.refresh()
 
     def on_rescue(self, _btn):
         if self.busy:
             return
         self.set_busy(True)
-        self.pulse_start("Stelle wieder her …")
+        self.pulse_start("Restoring …")
         script = (
             "set -e\n"
             f"{AUDIOCTL} set standard\n"
@@ -299,12 +299,12 @@ class Window(Adw.ApplicationWindow):
     def on_rescued(self, ok, out):
         self.pulse_stop()
         self.toast(
-            "Auslieferungszustand, Lautsprecher, 65 %"
+            "Shipped state, speaker, 65 %"
             if ok
-            else "Wiederherstellen fehlgeschlagen"
+            else "Restore failed"
         )
         if not ok:
-            self.report(out or "Keine Ausgabe.")
+            self.report(out or "No output.")
         self.refresh()
 
     # ------------------------------------------------------------ Meldungen
@@ -313,8 +313,8 @@ class Window(Adw.ApplicationWindow):
         self.toasts.add_toast(Adw.Toast(title=text, timeout=4))
 
     def report(self, text):
-        dlg = Adw.AlertDialog(heading="Das ging schief", body=text)
-        dlg.add_response("ok", "Verstanden")
+        dlg = Adw.AlertDialog(heading="Something went wrong", body=text)
+        dlg.add_response("ok", "Got it")
         dlg.present(self)
 
 
