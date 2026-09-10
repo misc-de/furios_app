@@ -20,9 +20,13 @@ APP_ID = "de.furios.audioswitch"
 AUDIOCTL = "/usr/local/bin/audioctl"
 
 
-def run_async(argv, on_done):
+def run_async(argv, on_done, on_line=None):
     """audioctl laeuft bis zu 15 Sekunden (es wartet auf einen Sink).
-    Deshalb niemals blockierend aufrufen - sonst friert das Fenster ein."""
+    Deshalb niemals blockierend aufrufen - sonst friert das Fenster ein.
+
+    Wird on_line uebergeben, kommen die Zeilen einzeln herein, waehrend das
+    Programm noch laeuft. Das ist der Unterschied zwischen "es tut sich was"
+    und einem Fenster, das zehn Sekunden lang tot wirkt."""
     try:
         proc = Gio.Subprocess.new(
             argv, Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_MERGE
@@ -31,14 +35,46 @@ def run_async(argv, on_done):
         on_done(False, str(err))
         return
 
-    def finished(p, res):
+    if on_line is None:
+        def finished(p, res):
+            try:
+                _ok, out, _ = p.communicate_utf8_finish(res)
+                on_done(p.get_successful(), (out or "").strip())
+            except GLib.Error as err:
+                on_done(False, str(err))
+
+        proc.communicate_utf8_async(None, None, finished)
+        return
+
+    stream = Gio.DataInputStream.new(proc.get_stdout_pipe())
+    collected = []
+
+    def read_next():
+        stream.read_line_async(GLib.PRIORITY_DEFAULT, None, got_line)
+
+    def got_line(src, res):
         try:
-            ok, out, _ = p.communicate_utf8_finish(res)
-            on_done(p.get_successful(), (out or "").strip())
+            line, _length = src.read_line_finish_utf8(res)
+        except GLib.Error as err:
+            on_done(False, str(err))
+            return
+        if line is None:                      # Ende der Ausgabe
+            proc.wait_async(None, waited)
+            return
+        line = line.strip()
+        if line:
+            collected.append(line)
+            on_line(line)
+        read_next()
+
+    def waited(p, res):
+        try:
+            p.wait_finish(res)
+            on_done(p.get_successful(), "\n".join(collected))
         except GLib.Error as err:
             on_done(False, str(err))
 
-    proc.communicate_utf8_async(None, None, finished)
+    read_next()
 
 
 class Window(Adw.ApplicationWindow):
@@ -73,7 +109,24 @@ class Window(Adw.ApplicationWindow):
             subtitle="Aus: ein Neustart fuehrt zurueck zum Auslieferungszustand",
         )
         grp.add(self.persist_row)
+
+        # Fortschritt: bewusst pulsierend statt mit Prozentzahl. Wie lange das
+        # Umschalten dauert, weiss niemand vorher - audioctl wartet bis zu 15
+        # Sekunden auf einen Sink. Eine erfundene Prozentzahl, die bei 90 %
+        # haengen bleibt, waere schlechter als gar keine.
+        self.progress = Gtk.ProgressBar(show_text=True, text="")
+        self.progress.set_margin_top(6)
+        self.progress.set_margin_bottom(6)
+        self.progress.set_margin_start(12)
+        self.progress.set_margin_end(12)
+        self.progress_revealer = Gtk.Revealer(
+            child=self.progress,
+            transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN,
+            reveal_child=False,
+        )
+        grp.add(self.progress_revealer)
         page.add(grp)
+        self._pulse_id = 0
 
         # --- Was gerade wirklich laeuft ---
         info = Adw.PreferencesGroup(title="Zustand")
@@ -136,6 +189,24 @@ class Window(Adw.ApplicationWindow):
         self._syncing = False
         self.set_busy(False)
 
+    def pulse_start(self, text):
+        self.progress.set_text(text)
+        self.progress.set_fraction(0.0)
+        self.progress.pulse()
+        self.progress_revealer.set_reveal_child(True)
+        if self._pulse_id == 0:
+            self._pulse_id = GLib.timeout_add(120, self._pulse_tick)
+
+    def _pulse_tick(self):
+        self.progress.pulse()
+        return GLib.SOURCE_CONTINUE
+
+    def pulse_stop(self):
+        if self._pulse_id:
+            GLib.source_remove(self._pulse_id)
+            self._pulse_id = 0
+        self.progress_revealer.set_reveal_child(False)
+
     def set_busy(self, busy):
         self.busy = busy
         self.switch_row.set_sensitive(not busy)
@@ -157,9 +228,16 @@ class Window(Adw.ApplicationWindow):
         mode = "set" if self.persist_row.get_active() else "try"
         argv = [AUDIOCTL, mode, "pw-hal"] if want_pw else [AUDIOCTL, "set", "standard"]
         self.set_busy(True)
-        run_async(argv, self.on_switched)
+        self.pulse_start("Wird umgeschaltet …")
+        run_async(argv, self.on_switched, on_line=self.on_progress_line)
+
+    def on_progress_line(self, line):
+        """Zeigt den Schritt, den audioctl gerade meldet - gekuerzt, damit er
+        in eine Zeile passt."""
+        self.progress.set_text(line[:60])
 
     def on_switched(self, ok, out):
+        self.pulse_stop()
         if not ok:
             self.toast("Umschalten fehlgeschlagen")
             self.report(out or "Keine Ausgabe.")
@@ -172,6 +250,7 @@ class Window(Adw.ApplicationWindow):
         if self.busy:
             return
         self.set_busy(True)
+        self.pulse_start("Stelle wieder her …")
         script = (
             "set -e\n"
             f"{AUDIOCTL} set standard\n"
@@ -180,9 +259,11 @@ class Window(Adw.ApplicationWindow):
             "pactl set-sink-port sink.primary_output output-speaker || true\n"
             "pactl set-source-mute @DEFAULT_SOURCE@ 0 || true\n"
         )
-        run_async(["/bin/sh", "-c", script], self.on_rescued)
+        run_async(["/bin/sh", "-c", script], self.on_rescued,
+                  on_line=self.on_progress_line)
 
     def on_rescued(self, ok, out):
+        self.pulse_stop()
         self.toast(
             "Auslieferungszustand, Lautsprecher, 65 %"
             if ok
