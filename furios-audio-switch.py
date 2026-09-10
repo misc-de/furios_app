@@ -20,6 +20,25 @@ APP_ID = "de.furios.audioswitch"
 AUDIOCTL = "/usr/local/bin/audioctl"
 
 
+def server_in_words(raw):
+    """PipeWires PulseAudio-Schnittstelle meldet sich als
+    "PulseAudio (on PipeWire 1.6.6)". Wer das unter einem Schalter liest, der
+    "PipeWire haelt den HAL" sagt, haelt es zu Recht fuer einen Widerspruch.
+    Also uebersetzen."""
+    if not raw or raw == "-":
+        return "nicht erreichbar"
+    if "PipeWire" in raw:
+        ver = ""
+        for token in raw.replace(")", " ").split():
+            if token[:1].isdigit():
+                ver = " " + token
+                break
+        return f"PipeWire{ver} - spricht PulseAudio fuer alte Programme mit"
+    if raw.lower().startswith("pulseaudio"):
+        return "PulseAudio - der Auslieferungszustand"
+    return raw
+
+
 def run_async(argv, on_done, on_line=None):
     """audioctl laeuft bis zu 15 Sekunden (es wartet auf einen Sink).
     Deshalb niemals blockierend aufrufen - sonst friert das Fenster ein.
@@ -130,8 +149,8 @@ class Window(Adw.ApplicationWindow):
 
         # --- Was gerade wirklich laeuft ---
         info = Adw.PreferencesGroup(title="Zustand")
-        self.row_profile = Adw.ActionRow(title="Profil", subtitle="wird gelesen …")
-        self.row_server = Adw.ActionRow(title="Tonserver", subtitle="…")
+        self.row_profile = Adw.ActionRow(title="Wer haelt den HAL", subtitle="wird gelesen …")
+        self.row_server = Adw.ActionRow(title="Wer nimmt den Ton an", subtitle="…")
         self.row_sinks = Adw.ActionRow(title="Ausgaenge", subtitle="…")
         for row in (self.row_profile, self.row_server, self.row_sinks):
             row.set_subtitle_selectable(True)
@@ -169,18 +188,33 @@ class Window(Adw.ApplicationWindow):
     def on_status(self, ok, out):
         profile, server, sinks = "unbekannt", "-", "-"
         warn = None
+        testmode = False
         for line in out.splitlines():
             if line.startswith("Profil (aktiv):"):
                 profile = line.split(":", 1)[1].strip()
             elif line.startswith("ACHTUNG:"):
                 warn = line.split(":", 1)[1].strip()
+            elif line.startswith("Testmodus:"):
+                testmode = line.split(":", 1)[1].strip().startswith("ja")
             elif line.startswith("Pulse-Server:"):
                 server = line.split(":", 1)[1].strip()
             elif line.startswith("Sinks:"):
                 sinks = line.split(":", 1)[1].strip()
 
-        self.row_profile.set_subtitle(profile if not warn else f"{profile} ({warn})")
-        self.row_server.set_subtitle(server)
+        if profile == "pw-hal":
+            text = "PipeWire haelt den HAL"
+        elif profile == "standard":
+            text = "PulseAudio haelt den HAL (Auslieferungszustand)"
+        elif profile == "pw-tunnel":
+            text = "PulseAudio haelt den HAL, PipeWire bekommt einen Sink"
+        else:
+            text = profile
+        if testmode:
+            text += " - nur bis zum Neustart"
+        if warn:
+            text += f" | {warn}"
+        self.row_profile.set_subtitle(text)
+        self.row_server.set_subtitle(server_in_words(server))
         self.row_sinks.set_subtitle(sinks.replace(",", ", ") or "keine")
 
         # Schalter nachfuehren, ohne dabei ein Umschalten auszuloesen.
