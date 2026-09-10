@@ -17,7 +17,11 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 
 APP_ID = "de.furios.audioswitch"
-AUDIOCTL = "/usr/local/bin/audioctl"
+import shutil
+
+# Aus dem Paket liegt es in /usr/bin, aus dem Quellbaum in /usr/local/bin.
+AUDIOCTL = shutil.which("audioctl") or "/usr/bin/audioctl"
+DMNR = shutil.which("furios-audio-dmnr") or "/usr/bin/furios-audio-dmnr"
 
 
 def server_in_words(raw):
@@ -157,6 +161,27 @@ class Window(Adw.ApplicationWindow):
             info.add(row)
         page.add(info)
 
+        # --- Echo im Gespraech ---
+        #
+        # MediaTeks Zweimikrofonverfahren gegen Stoergeraeusche und Echo ist
+        # auf diesem Geraet fuer den Anruf abgeschaltet, obwohl der Chip es
+        # koennte. Der Schalter legt eine geaenderte Abstimmungsdatei darueber.
+        echo_grp = Adw.PreferencesGroup(
+            title="Call echo",
+            description="The vendor disabled MediaTek's dual-mic echo "
+            "suppression (DMNR) for calls, although this phone has two "
+            "microphones and the chip supports it. Turning it on may stop the "
+            "other side from hearing themselves - especially on speakerphone. "
+            "Experimental: it restarts audio and is undone by a reboot.",
+        )
+        self.dmnr_row = Adw.SwitchRow(
+            title="Handsfree echo suppression (DMNR)",
+            subtitle="Vendor setting: off",
+        )
+        self.dmnr_row.connect("notify::active", self.on_dmnr)
+        echo_grp.add(self.dmnr_row)
+        page.add(echo_grp)
+
         # --- Notnagel ---
         rescue = Adw.PreferencesGroup(
             title="If you hear nothing",
@@ -184,6 +209,20 @@ class Window(Adw.ApplicationWindow):
 
     def refresh(self):
         run_async([AUDIOCTL, "status"], self.on_status)
+        run_async([DMNR, "status"], self.on_dmnr_status)
+
+    def on_dmnr_status(self, ok, out):
+        if not ok:
+            self.dmnr_row.set_sensitive(False)
+            self.dmnr_row.set_subtitle("not available on this device")
+            return
+        on = "state=on" in out
+        self._syncing = True
+        self.dmnr_row.set_active(on)
+        self._syncing = False
+        self.dmnr_row.set_subtitle(
+            "On - modified tuning file in place" if on else "Vendor setting: off"
+        )
 
     def on_status(self, ok, out):
         profile, server, sinks = "unbekannt", "-", "-"
@@ -245,6 +284,7 @@ class Window(Adw.ApplicationWindow):
         self.busy = busy
         self.switch_row.set_sensitive(not busy)
         self.persist_row.set_sensitive(not busy)
+        self.dmnr_row.set_sensitive(not busy)
         self.refresh_btn.set_sensitive(not busy)
         if busy:
             self.switch_row.set_subtitle("Switching, this takes a moment …")
@@ -278,6 +318,23 @@ class Window(Adw.ApplicationWindow):
         else:
             last = [l for l in out.splitlines() if l.strip()]
             self.toast(last[-1].strip() if last else "Done")
+        self.refresh()
+
+    def on_dmnr(self, row, _param):
+        if self._syncing or self.busy:
+            return
+        self.set_busy(True)
+        self.pulse_start("Switching echo suppression …")
+        run_async([DMNR, "an" if row.get_active() else "aus"], self.on_dmnr_done,
+                  on_line=self.on_progress_line)
+
+    def on_dmnr_done(self, ok, out):
+        self.pulse_stop()
+        if not ok:
+            self.toast("Could not switch echo suppression")
+            self.report(out or "No output.")
+        else:
+            self.toast("Echo suppression changed - try a call")
         self.refresh()
 
     def on_rescue(self, _btn):
