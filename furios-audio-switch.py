@@ -17,29 +17,13 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 
-# The password dialog is ours, because nothing else on this phone shows one.
-#
-# Switching the stack masks system units and writes a systemd drop-in, so it
-# needs root. audioctl asks for that through pkexec, and pkexec asks polkit,
-# and polkit asks whatever authentication agent the session has registered -
-# and phosh registers none. Without an agent every polkit action on this device
-# fails with "No authentication agent found", ours included.
-#
-# So the app brings one, for as long as it is open. Missing bindings, no
-# session, an older polkit: all of that has to come out as "no agent" rather
-# than as a traceback, because an app that will not start is worse than one
-# that tells you to use the terminal.
-try:
-    gi.require_version("Polkit", "1.0")
-    gi.require_version("PolkitAgent", "1.0")
-    from gi.repository import Polkit, PolkitAgent  # noqa: E402
-
-    HAVE_POLKIT = True
-except (ValueError, ImportError):  # pragma: no cover - depends on the system
-    HAVE_POLKIT = False
+# This app used to carry a polkit authentication agent, because switching the
+# stack meant masking system units and writing into /etc, and phosh registers
+# no agent of its own. It does not need one any more: audioctl keeps the
+# profile under $HOME, where the session may write anyway, so there is nothing
+# left to authenticate and no password for this app to handle.
 
 APP_ID = "de.furios.audioswitch"
-AGENT_PATH = "/de/furios/audioswitch/AuthenticationAgent"
 import os
 import shutil
 
@@ -399,186 +383,19 @@ class Window(Adw.ApplicationWindow):
     def toast(self, text):
         self.toasts.add_toast(Adw.Toast(title=text, timeout=4))
 
-    def note_no_agent(self):
-        """Said once, when nobody can show a password prompt.
-
-        Without an agent pkexec refuses outright, so a switch would fail with
-        nothing on screen to explain it. In a terminal pkexec brings its own
-        prompt, which is why that still works.
-        """
-        self.toast("No password prompt available - switch from a terminal")
-
     def report(self, text):
         dlg = Adw.AlertDialog(heading="Something went wrong", body=text)
         dlg.add_response("ok", "Got it")
         dlg.present(self)
 
 
-# --------------------------------------------------------- the password dialog
-
-class PasswordAgent(PolkitAgent.Listener if HAVE_POLKIT else object):
-    """A polkit authentication agent, for as long as this app is open.
-
-    polkit does not want a password - it wants a PAM conversation carried out
-    on behalf of one of the identities it will accept. PolkitAgent.Session does
-    the talking; what is left here is to show the prompt it asks for, hand back
-    what was typed, and make sure every path ends with the session finished and
-    the dialog gone.
-    """
-
-    def __init__(self, window):
-        super().__init__()
-        self.window = window
-        self.handle = None
-        self.session = None
-        self.dialog = None
-        self.task = None
-
-    # --- registration -------------------------------------------------------
-
-    def register(self):
-        """Take over authentication for this session. False if that is not on."""
-        if not HAVE_POLKIT:
-            return False
-        try:
-            subject = Polkit.UnixSession.new_for_process_sync(os.getpid(), None)
-            self.handle = PolkitAgent.register_listener(
-                self, subject, AGENT_PATH, None)
-        except Exception:
-            self.handle = None
-        return self.handle is not None
-
-    def unregister(self):
-        if self.handle is None:
-            return
-        try:
-            PolkitAgent.unregister_listener(self.handle)
-        except Exception:
-            pass
-        self.handle = None
-
-    # --- the identity polkit will accept ------------------------------------
-
-    @staticmethod
-    def pick_identity(identities):
-        """Prefer the user who is sitting here; otherwise take what is offered.
-
-        polkit hands over everyone it would accept - for auth_admin that is
-        every administrator on the system. Asking the owner of the phone for
-        somebody else's password would be absurd, so our own uid wins when it
-        is in the list.
-        """
-        if not identities:
-            return None
-        try:
-            me = os.getuid()
-            for identity in identities:
-                if identity.get_uid() == me:
-                    return identity
-        except Exception:
-            pass
-        return identities[0]
-
-    # --- the conversation ---------------------------------------------------
-
-    def do_initiate_authentication(self, action_id, message, icon_name, details,
-                                   cookie, identities, cancellable,
-                                   callback, user_data=None):
-        self.task = Gio.Task.new(self, cancellable, callback, user_data)
-
-        identity = self.pick_identity(identities)
-        if identity is None:
-            self.finish()
-            return
-
-        self.session = PolkitAgent.Session.new(identity, cookie)
-        self.session.connect("request", self.on_request)
-        self.session.connect("completed", self.on_completed)
-        self.session.connect("show-error", self.on_show_message)
-        self.session.connect("show-info", self.on_show_message)
-        self.show_dialog(message)
-        self.session.initiate()
-
-    def do_initiate_authentication_finish(self, result):
-        return True
-
-    def finish(self):
-        """End the request, whichever way it went. Safe to call twice."""
-        self.close_dialog()
-        self.session = None
-        task, self.task = self.task, None
-        if task is not None:
-            task.return_boolean(True)
-
-    # --- what the user sees -------------------------------------------------
-
-    def show_dialog(self, message):
-        self.entry = Gtk.PasswordEntry(show_peek_icon=True)
-        self.entry.set_property("activates-default", True)
-        self.dialog = Adw.MessageDialog(
-            transient_for=self.window,
-            heading="Authentication required",
-            body=message or "Authentication is required",
-            extra_child=self.entry,
-        )
-        self.dialog.add_response("cancel", "Cancel")
-        self.dialog.add_response("ok", "Authenticate")
-        self.dialog.set_default_response("ok")
-        self.dialog.set_close_response("cancel")
-        self.dialog.connect("response", self.on_response)
-        self.dialog.present()
-
-    def close_dialog(self):
-        dialog, self.dialog = self.dialog, None
-        if dialog is not None:
-            dialog.close()
-
-    def on_response(self, dialog, response):
-        self.dialog = None
-        if response == "ok" and self.session is not None:
-            self.session.response(self.entry.get_text())
-            return
-        # Cancelled: polkit has to hear that, or the request stays open.
-        if self.session is not None:
-            self.session.cancel()
-        else:
-            self.finish()
-
-    # --- signals from the session -------------------------------------------
-
-    def on_request(self, session, prompt, echo_on):
-        """PAM wants something. Usually the password, sometimes a second one."""
-        if self.dialog is None:
-            self.show_dialog(prompt)
-
-    def on_completed(self, session, gained_authorization):
-        self.finish()
-
-    def on_show_message(self, session, text):
-        if self.dialog is not None:
-            self.dialog.set_body(text)
-
-
 class App(Adw.Application):
     def __init__(self):
         super().__init__(application_id=APP_ID)
-        self.agent = None
 
     def do_activate(self):
         win = self.props.active_window or Window(self)
         win.present()
-        if self.agent is None:
-            self.agent = PasswordAgent(win)
-            if not self.agent.register():
-                # No prompt is possible, so say so once rather than let a
-                # switch fail with nothing on screen.
-                win.note_no_agent()
-
-    def do_shutdown(self):
-        if self.agent is not None:
-            self.agent.unregister()
-            self.agent = None
-        Adw.Application.do_shutdown(self)
 
 
 if __name__ == "__main__":
