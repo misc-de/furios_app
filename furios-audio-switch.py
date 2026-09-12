@@ -44,8 +44,20 @@ import os
 import shutil
 
 # From the package it lives in /usr/bin, from the source tree in /usr/local/bin.
-AUDIOCTL = shutil.which("audioctl") or "/usr/bin/audioctl"
-DMNR = shutil.which("furios-audio-dmnr") or "/usr/bin/furios-audio-dmnr"
+#
+# The installed paths are tried BEFORE $PATH. What is started here goes on to
+# ask polkit for root, and this app registers the agent that answers - so the
+# one thing not to do is let the search order decide which "audioctl" that is.
+# $PATH stays as the last resort for an install somewhere else entirely.
+def _tool(name):
+    for path in ("/usr/local/bin/" + name, "/usr/bin/" + name):
+        if os.access(path, os.X_OK):
+            return path
+    return shutil.which(name) or "/usr/bin/" + name
+
+
+AUDIOCTL = _tool("audioctl")
+DMNR = _tool("furios-audio-dmnr")
 
 
 def server_in_words(raw):
