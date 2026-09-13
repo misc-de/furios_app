@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2026 misc-de
 # SPDX-License-Identifier: MIT
-"""A small switch for the FuriPhone's audio stack.
+"""The switches for a FuriPhone that has been repaired by hand.
 
-One switch: PipeWire talks directly to the Android HAL - or it does not, and
-then PulseAudio holds it the way the device shipped. audioctl does the work;
-this front end only calls it and shows what is actually running.
+Two pages, and each is one switch: the audio stack talks to the Android HAL
+through PipeWire or through PulseAudio as shipped, and the modem runs with the
+repairs from furios_modem_fixes or exactly as it came. The tools do the work -
+audioctl and modemctl - and this front end only calls them and shows what is
+actually running.
+
+The modem page exists only when modemctl does. A tab that is always there and
+always says "not installed" is worse than no tab: it makes a phone where
+nothing is wrong look like a phone where something is.
 
 Deliberately plain: on a phone you want a button, not a control room.
 """
@@ -23,7 +29,7 @@ from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 # profile under $HOME, where the session may write anyway, so there is nothing
 # left to authenticate and no password for this app to handle.
 
-APP_ID = "de.furios.audioswitch"
+APP_ID = "de.misc-de.tools"
 import os
 import shutil
 
@@ -40,8 +46,25 @@ def _tool(name):
     return shutil.which(name) or "/usr/bin/" + name
 
 
+# Like _tool, but it admits when the program is not there at all. The modem
+# page is built from this: present or absent, never present-and-broken.
+def _tool_maybe(name):
+    for path in ("/usr/local/bin/" + name, "/usr/bin/" + name):
+        if os.access(path, os.X_OK):
+            return path
+    return shutil.which(name)
+
+
 AUDIOCTL = _tool("audioctl")
 DMNR = _tool("furios-audio-dmnr")
+# Ships in a different package (furios_modem_fixes) and may simply not be here.
+MODEMCTL = _tool_maybe("modemctl")
+# Switching the modem writes /usr/lib and /etc, so it needs root, and unlike
+# audioctl there is no version of it that does not. polkit's own helper is how
+# that is asked for; the action this phone carries allows it without a prompt
+# for the session sitting at the device, which is why no authentication agent
+# is needed here any more than on the audio side.
+PKEXEC = _tool_maybe("pkexec")
 
 
 def server_in_words(raw):
@@ -122,10 +145,11 @@ def run_async(argv, on_done, on_line=None):
 
 class Window(Adw.ApplicationWindow):
     def __init__(self, app):
-        super().__init__(application=app, title="Audio Switch")
+        super().__init__(application=app, title="misc-de")
         self.set_default_size(360, 480)
         self.busy = False
         self._syncing = False
+        self.modem_rows = []
 
         toolbar = Adw.ToolbarView()
         header = Adw.HeaderBar()
@@ -218,18 +242,181 @@ class Window(Adw.ApplicationWindow):
         rescue.add(btn)
         page.add(rescue)
 
+        # --- die Seiten ---
+        #
+        # One page is the app that existed before this. The second only comes
+        # into being if modemctl is installed, and with a single page the
+        # switcher bar stays hidden - so on a phone without the modem package
+        # nothing about this window looks different from before.
+        self.stack = Adw.ViewStack()
+        self.stack.add_titled_with_icon(page, "audio", "Audio", "audio-speakers-symbolic")
+
+        self.modem_rows = []
+        if MODEMCTL:
+            self.stack.add_titled_with_icon(
+                self.build_modem_page(), "modem", "Modem", "network-cellular-symbolic"
+            )
+
+        switcher = Adw.ViewSwitcherBar(stack=self.stack)
+        switcher.set_reveal(bool(MODEMCTL))
+        toolbar.add_bottom_bar(switcher)
+
         self.toasts = Adw.ToastOverlay()
-        self.toasts.set_child(page)
+        self.toasts.set_child(self.stack)
         toolbar.set_content(self.toasts)
         self.set_content(toolbar)
 
         self.refresh()
+
+    # ------------------------------------------------------------ Modem
+
+    def build_modem_page(self):
+        """The same shape as the audio page, because it is the same question:
+        the phone as it shipped, or the phone as somebody repaired it."""
+        mpage = Adw.PreferencesPage()
+
+        grp = Adw.PreferencesGroup(
+            title="Modem",
+            description="Off is FuriOS exactly as it came: no fallback route "
+            "when Wi-Fi goes away, no name resolution without it, and a signal "
+            "bar that cannot leave zero.",
+        )
+        self.modem_row = Adw.SwitchRow(
+            title="Repairs active",
+            subtitle="reading …",
+        )
+        self.modem_row.connect("notify::active", self.on_modem_switch)
+        grp.add(self.modem_row)
+
+        self.modem_persist = Adw.SwitchRow(
+            title="Remember this choice",
+            subtitle="Off: the next boot returns to what was recorded",
+            active=True,
+        )
+        grp.add(self.modem_persist)
+
+        self.modem_progress = Gtk.ProgressBar(show_text=True, text="")
+        for m in ("top", "bottom"):
+            getattr(self.modem_progress, "set_margin_" + m)(6)
+        for m in ("start", "end"):
+            getattr(self.modem_progress, "set_margin_" + m)(12)
+        self.modem_revealer = Gtk.Revealer(
+            child=self.modem_progress,
+            transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN,
+            reveal_child=False,
+        )
+        grp.add(self.modem_revealer)
+        mpage.add(grp)
+
+        info = Adw.PreferencesGroup(title="Status")
+        self.mrow_profile = Adw.ActionRow(title="Profile", subtitle="…")
+        self.mrow_health = Adw.ActionRow(title="Checks", subtitle="…")
+        self.mrow_signal = Adw.ActionRow(title="Signal", subtitle="…")
+        for row in (self.mrow_profile, self.mrow_health, self.mrow_signal):
+            row.set_subtitle_selectable(True)
+            info.add(row)
+        mpage.add(info)
+
+        self.modem_rows = [self.modem_row, self.modem_persist]
+        return mpage
 
     # ------------------------------------------------------------ Zustand
 
     def refresh(self):
         run_async([AUDIOCTL, "status"], self.on_status)
         run_async([DMNR, "status"], self.on_dmnr_status)
+        if MODEMCTL:
+            # Both read-only, and neither needs root - which is the whole
+            # reason the page can show something before anybody touches it.
+            run_async([MODEMCTL, "profile"], self.on_modem_profile)
+            run_async([MODEMCTL, "status"], self.on_modem_status)
+
+    # "recorded: x" and "actual: y", split on the colon rather than matched
+    # against a prefix. modemctl lives in another package, so this is a
+    # contract between two repositories - it is checked from the other side
+    # too, where the words are printed.
+    @staticmethod
+    def _keyed(out):
+        found = {}
+        for line in out.splitlines():
+            key, sep, value = line.partition(":")
+            if sep:
+                found[key.strip()] = value.strip()
+        return found
+
+    def on_modem_profile(self, ok, out):
+        if not ok:
+            self.modem_row.set_sensitive(False)
+            self.mrow_profile.set_subtitle("modemctl did not answer")
+            return
+        found = self._keyed(out)
+        recorded, actual = found.get("recorded", "?"), found.get("actual", "?")
+
+        if actual == "fixed":
+            words = "the repairs are in place"
+        elif actual == "shipped":
+            words = "FuriOS as it came"
+        else:
+            # "mixed" is a real state and saying either of the other two would
+            # be wrong in both directions.
+            words = "half repaired - use \"Repairs active\" to settle it"
+        if recorded != actual and actual in ("fixed", "shipped"):
+            words += f" · not remembered, the next boot returns to \"{recorded}\""
+        self.mrow_profile.set_subtitle(words)
+
+        self._syncing = True
+        self.modem_row.set_active(actual == "fixed")
+        self.modem_persist.set_active(recorded == actual)
+        self._syncing = False
+        self.modem_row.set_subtitle(
+            "On: patched, with a route and a resolver that work without Wi-Fi"
+            if actual == "fixed"
+            else "Off: the state the phone shipped in"
+        )
+
+    def on_modem_status(self, ok, out):
+        if not ok and not out:
+            self.mrow_health.set_subtitle("modemctl did not answer")
+            return
+        bad = sum(1 for line in out.splitlines() if "FAIL" in line)
+        good = sum(1 for line in out.splitlines() if " ok " in line)
+        self.mrow_health.set_subtitle(
+            f"{good} in place" if bad == 0 else f"{good} in place, {bad} not"
+        )
+        for line in out.splitlines():
+            if "signal quality" in line:
+                self.mrow_signal.set_subtitle(line.split("signal quality", 1)[1].strip())
+                break
+        else:
+            self.mrow_signal.set_subtitle("not readable")
+
+    def on_modem_switch(self, row, _param):
+        if self._syncing or self.busy:
+            return
+        if not PKEXEC:
+            self.toast("pkexec is missing - cannot ask for the rights to switch")
+            return
+        mode = "set" if self.modem_persist.get_active() else "try"
+        want = "fixed" if row.get_active() else "shipped"
+        self.set_busy(True)
+        self.modem_progress.set_text("Switching …")
+        self.modem_revealer.set_reveal_child(True)
+        self.pulse_start("Switching the modem …")
+        run_async([PKEXEC, MODEMCTL, mode, want], self.on_modem_switched,
+                  on_line=self.on_progress_line)
+
+    def on_modem_switched(self, ok, out):
+        self.pulse_stop()
+        self.modem_revealer.set_reveal_child(False)
+        if not ok:
+            # A refusal from polkit looks like any other failure from here, and
+            # it is the likely one on a phone where this is not authorised.
+            self.toast("Switching the modem failed")
+            self.report(out or "No output.")
+        else:
+            last = [l for l in out.splitlines() if l.strip()]
+            self.toast(last[-1].strip() if last else "Done")
+        self.refresh()
 
     def on_dmnr_status(self, ok, out):
         if not ok:
@@ -306,6 +493,10 @@ class Window(Adw.ApplicationWindow):
         self.persist_row.set_sensitive(not busy)
         self.dmnr_row.set_sensitive(not busy)
         self.refresh_btn.set_sensitive(not busy)
+        # Empty when there is no modem page, which is the point: nothing here
+        # may assume the second page exists.
+        for row in self.modem_rows:
+            row.set_sensitive(not busy)
         if busy:
             self.switch_row.set_subtitle("Switching, this takes a moment …")
         elif self.switch_row.get_active():

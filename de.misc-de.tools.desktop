@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=misc-de
+Comment=Switch the audio stack and the modem between shipped and repaired
+Comment[de]=Audio-Stack und Modem zwischen Auslieferungszustand und Reparatur umschalten
+Exec=misc-de
+Icon=de.misc-de.tools
+Terminal=false
+Categories=Settings;HardwareSettings;
+Keywords=Audio;PipeWire;PulseAudio;Bluetooth;Sound;Modem;Mobile;
+StartupNotify=true
+X-Purism-FormFactor=Workstation;Mobile;
