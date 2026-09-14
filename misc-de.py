@@ -60,13 +60,15 @@ def _tool_maybe(name):
     return shutil.which(name)
 
 
-KILLSWITCH = _tool_maybe("killswitch-indicator")
 AUDIOCTL = _tool("audioctl")
 DMNR = _tool("furios-audio-dmnr")
-# Ships in a different package (furios_modem_fixes) and may simply not be here.
-MODEMCTL = _tool_maybe("modemctl")
-# Same again, from furios_gps.
-GPSCTL = _tool_maybe("gpsctl")
+# modemctl, gpsctl and killswitch-indicator have NO constant here on purpose.
+# They ship in other packages, may simply not be on the phone, and - since the
+# components page can fetch one - may arrive while this window is open. A
+# constant would be the answer to "was it there when the app started", and
+# every handler that read one would still be holding that answer an hour
+# later. The window looks them up when it builds a page and keeps what it
+# found in self.live; that is the one place asked afterwards.
 # Switching the modem writes /usr/lib and /etc, so it needs root, and unlike
 # audioctl there is no version of it that does not. polkit's own helper is how
 # that is asked for; the action this phone carries allows it without a prompt
@@ -503,23 +505,24 @@ class Window(Adw.ApplicationWindow):
         self.gps_rows = []
         self.sw_rows = []
         self.comp_rows = {}
-        bauer = {"audio": lambda: page,
-                 "modem": self.build_modem_page,
-                 "gps": self.build_gps_page,
-                 "switches": self.build_switches_page}
+        # Kept, not local: a tool fetched from the components page gets its
+        # real page built right there, and that needs the same builder.
+        self.bauer = {"audio": lambda: page,
+                      "modem": self.build_modem_page,
+                      "gps": self.build_gps_page,
+                      "switches": self.build_switches_page}
         # One source of truth for "is this tool here", written down while the
-        # pages are built and read by refresh() afterwards. Asked twice - once
-        # here, once from the module constants - a page could end up unbuilt
-        # while something still asks its tool for a status, and the answer
-        # would arrive at rows that were never created.
+        # pages are built and read by refresh() and by every handler
+        # afterwards. Asked twice - once here, once from a module constant -
+        # a page could end up unbuilt while something still asks its tool for
+        # a status, and the answer would arrive at rows that were never
+        # created.
         self.live = {}
+        # The page widget of each tab, so one of them can be replaced later
+        # without the others being rebuilt underneath somebody.
+        self.pages = {}
         for comp in COMPONENTS:
-            werkzeug = _tool_maybe(comp["tool"])
-            self.live[comp["key"]] = werkzeug
-            seite = (self.build_page_with_update(comp, bauer[comp["key"]])
-                     if werkzeug else self.build_missing_page(comp))
-            self.stack.add_titled_with_icon(
-                seite, comp["key"], comp["page"], comp["icon"])
+            self.build_component_page(comp)
 
         # Directly under the header, not at the foot of the window: the tabs
         # belong with the title of what they switch, and down there they sat
@@ -542,6 +545,48 @@ class Window(Adw.ApplicationWindow):
 
 
     # ------------------------------------------------------------ Komponenten
+
+    def build_component_page(self, comp):
+        """Build one tab and put it in the stack: the real page if its tool is
+        there, otherwise the one that offers to fetch it."""
+        werkzeug = _tool_maybe(comp["tool"])
+        self.live[comp["key"]] = werkzeug
+        seite = (self.build_page_with_update(comp, self.bauer[comp["key"]])
+                 if werkzeug else self.build_missing_page(comp))
+        self.pages[comp["key"]] = seite
+        self.stack.add_titled_with_icon(
+            seite, comp["key"], comp["page"], comp["icon"])
+        return seite
+
+    def swap_in_page(self, comp):
+        """Turn the "not installed" tab into the real one, without a restart.
+
+        This used to be a sentence - "restart the app to get its tab" - and it
+        was the whole answer somebody got after watching a clone, a build and
+        an install go by. The tool is on the phone at that point; there is
+        nothing left to wait for but the window.
+
+        Adw.ViewStack can only append, so keeping Audio · Modem · GPS ·
+        Switches in that order means taking the tabs after this one out and
+        putting them back. The same widgets go back in, not rebuilt ones: they
+        carry the status somebody has been reading, and a page that silently
+        loses it is worse than one that never had it.
+        """
+        if self.live.get(comp["key"]) or not _tool_maybe(comp["tool"]):
+            return False                       # already real, or still absent
+        keys = [c["key"] for c in COMPONENTS]
+        danach = COMPONENTS[keys.index(comp["key"]):]
+        for c in danach:
+            if self.pages.get(c["key"]) is not None:
+                self.stack.remove(self.pages[c["key"]])
+        self.build_component_page(comp)
+        for c in danach[1:]:
+            self.stack.add_titled_with_icon(
+                self.pages[c["key"]], c["key"], c["page"], c["icon"])
+        # The tab somebody was standing on went out with the swap, so say
+        # where to stand now: on the page they just installed.
+        self.stack.set_visible_child_name(comp["key"])
+        return True
 
     def build_missing_page(self, comp):
         """The page of a tool that is not here: what it would do, where it
@@ -750,9 +795,26 @@ class Window(Adw.ApplicationWindow):
 
     def component_done(self, comp, ok, out):
         self.set_busy(False)
-        if ok:
-            self.toast(comp["tool"] + " is in place - restart the app to get "
-                       "its tab")
+        if ok and self.live.get(comp["key"]):
+            # An update: the page was already the real one, so nothing is
+            # swapped - what changes is the offer, which has just been taken
+            # and would otherwise go on offering the same commits.
+            gruppe = self.comp_rows.get(comp["tool"], {}).get("group")
+            if gruppe is not None:
+                gruppe.set_visible(False)
+            self.toast(comp["tool"] + " is up to date")
+        elif ok:
+            # The page first, the words after it: if the tab is already the
+            # real one by the time the toast is read, the sentence is a
+            # description and not a promise.
+            if self.swap_in_page(comp):
+                self.toast(comp["tool"] + " is in place - this tab is live")
+            else:
+                # Everything ran and the tool is still not findable. There is
+                # no sentence this window can invent that beats what the
+                # installer said, so show that.
+                self.toast(comp["tool"] + " ran, but is not on the phone")
+                self.report(out or "No output.")
         else:
             self.toast("Could not set up " + comp["tool"])
             # A wrong password shows up here as sudo's own words, which say it
@@ -1016,7 +1078,7 @@ class Window(Adw.ApplicationWindow):
         if getattr(self, "_loading", False):
             return
         wert = "on" if row.get_active() else "off"
-        run_async([KILLSWITCH, "config", radio, wert],
+        run_async([self.live["switches"], "config", radio, wert],
                   lambda ok, out: self.after_extra(ok, radio, wert))
 
     def after_extra(self, ok, radio, wert):
@@ -1040,8 +1102,8 @@ class Window(Adw.ApplicationWindow):
             return
         self.set_busy(True)
         self.run_chain([
-            [KILLSWITCH, "config", "wifi", "off"],
-            [KILLSWITCH, "config", "bluetooth", "off"],
+            [self.live["switches"], "config", "wifi", "off"],
+            [self.live["switches"], "config", "bluetooth", "off"],
             ["systemctl", "--user", "disable", "--now", "killswitch-indicator"],
         ], self.on_switches_restored)
 
@@ -1252,7 +1314,7 @@ class Window(Adw.ApplicationWindow):
         self.gps_progress.set_text("Switching …")
         self.gps_revealer.set_reveal_child(True)
         self.pulse_start("Switching the location filter …")
-        run_async([PKEXEC, GPSCTL, mode, want], self.on_gps_switched,
+        run_async([PKEXEC, self.live["gps"], mode, want], self.on_gps_switched,
                   on_line=self.on_progress_line)
 
     def on_gps_switched(self, ok, out):
@@ -1281,7 +1343,7 @@ class Window(Adw.ApplicationWindow):
         self.pulse_start("Back to the shipped state …")
         # "set", not "try", like the other pages: what it restores is what the
         # phone comes back to after the next boot.
-        run_async([PKEXEC, GPSCTL, "set", "shipped"], self.on_gps_restored,
+        run_async([PKEXEC, self.live["gps"], "set", "shipped"], self.on_gps_restored,
                   on_line=self.on_progress_line)
 
     def on_gps_restored(self, ok, out):
@@ -1397,7 +1459,7 @@ class Window(Adw.ApplicationWindow):
         self.modem_progress.set_text("Switching …")
         self.modem_revealer.set_reveal_child(True)
         self.pulse_start("Switching the modem …")
-        run_async([PKEXEC, MODEMCTL, mode, want], self.on_modem_switched,
+        run_async([PKEXEC, self.live["modem"], mode, want], self.on_modem_switched,
                   on_line=self.on_progress_line)
 
     def on_modem_restore(self, _btn):
@@ -1413,7 +1475,7 @@ class Window(Adw.ApplicationWindow):
         # "set", not "try": the same promise the audio button makes - what it
         # restores is what the phone comes back to. And the same command a
         # person would type, so there is one truth about what this does.
-        run_async([PKEXEC, MODEMCTL, "set", "shipped"], self.on_modem_restored,
+        run_async([PKEXEC, self.live["modem"], "set", "shipped"], self.on_modem_restored,
                   on_line=self.on_progress_line)
 
     def on_modem_restored(self, ok, out):

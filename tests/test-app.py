@@ -52,6 +52,15 @@ def load(path, name):
 switcher = load(ROOT / "misc-de.py", "switcher")
 
 
+# Which of the optional tools this machine has. The app holds no constants for
+# them any more - it looks while it builds a page, because one of them can
+# arrive from the components page while the window is open - so a test that
+# needs to know which widgets exist looks the same way.
+MODEMCTL = switcher._tool_maybe("modemctl")
+GPSCTL = switcher._tool_maybe("gpsctl")
+KILLSWITCH = switcher._tool_maybe("killswitch-indicator")
+
+
 class AppReadsAudioctl(unittest.TestCase):
     """The app parses audioctl's output, and audioctl lives elsewhere now.
 
@@ -634,28 +643,28 @@ class TheWindow(unittest.TestCase):
         # The modem widgets only exist when the page was built, and the page is
         # only built when modemctl is installed - so they are swapped in the
         # same way, and only when they are there to swap.
-        if switcher.MODEMCTL:
+        if MODEMCTL:
             names += ["modem_row", "modem_persist", "modem_progress",
                       "modem_revealer", "mrow_profile", "mrow_health",
                       "mrow_signal", "modem_restore_btn"]
         names.append("rescue_btn")
-        if switcher.GPSCTL:
+        if GPSCTL:
             names += ["gps_row", "gps_persist", "gps_progress", "gps_revealer",
                       "grow_profile", "grow_seen", "grow_health",
                       "gps_restore_btn"]
-        if switcher.KILLSWITCH:
+        if KILLSWITCH:
             names += ["sw_row", "sw_persist", "sw_wifi", "sw_bt", "sw_modem",
                       "srow_cam", "srow_cam_hal", "srow_cams", "srow_net",
                       "srow_mic", "sw_restore_btn"]
         for name in names:
             setattr(self.win, name, Recording())
-        if switcher.MODEMCTL:
+        if MODEMCTL:
             self.win.modem_rows = [self.win.modem_row, self.win.modem_persist,
                                    self.win.modem_restore_btn]
-        if switcher.GPSCTL:
+        if GPSCTL:
             self.win.gps_rows = [self.win.gps_row, self.win.gps_persist,
                                  self.win.gps_restore_btn]
-        if switcher.KILLSWITCH:
+        if KILLSWITCH:
             self.win.sw_rows = [self.win.sw_row, self.win.sw_persist,
                                 self.win.sw_wifi, self.win.sw_bt,
                                 self.win.sw_restore_btn]
@@ -875,10 +884,10 @@ class TheWindow(unittest.TestCase):
         must not leave one of the others unasked - which is how a window ends
         up showing a state that stopped being true ten minutes ago."""
         self.win.refresh()
-        expected = (2 + (2 if switcher.MODEMCTL else 0)
-                    + (2 if switcher.GPSCTL else 0)
+        expected = (2 + (2 if MODEMCTL else 0)
+                    + (2 if GPSCTL else 0)
                     # status --json, plus is-active and is-enabled for the unit
-                    + (3 if switcher.KILLSWITCH else 0))
+                    + (3 if KILLSWITCH else 0))
         self.assertEqual(expected, len(self.ran))
 
     def test_the_tabs_sit_under_the_header_not_at_the_foot(self):
@@ -897,7 +906,7 @@ class TheWindow(unittest.TestCase):
     def test_the_switches_page_asks_for_json_and_for_the_unit(self):
         """The page needs both: the tool knows the switches, systemd knows
         whether the indicator runs and whether it survives a boot."""
-        if not switcher.KILLSWITCH:
+        if not KILLSWITCH:
             self.skipTest("killswitch-indicator not installed")
         self.win.refresh()
         aufrufe = [" ".join(a[0]) for a in self.ran]
@@ -914,7 +923,7 @@ class TheWindow(unittest.TestCase):
     # a state.
 
     def switches_win(self):
-        if not switcher.KILLSWITCH:
+        if not KILLSWITCH:
             self.skipTest("killswitch-indicator not installed")
         return self.win
 
@@ -1124,9 +1133,9 @@ class TheWindow(unittest.TestCase):
         self.ohne("gpsctl")
         gruppen = [c[2] for c in recorder.calls if c[0] == "Adw.PreferencesGroup"]
         angebot = [g for g in gruppen
-                   if "not installed" in str(g.get("title", ""))]
+                   if "not installed" in str(g.get("title", ""))
+                   and "gpsctl" in str(g.get("description", ""))]
         self.assertTrue(angebot, "no offer on the page of a missing tool")
-        self.assertIn("gpsctl", str(angebot[0].get("description", "")))
         # and none of the page's own controls were built
         titel = [str(c[2].get("title", "")) for c in recorder.calls
                  if c[0] == "Adw.SwitchRow"]
@@ -1240,11 +1249,99 @@ class TheWindow(unittest.TestCase):
         self.assertEqual([], [r for r in self.ran if "install.sh" in " ".join(r[0])])
         self.assertIn("Could not set up", str(self.win.toasts.text))
 
-    def test_a_finished_install_says_the_tab_needs_a_restart(self):
-        """The tabs are built once, when the window opens - a tool that
-        arrives later cannot grow its page by itself."""
-        self.win.component_done(self.komponente(), True, "")
-        self.assertIn("restart", str(self.win.toasts.text))
+    def mit(self, name, pfad="/usr/local/bin/gpsctl"):
+        """_tool_maybe answering as though `name` had just been installed."""
+        echt = switcher._tool_maybe
+        switcher._tool_maybe = lambda n: pfad if n == name else echt(n)
+        return echt
+
+    def toast_texte(self):
+        return [str(c[2].get("title", "")) for c in recorder.calls
+                if c[0] == "Adw.Toast"]
+
+    def frisch_installiert(self, tool="gpsctl", pfad="/usr/local/bin/gpsctl"):
+        """A window whose tool was missing when it opened and is there now -
+        the state the phone is in the moment an install finishes."""
+        win = self.ohne(tool)
+        comp = self.komponente(tool)
+        recorder.reset()
+        echt = self.mit(tool, pfad)
+        try:
+            win.component_done(comp, True, "")
+        finally:
+            switcher._tool_maybe = echt
+        return win
+
+    def test_a_finished_install_turns_the_tab_into_the_real_one(self):
+        """This used to end in "restart the app to get its tab", which is the
+        one thing left to do after watching a clone, a build and an install go
+        by - and it reads like nothing happened."""
+        win = self.frisch_installiert()
+        self.assertEqual("/usr/local/bin/gpsctl", win.live["gps"])
+        self.assertTrue(any("live" in t for t in self.toast_texte()),
+                        "nothing said the tab is usable now")
+        self.assertFalse(any("restart" in t for t in self.toast_texte()))
+
+    def test_the_new_tab_keeps_its_place_in_the_row(self):
+        """Adw.ViewStack can only append, so the tabs after the swapped one
+        are taken out and put back. Left to append, GPS would land behind
+        Switches and the row would reorder itself under somebody's thumb."""
+        win = self.frisch_installiert()
+        # Its own return value is recorded under the same name with no
+        # arguments, so the calls are the ones that carry some.
+        gebaut = [c[1][1] for c in recorder.calls
+                  if c[0] == "Adw.ViewStack.add_titled_with_icon()" and c[1]]
+        self.assertEqual(["gps", "switches"], gebaut)
+        self.assertEqual(2, len([c for c in recorder.calls
+                                 if c[0] == "Adw.ViewStack.remove()" and c[1]]))
+        del win
+
+    def test_the_tab_somebody_installed_from_is_the_one_they_end_up_on(self):
+        """The page they were standing on went out with the swap."""
+        self.frisch_installiert()
+        gewaehlt = [c[1][0] for c in recorder.calls
+                    if c[0] == "Adw.ViewStack.set_visible_child_name()" and c[1]]
+        self.assertEqual(["gps"], gewaehlt)
+
+    def test_the_new_page_runs_the_tool_that_was_just_installed(self):
+        """The window used to keep the answer to "was it there when the app
+        started" in a module constant. A page built after that would have sent
+        None to pkexec."""
+        win = self.frisch_installiert()
+        if not switcher.PKEXEC:
+            self.skipTest("no pkexec here, so the switch runs nothing")
+        self.ran.clear()
+        win.busy = False
+        win._syncing = False
+        win.on_gps_switch(win.gps_row, None)
+        argv = self.ran[0][0]
+        self.assertIn("/usr/local/bin/gpsctl", argv)
+
+    def test_a_finished_update_takes_the_offer_back_down(self):
+        """The offer it was answering has just been taken; leaving it up says
+        there are still commits waiting, and there are none."""
+        comp = self.komponente("modemctl") if MODEMCTL else None
+        if comp is None:
+            self.skipTest("no modemctl here, so no page with an update offer")
+        gruppe = Recording()
+        self.win.comp_rows[comp["tool"]] = {"group": gruppe,
+                                            "state": Recording()}
+        recorder.reset()
+        self.win.component_done(comp, True, "")
+        self.assertEqual(False, gruppe.visible)
+        self.assertTrue(any("up to date" in t for t in self.toast_texte()))
+
+    def test_an_install_that_leaves_nothing_behind_says_so(self):
+        """Every step returned 0 and the tool is still not findable. The
+        installer's own output is the only thing that can explain that."""
+        win = self.ohne("gpsctl")
+        recorder.reset()
+        win.component_done(self.komponente(), True, "ln: Permission denied")
+        self.assertTrue(any("not on the phone" in t
+                            for t in self.toast_texte()))
+        koerper = [str(c[2].get("body", "")) for c in recorder.calls
+                   if c[0] == "Adw.AlertDialog"]
+        self.assertTrue(any("Permission denied" in b for b in koerper))
 
     def test_nothing_is_offered_while_something_else_runs(self):
         self.win.comp_rows[self.komponente()["tool"]] = {}
@@ -1394,8 +1491,8 @@ class TheWindow(unittest.TestCase):
         shape of this."""
         recorder.reset()
         switcher.Window(switcher.Adw.Application())
-        erwartet = (1 + bool(switcher.MODEMCTL) + bool(switcher.GPSCTL)
-                    + bool(switcher.KILLSWITCH))
+        erwartet = (1 + bool(MODEMCTL) + bool(GPSCTL)
+                    + bool(KILLSWITCH))
         knoepfe = [c for c in recorder.calls if c[0] == "Gtk.Button"
                    and c[2].get("label") == switcher.Window.RESTORE_LABEL]
         gruppen = [c for c in recorder.calls if c[0] == "Adw.PreferencesGroup"
@@ -1419,8 +1516,8 @@ class TheWindow(unittest.TestCase):
         texte = {str(c[2].get("description", ""))
                  for c in recorder.calls if c[0] == "Adw.PreferencesGroup"
                  and c[2].get("title") == switcher.Window.RESTORE_TITLE}
-        erwartet = (1 + bool(switcher.MODEMCTL) + bool(switcher.GPSCTL)
-                    + bool(switcher.KILLSWITCH))
+        erwartet = (1 + bool(MODEMCTL) + bool(GPSCTL)
+                    + bool(KILLSWITCH))
         self.assertEqual(erwartet, len(texte))
 
     def test_a_way_back_asks_before_it_acts(self):
@@ -1657,7 +1754,7 @@ class TheWindow(unittest.TestCase):
         self.assertEqual({"recorded": "fixed", "actual": "shipped"}, found)
 
     def modem_win(self):
-        if not switcher.MODEMCTL:
+        if not MODEMCTL:
             self.skipTest("no modemctl on this machine, so no modem page")
         return self.win
 
@@ -1717,7 +1814,7 @@ class TheWindow(unittest.TestCase):
         self.assertEqual([], win.gps_rows)
 
     def gps_win(self):
-        if not switcher.GPSCTL:
+        if not GPSCTL:
             self.skipTest("no gpsctl on this machine, so no GPS page")
         return self.win
 
@@ -1733,6 +1830,7 @@ class TheWindow(unittest.TestCase):
     def test_the_location_group_carries_no_essay(self):
         """The switch's own subtitle says what on and off mean; the paragraph
         above it said the same thing a third time."""
+        self.gps_win()                         # skips when there is no page
         recorder.reset()
         switcher.Window(switcher.Adw.Application())
         ort = [c for c in recorder.calls if c[0] == "Adw.PreferencesGroup"

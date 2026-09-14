@@ -26,7 +26,8 @@ trotzdem da und bietet an, es zu holen - siehe unten.
 Legt `misc-de` nach `/usr/local/bin`, dazu Symbol und Starter. Danach steht
 die App im App-Raster; direkt starten geht mit `misc-de`.
 
-Voraussetzungen: `python3-gi`, `gir1.2-adw-1` und `audioctl`.
+Voraussetzungen: `python3-gi` und `gir1.2-adw-1`. Sonst nichts - die
+Werkzeuge hinter den Reitern holt die App sich selbst.
 
 ## Wenn ein Werkzeug fehlt
 
@@ -49,8 +50,10 @@ Das Passwort geht durch die Pipe an `sudo` und nirgendwo sonst - nicht in
 nicht in eine Logzeile -, und aus dem Eingabefeld ist es weg, sobald die Frage
 beantwortet ist. Ein falsches Passwort meldet `sudo` mit seinen eigenen
 Worten; die Kette bricht dort ab, statt einen Installer zu starten, der nicht
-fertig werden kann. Ein frisch geholtes Werkzeug bekommt seinen Reiterinhalt
-beim naechsten Start - die Seiten werden gebaut, wenn das Fenster aufgeht.
+fertig werden kann. Laeuft alles durch, wird aus dem Angebot sofort die
+richtige Seite - an derselben Stelle in der Reiterleiste, und die App steht
+danach darauf. Kein Neustart: das Werkzeug ist in dem Moment auf dem Telefon,
+zu warten ist auf nichts mehr.
 
 ## Wenn es im Repo etwas Neues gibt
 
@@ -75,6 +78,9 @@ beginnt mit einer Wache: liegt dort irgendetwas Uncommittetes, wird **nichts**
 angefasst und der Grund steht als Satz da. Gezogen wird `--ff-only` - ein
 Merge ist keine Entscheidung, die eine App fuer einen fremden Arbeitsbaum
 trifft.
+
+Ist das Update durch, verschwindet das Angebot: es war die Antwort auf
+Commits, die jetzt hier liegen.
 
 ## Was jede Seite tut
 
