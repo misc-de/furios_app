@@ -10,9 +10,9 @@ the filter that throws away positions derived from the carrier's IP address or
 it does not. The tools do the work - audioctl, modemctl and gpsctl - and this
 front end only calls them and shows what is actually running.
 
-The modem and GPS pages exist only when their tool does. A tab that is always
-there and always says "not installed" is worse than no tab: it makes a phone
-where nothing is wrong look like a phone where something is.
+Every page is there, whether its tool is or not. Where one is missing the tab
+says what it would do, where it comes from, and offers to fetch it - and the
+moment that has run, the tab is the real one.
 
 Deliberately plain: on a phone you want a button, not a control room.
 """
@@ -34,6 +34,7 @@ APP_ID = "de.misc-de.tools"
 import json
 import os
 import shutil
+import tempfile
 
 # From the package it lives in /usr/bin, from the source tree in /usr/local/bin.
 #
@@ -215,12 +216,138 @@ def clone_elsewhere(url, base=None):
     return None
 
 
-def component_steps(comp, zustand, wort, pfad=None):
-    """The commands one fetch consists of, as (argv, stdin, cwd).
+# The helper sudo runs when it has no terminal to ask at. Not a secret: it
+# holds a socket path, connects, reads what comes back and prints it. The
+# socket is in a directory only this user can enter, and the other end checks
+# the caller's uid before it says anything.
+ASKPASS_HELPER = """#!/usr/bin/env python3
+# Written by misc-de for one install and deleted afterwards.
+import socket, sys
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.connect(%r)
+teile = []
+while True:
+    stueck = s.recv(4096)
+    if not stueck:
+        break
+    teile.append(stueck)
+sys.stdout.write(b"".join(teile).decode())
+"""
 
-    A list, not a method: what runs as root, in which directory, and where the
-    password goes is the part worth being able to read - and to check without
-    starting anything.
+
+class Askpass:
+    """A way for sudo to ask for the password while nobody is at a terminal.
+
+    The installers are ordinary scripts with their own sudo lines. This app
+    takes a ticket first ("sudo -v", password through a pipe) and used to
+    leave the rest to that ticket - which worked until this phone's sudoers
+    changed on 14.9.2026. With no terminal sudo does not tie the ticket to a
+    tty but to the parent process, and the installer's bash is not the parent
+    "sudo -v" had: the GPS install stopped at its first sudo line with "a
+    terminal is required to read the password", after cloning and with
+    nothing installed. That the modem install had gone through an hour
+    earlier was luck - a sudoers rule that shared the ticket, which is not
+    ours to rely on.
+
+    sudo's own message says what it wants instead, and this is it. The
+    password stays in this process: the helper script carries none, the
+    environment carries a path, and what crosses between them is one
+    connection on a socket in $XDG_RUNTIME_DIR, inside a directory with mode
+    0700, whose peer has to be this very user. Never in argv, where every
+    "ps" reads along; never in a file; never in a log line.
+    """
+
+    def __init__(self, wort):
+        self.wort = wort or ""
+        self.verzeichnis = None
+        self.dienst = None
+        self.helfer = None
+
+    def start(self):
+        """The helper's path, or None if it could not be set up.
+
+        None is not an error worth stopping for: it only means the install
+        goes back to depending on the ticket, which is where it was before.
+        """
+        try:
+            # $XDG_RUNTIME_DIR is tmpfs and belongs to this user; mkdtemp
+            # makes the directory 0700, so the socket in it is out of reach
+            # for everybody else no matter what its own mode says.
+            self.verzeichnis = tempfile.mkdtemp(
+                prefix="misc-de-", dir=os.environ.get("XDG_RUNTIME_DIR") or None)
+            pfad = os.path.join(self.verzeichnis, "ask.sock")
+            self.helfer = os.path.join(self.verzeichnis, "askpass")
+            with open(self.helfer, "w") as fh:
+                fh.write(ASKPASS_HELPER % pfad)
+            os.chmod(self.helfer, 0o700)
+            self.dienst = Gio.SocketService.new()
+            self.dienst.add_address(Gio.UnixSocketAddress.new(pfad),
+                                    Gio.SocketType.STREAM,
+                                    Gio.SocketProtocol.DEFAULT, None)
+            os.chmod(pfad, 0o600)
+            self.dienst.connect("incoming", self.on_incoming)
+            self.dienst.start()
+            return self.helfer
+        except (OSError, GLib.Error):
+            self.stop()
+            return None
+
+    def on_incoming(self, _dienst, verbindung, _quelle):
+        """Answer one question from sudo - after asking who is asking."""
+        try:
+            if not self.wort:
+                return True
+            creds = verbindung.get_socket().get_credentials()
+            if creds.get_unix_user() != os.getuid():
+                return True                    # not ours, so not a word
+            verbindung.get_output_stream().write_all(
+                (self.wort + "\n").encode(), None)
+            verbindung.close(None)
+        except (GLib.Error, OSError):
+            pass
+        return True
+
+    def stop(self):
+        """Socket down, helper gone, password forgotten. Called on every way
+        out of an install, the ones that failed included."""
+        self.wort = ""
+        if self.dienst is not None:
+            try:
+                self.dienst.stop()
+                self.dienst.close()
+            except (GLib.Error, AttributeError):
+                pass
+            self.dienst = None
+        if self.verzeichnis:
+            shutil.rmtree(self.verzeichnis, ignore_errors=True)
+            self.verzeichnis = None
+        self.helfer = None
+
+
+def installer_env(askpass):
+    """What the installer is told, beyond where it runs.
+
+    DISPLAY is in here for one reason, and it is sudo's: it reaches for
+    SUDO_ASKPASS only when it has no terminal AND believes somebody could see
+    a graphical prompt, which it decides by DISPLAY being set. It never opens
+    it. Under phosh it is set anyway (phoc brings XWayland along), so this is
+    for the session where it is not - without it sudo answers "a terminal is
+    required to read the password" with a perfectly good helper standing by.
+    """
+    if not askpass:
+        return None
+    umgebung = {"SUDO_ASKPASS": askpass}
+    if not os.environ.get("DISPLAY"):
+        umgebung["DISPLAY"] = ":0"
+    return umgebung
+
+
+def component_steps(comp, zustand, wort, pfad=None, askpass=None):
+    """The commands one fetch consists of, as (argv, stdin, cwd, env).
+
+    A list, not a method: what runs as root, in which directory, where the
+    password goes and what the installer is told about asking for it is the
+    part worth being able to read - and to check without starting anything.
 
     An update may point at a clone somebody keeps themselves, so it starts by
     refusing to touch one that has local changes: "git status --porcelain" as
@@ -233,7 +360,9 @@ def component_steps(comp, zustand, wort, pfad=None):
     would in a terminal, and only its own sudo lines become root: run as root
     it would write its user files into /root, and killswitch-indicator's
     installer refuses to be root altogether. What sudo is used for here is a
-    ticket, taken once, dropped again at the end.
+    ticket, taken once, dropped again at the end - and SUDO_ASKPASS, so that
+    the installer's own sudo lines can ask again if the phone's sudoers does
+    not let them use that ticket. Which it may not: see Askpass.
     """
     pfad = pfad or clone_path(comp)
     schritte = []
@@ -243,17 +372,21 @@ def component_steps(comp, zustand, wort, pfad=None):
                           '{ echo "This clone has uncommitted changes. '
                           'Nothing was touched - finish or stash them first, '
                           'then update again."; exit 1; }',
-                          "guard", pfad], None, None))
-        schritte.append((["git", "-C", pfad, "pull", "--ff-only"], None, None))
+                          "guard", pfad], None, None, None))
+        schritte.append((["git", "-C", pfad, "pull", "--ff-only"], None, None,
+                         None))
     else:
-        schritte.append((["git", "clone", comp["url"], pfad], None, None))
+        schritte.append((["git", "clone", comp["url"], pfad], None, None, None))
     if comp["root"]:
         # -S reads the password from the pipe; -p "" keeps sudo's prompt out
-        # of the output this window shows.
-        schritte.append((["sudo", "-S", "-p", "", "-v"], (wort or "") + "\n", None))
-    schritte.append((["./install.sh"], None, pfad))
+        # of the output this window shows. It stays even though the helper
+        # below could answer this one too: a wrong password has to stop the
+        # chain HERE, before an installer is half-way through.
+        schritte.append((["sudo", "-S", "-p", "", "-v"], (wort or "") + "\n",
+                         None, None))
+    schritte.append((["./install.sh"], None, pfad, installer_env(askpass)))
     if comp["root"]:
-        schritte.append((["sudo", "-k"], None, None))
+        schritte.append((["sudo", "-k"], None, None, None))
     return schritte
 
 
@@ -280,7 +413,7 @@ CALL_TIMEOUT = 90
 
 
 def run_async(argv, on_done, on_line=None, timeout=CALL_TIMEOUT, cwd=None,
-              stdin=None):
+              stdin=None, env=None):
     """audioctl runs for up to 15 seconds (it waits for a sink), so never
     call it blocking - the window would freeze.
 
@@ -301,12 +434,14 @@ def run_async(argv, on_done, on_line=None, timeout=CALL_TIMEOUT, cwd=None,
         # in the environment, not in a log line.
         flags |= Gio.SubprocessFlags.STDIN_PIPE
     try:
-        if cwd is None and stdin is None:
+        if cwd is None and stdin is None and not env:
             proc = Gio.Subprocess.new(argv, flags)
         else:
             launcher = Gio.SubprocessLauncher.new(flags)
             if cwd is not None:
                 launcher.set_cwd(cwd)
+            for name, wert in (env or {}).items():
+                launcher.setenv(name, wert, True)
             proc = launcher.spawnv(argv)
     except GLib.Error as err:
         on_done(False, str(err))
@@ -398,6 +533,9 @@ class Window(Adw.ApplicationWindow):
         # Same idea on the components page: which fetch is waiting for an
         # answer, and the entry its password would come from.
         self._comp_pending = (None, None, None, None)
+        # The socket sudo asks at while an install runs, and nothing outside
+        # of one.
+        self.askpass = None
         self.comp_rows = {}
         self.modem_rows = []
         # Whether there is anything behind each control. A switch whose tool
@@ -772,7 +910,12 @@ class Window(Adw.ApplicationWindow):
 
     def run_component(self, comp, zustand, wort, pfad=None):
         os.makedirs(CLONE_HOME, exist_ok=True)
-        schritte = component_steps(comp, zustand, wort, pfad)
+        # Only where root is involved, and only for as long as this one chain
+        # runs. Set up before the steps are built: the installer's step needs
+        # the helper's path in it.
+        self.askpass = Askpass(wort) if comp["root"] else None
+        helfer = self.askpass.start() if self.askpass else None
+        schritte = component_steps(comp, zustand, wort, pfad, helfer)
 
         zeile = self.comp_rows[comp["tool"]]["state"]
         zeile.set_subtitle("working …")
@@ -787,13 +930,21 @@ class Window(Adw.ApplicationWindow):
             if not ok or not rest:
                 self.component_done(comp, ok, out)
                 return
-            argv, stdin, cwd = rest.pop(0)
+            argv, stdin, cwd, env = rest.pop(0)
             zeile.set_subtitle(argv[0] + " …")
-            run_async(argv, schritt, timeout=600, cwd=cwd, stdin=stdin)
+            run_async(argv, schritt, timeout=600, cwd=cwd, stdin=stdin,
+                      env=env)
 
         schritt()
 
     def component_done(self, comp, ok, out):
+        # First thing, before anything can return early: socket down, helper
+        # deleted, password forgotten. Every way out of an install comes
+        # through here, the ones that failed and the one that timed out
+        # included.
+        if getattr(self, "askpass", None) is not None:
+            self.askpass.stop()
+            self.askpass = None
         self.set_busy(False)
         if ok and self.live.get(comp["key"]):
             # An update: the page was already the real one, so nothing is

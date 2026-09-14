@@ -45,10 +45,24 @@ found"), also wird es gemacht wie im Terminal: `sudo` fragt einmal nach dem
 Passwort, das Skript laeuft als du, und nur seine eigenen sudo-Zeilen werden
 root. Danach wirft `sudo -k` das Ticket weg.
 
-Das Passwort geht durch die Pipe an `sudo` und nirgendwo sonst - nicht in
-`argv`, wo jedes `ps` es mitliest, nicht in eine Datei, nicht in die Umgebung,
-nicht in eine Logzeile -, und aus dem Eingabefeld ist es weg, sobald die Frage
-beantwortet ist. Ein falsches Passwort meldet `sudo` mit seinen eigenen
+Auf das Ticket allein ist kein Verlass, und das ist keine Theorie: am
+14.9.2026 fiel auf diesem Telefon eine sudoers-Regel weg, und der
+GPS-Install blieb bei seiner ersten sudo-Zeile stehen - geklont, nichts
+installiert, `sudo: a terminal is required to read the password`. Ohne
+Terminal haengt sudo den Zeitstempel naemlich nicht an ein TTY, sondern an
+den Elternprozess, und die bash des Installers ist nicht der Elternprozess,
+den `sudo -v` hatte. Also bekommt der Installer zusaetzlich `SUDO_ASKPASS`:
+einen fuenfzeiligen Helfer ohne Geheimnis darin, der sich das Passwort ueber
+einen Socket in `$XDG_RUNTIME_DIR` holt - Verzeichnis 0700, und die
+Gegenstelle prueft die uid des Fragenden. So darf jede sudo-Zeile jedes
+Installers fragen, so oft sie will. (Dazu `DISPLAY`, falls es fehlt: sudo
+greift nur dann zu `SUDO_ASKPASS`, wenn es glaubt, dass jemand eine
+grafische Frage sehen koennte - geoeffnet wird es nie.)
+
+Das Passwort geht durch die Pipe an `sudo` und durch diesen Socket, sonst
+nirgendwohin - nicht in `argv`, wo jedes `ps` es mitliest, nicht in eine
+Datei, nicht in die Umgebung, nicht in eine Logzeile -, und aus dem
+Eingabefeld ist es weg, sobald die Frage beantwortet ist. Ein falsches Passwort meldet `sudo` mit seinen eigenen
 Worten; die Kette bricht dort ab, statt einen Installer zu starten, der nicht
 fertig werden kann. Laeuft alles durch, wird aus dem Angebot sofort die
 richtige Seite - an derselben Stelle in der Reiterleiste, und die App steht
@@ -129,7 +143,16 @@ tests/run-tests.sh      # ohne Bildschirm, ohne root, ohne Telefon in der Hand
 tests/coverage.sh       # Zeilenabdeckung, mit der Standardbibliothek gemessen
 ```
 
-Stand: **180 Tests, 100 % der 1050 Zeilen** von `misc-de.py`.
+Stand: **192 Tests.** Die Zeilenabdeckung haengt daran, welche Werkzeuge auf
+dem Telefon liegen - gemessen wird nur, was gebaut wird: mit allen vier waren
+es zuletzt 100 %, mit nur `modemctl` sind es 79 % von 1147 Zeilen.
+
+`tests/askpass-live.py` laeuft in einem eigenen Prozess, weil es das echte
+GLib braucht: es prueft den Socket, an dem `sudo` nach dem Passwort fragt -
+dass ein fremder Prozess es wirklich bekommt, dass in der Helferdatei keines
+steht und dass hinterher nichts uebrig bleibt. Mit `--with-sudo` wird
+zusaetzlich das echte `sudo` gefragt (mit absichtlich falschem Passwort, also
+mit Fehlversuchen im Journal - deshalb nicht im normalen Lauf).
 
 `tests/gi_stub.py` tritt an die Stelle von PyGObject: das Fenster wird im
 Testprozess gebaut, gefuellt und geklickt, ohne dass ein Wayland-Server

@@ -21,6 +21,12 @@ run() {
 
 run "the app, and its seams towards the tools" python3 "$HERE/test-app.py"
 
+# Separate process on purpose: this one needs the REAL GLib, and test-app.py
+# has replaced PyGObject in its own. Add --with-sudo to also ask the real
+# sudo; that writes failed authentication attempts to the journal, so it is
+# not part of the ordinary run.
+run "the askpass socket, against the real GLib" python3 "$HERE/askpass-live.py"
+
 printf '\n\033[1m== shell\033[0m\n'
 if command -v shellcheck >/dev/null; then
     for f in "$ROOT"/*.sh "$HERE"/*.sh; do

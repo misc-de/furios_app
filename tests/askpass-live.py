@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: Copyright (c) 2026 misc-de
+# SPDX-License-Identifier: MIT
+"""The askpass socket, against the real GLib - not the stub.
+
+test-app.py replaces PyGObject before it imports anything, which is right for
+everything else in this app and useless here: what has to be true of Askpass
+is that a helper process really gets the password over a real socket, that the
+password is in no file, and that nothing is left behind afterwards. A stub
+would agree with all of that without any of it being so.
+
+Runs as an ordinary user, needs no password and no root. With --with-sudo it
+also asks the real sudo - with a deliberately wrong password - whether it
+calls an askpass helper at all when there is no terminal. That one writes
+failed authentication attempts to the journal, which is why it is not part of
+the ordinary run.
+"""
+import importlib.util
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+GEHEIM = "nicht-das-echte-passwort"
+
+
+def load():
+    spec = importlib.util.spec_from_file_location("switcher", ROOT / "misc-de.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def ok(bedingung, worte):
+    print(("  \033[32mok\033[0m   " if bedingung else "  \033[31mFAIL\033[0m ")
+          + worte)
+    return bool(bedingung)
+
+
+def main():
+    sw = load()
+    from gi.repository import GLib
+
+    gut = True
+    a = sw.Askpass(GEHEIM)
+    helfer = a.start()
+    gut &= ok(helfer, "the helper is set up at all")
+    if not helfer:
+        return 1
+    verzeichnis = os.path.dirname(helfer)
+    text = open(helfer).read()
+
+    gut &= ok(GEHEIM not in text, "the helper script carries no password")
+    gut &= ok(os.stat(verzeichnis).st_mode & 0o777 == 0o700,
+              "its directory is closed to everybody else (0700)")
+    gut &= ok(os.stat(helfer).st_mode & 0o777 == 0o700, "the helper is 0700")
+    gut &= ok(str(verzeichnis).startswith(
+        os.environ.get("XDG_RUNTIME_DIR", "/run/user")),
+        "it lives in the runtime directory, which is tmpfs")
+
+    # The real thing: a process that is not this one asks, over the socket.
+    # The main loop has to run for that, so the helper is started first and
+    # read while GLib serves - exactly the order sudo produces.
+    ergebnis = {}
+    proc = subprocess.Popen([helfer], stdout=subprocess.PIPE)
+
+    def warten():
+        try:
+            ergebnis["out"] = proc.communicate(timeout=10)[0].decode().strip()
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            ergebnis["out"] = "(the helper never got an answer)"
+        schleife.quit()
+        return False
+
+    schleife = GLib.MainLoop()
+    GLib.timeout_add(200, warten)
+    GLib.timeout_add_seconds(15, lambda: (schleife.quit(), False)[1])
+    schleife.run()
+    gut &= ok(ergebnis.get("out") == GEHEIM,
+              "a separate process gets the password through the socket")
+
+    a.stop()
+    gut &= ok(not os.path.exists(verzeichnis),
+              "socket, helper and directory are gone afterwards")
+    gut &= ok(a.wort == "", "and the password is not kept either")
+
+    if "--with-sudo" in sys.argv:
+        gut &= sudo_frage(sw)
+    return 0 if gut else 1
+
+
+def sudo_frage(sw):
+    """Does sudo use the helper when nobody is at a terminal?
+
+    With a wrong password on purpose: what is measured is whether sudo asks at
+    all. "a terminal is required to read the password" means it did not.
+
+    DISPLAY is what decides it. sudo only reaches for SUDO_ASKPASS when it
+    believes somebody could see a graphical prompt, and phosh sets DISPLAY
+    because phoc brings XWayland - over ssh it is not set, and this check
+    would fail against a sudo that is behaving exactly as it does on the
+    phone.
+    """
+    a = sw.Askpass("auch-nicht-das-echte")
+    helfer = a.start()
+    umgebung = dict(os.environ, SUDO_ASKPASS=helfer)
+    umgebung.setdefault("DISPLAY", ":0")
+    try:
+        p = subprocess.run(["setsid", "sudo", "-k", "-v"], env=umgebung,
+                           stdin=subprocess.DEVNULL, capture_output=True,
+                           timeout=30)
+        sagte = (p.stderr or b"").decode()
+    except subprocess.TimeoutExpired:
+        sagte = "(sudo never came back)"
+    finally:
+        a.stop()
+    return ok("terminal is required" not in sagte,
+              "sudo asks the helper instead of asking for a terminal"
+              + ("" if "terminal is required" not in sagte
+                 else " - it said: " + sagte.strip()))
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -214,7 +214,7 @@ class ComponentTable(unittest.TestCase):
 
     def test_an_install_clones_asks_sudo_once_and_drops_the_ticket(self):
         schritte = switcher.component_steps(self.komp(), "install", "geheim")
-        befehle = [" ".join(argv) for argv, _s, _c in schritte]
+        befehle = [" ".join(argv) for argv, _s, _c, _e in schritte]
         self.assertIn("git clone", befehle[0])
         self.assertEqual(1, len([b for b in befehle if b.startswith("sudo -S")]))
         self.assertTrue(any(b.endswith("install.sh") for b in befehle), befehle)
@@ -225,17 +225,61 @@ class ComponentTable(unittest.TestCase):
         """It goes to sudo through the pipe. In argv every "ps" on the phone
         would read it, and so would anything that logs a command."""
         schritte = switcher.component_steps(self.komp(), "install", "geheim")
-        for argv, _stdin, _cwd in schritte:
+        for argv, _stdin, _cwd, _env in schritte:
             with self.subTest(argv=argv):
                 self.assertNotIn("geheim", " ".join(argv))
-        durch_die_pipe = [stdin for _a, stdin, _c in schritte if stdin]
+        durch_die_pipe = [stdin for _a, stdin, _c, _e in schritte if stdin]
         self.assertEqual(["geheim\n"], durch_die_pipe)
+
+    def test_the_installer_is_told_where_sudo_can_ask(self):
+        """The ticket from "sudo -v" is not ours to rely on: with no terminal
+        sudo ties it to the parent process, and the installer's bash is a
+        different parent. On 14.9.2026 a sudoers rule that had been sharing it
+        went away and the GPS install stopped at its first sudo line."""
+        schritte = switcher.component_steps(self.komp(), "install", "geheim",
+                                            askpass="/run/user/1/x/askpass")
+        env = [e for argv, _s, _c, e in schritte
+               if argv[0].endswith("install.sh")][0]
+        self.assertEqual("/run/user/1/x/askpass", env["SUDO_ASKPASS"])
+
+    def test_the_password_is_in_no_environment_either(self):
+        """argv is read by every "ps"; the environment of a child is read by
+        anything that can read /proc, which is the same audience."""
+        schritte = switcher.component_steps(self.komp(), "install", "geheim",
+                                            askpass="/run/user/1/x/askpass")
+        for argv, _stdin, _cwd, env in schritte:
+            with self.subTest(argv=argv):
+                self.assertNotIn("geheim", " ".join((env or {}).values()))
+                self.assertNotIn("geheim", " ".join((env or {}).keys()))
+
+    def test_without_a_helper_the_environment_stays_as_it_was(self):
+        schritte = switcher.component_steps(self.komp(), "install", "geheim")
+        self.assertEqual([], [e for *_rest, e in schritte if e])
+
+    def test_a_display_is_only_added_where_there_is_none(self):
+        """sudo reaches for SUDO_ASKPASS only if it thinks a prompt could be
+        seen, and it decides that by DISPLAY alone - it never opens it. Under
+        phosh it is set; measured 14.9.2026: without it sudo says "a terminal
+        is required" with a working helper standing by."""
+        vorher = os.environ.get("DISPLAY")
+        try:
+            os.environ["DISPLAY"] = ":9"
+            self.assertNotIn("DISPLAY", switcher.installer_env("/x/askpass"))
+            os.environ.pop("DISPLAY")
+            self.assertEqual(":0",
+                             switcher.installer_env("/x/askpass")["DISPLAY"])
+            self.assertIsNone(switcher.installer_env(None))
+        finally:
+            if vorher is None:
+                os.environ.pop("DISPLAY", None)
+            else:
+                os.environ["DISPLAY"] = vorher
 
     def test_the_installer_runs_in_the_clone_as_the_user(self):
         """Not as root: killswitch-indicator's installer refuses to be root,
         and an installer run as root writes its user files into /root."""
         schritte = switcher.component_steps(self.komp(), "install", "geheim")
-        installer = [(argv, cwd) for argv, _s, cwd in schritte
+        installer = [(argv, cwd) for argv, _s, cwd, _e in schritte
                      if argv[0].endswith("install.sh")]
         self.assertEqual(1, len(installer))
         argv, cwd = installer[0]
@@ -245,7 +289,7 @@ class ComponentTable(unittest.TestCase):
     def test_a_component_without_root_never_calls_sudo(self):
         schritte = switcher.component_steps(
             self.komp("killswitch-indicator"), "install", None)
-        self.assertEqual([], [argv for argv, _s, _c in schritte
+        self.assertEqual([], [argv for argv, _s, _c, _e in schritte
                               if argv[0] == "sudo"])
 
     def test_an_update_guards_the_clone_before_it_pulls(self):
@@ -265,7 +309,7 @@ class ComponentTable(unittest.TestCase):
         """Not always our own directory: the clone may be the one somebody
         keeps in ~/Projekte, and that is where the pull has to happen."""
         schritte = switcher.component_steps(self.komp(), "update", None, "/woanders")
-        for argv, _s, cwd in schritte:
+        for argv, _s, cwd, _e in schritte:
             with self.subTest(argv=argv):
                 if argv[0] == "git":
                     self.assertIn("/woanders", argv)
@@ -1231,12 +1275,81 @@ class TheWindow(unittest.TestCase):
         self.win.busy = False
         self.win.comp_rows[comp["tool"]] = {"state": Recording()}
         self.win.run_component(comp, "install", "geheim")
-        for argv, stdin, cwd in switcher.component_steps(comp, "install", "geheim"):
+        for argv, stdin, cwd, _env in switcher.component_steps(
+                comp, "install", "geheim"):
             lauf, done, _on_line, kw = self.ran.pop(0)
             self.assertEqual(argv, lauf)
             self.assertEqual(stdin, kw.get("stdin"))
             self.assertEqual(cwd, kw.get("cwd"))
             done(True, "")
+
+    def sockel(self):
+        """switcher.Askpass replaced by one that only writes down what it was
+        asked to do. The real one needs a real GLib - tests/askpass-live.py
+        drives that one."""
+        protokoll = []
+
+        class Attrappe:
+            def __init__(self, wort):
+                protokoll.append(("new", wort))
+
+            def start(self):
+                protokoll.append(("start", None))
+                return "/run/user/1/misc-de-x/askpass"
+
+            def stop(self):
+                protokoll.append(("stop", None))
+
+        return protokoll, Attrappe
+
+    def mit_sockel(self, comp, zustand="install", wort="geheim"):
+        protokoll, attrappe = self.sockel()
+        echt = switcher.Askpass
+        switcher.Askpass = attrappe
+        self.win.comp_rows[comp["tool"]] = {"state": Recording()}
+        self.win.busy = False
+        self.ran.clear()
+        try:
+            self.win.run_component(comp, zustand, wort)
+        finally:
+            switcher.Askpass = echt
+        return protokoll
+
+    def test_the_socket_stands_while_the_installer_runs(self):
+        comp = self.komponente()
+        protokoll = self.mit_sockel(comp)
+        self.assertEqual([("new", "geheim"), ("start", None)], protokoll)
+        # The chain hands out one step at a time, so walk it to the installer.
+        env = None
+        for _ in range(len(switcher.component_steps(comp, "install", "x"))):
+            argv, done, _on_line, kw = self.ran.pop(0)
+            if argv[0].endswith("install.sh"):
+                env = kw.get("env")
+                break
+            done(True, "")
+        self.assertEqual("/run/user/1/misc-de-x/askpass",
+                         (env or {}).get("SUDO_ASKPASS"))
+        self.assertNotIn(("stop", None), protokoll,
+                         "taken down while the installer is still running")
+
+    def test_a_chain_that_breaks_takes_the_socket_down_with_it(self):
+        """Not only the way that worked: a password that sudo refuses ends the
+        chain at the second step, and a socket that outlives it is a socket
+        handing out a password to anything that asks."""
+        comp = self.komponente()
+        protokoll = self.mit_sockel(comp)
+        _argv, done, _on_line, _kw = self.ran.pop(0)
+        done(False, "fatal: could not read from remote")
+        self.assertIn(("stop", None), protokoll)
+        self.assertIsNone(self.win.askpass)
+
+    def test_a_tool_that_needs_no_root_gets_no_socket(self):
+        """killswitch-indicator installs into $HOME. Nothing there ever asks
+        for a password, so nothing hands one out."""
+        protokoll = self.mit_sockel(self.komponente("killswitch-indicator"),
+                                    wort=None)
+        self.assertEqual([], protokoll)
+        self.assertIsNone(self.win.askpass)
 
     def test_a_step_that_fails_stops_the_chain_and_shows_what_it_said(self):
         comp = self.komponente()
