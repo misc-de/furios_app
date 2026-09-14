@@ -1,14 +1,18 @@
 #!/bin/bash
 # SPDX-FileCopyrightText: Copyright (c) 2026 misc-de
 # SPDX-License-Identifier: MIT
-# Installs the switcher app (GTK4/libadwaita) with its icon and launcher
-# entry. Changes nothing about the active audio profile, nothing about the
-# modem and nothing about where the phone says it is - the modem and GPS pages
-# only appear if modemctl and gpsctl are installed as well.
+# Installs the app (GTK4/libadwaita) with its icon and launcher entry.
+# Changes nothing about the active audio profile, nothing about the modem,
+# nothing about where the phone says it is and nothing about the kill
+# switches - the pages for those only appear where their tool is installed.
 set -e
 cd "$(dirname "$0")"
 
-command -v audioctl >/dev/null || { echo "audioctl missing - run ../install.sh first"; exit 1; }
+# audioctl is what the first tab drives; without it the app would open and
+# have nothing to say. It lives in its own repository:
+# https://github.com/misc-de/furios_pipewire
+command -v audioctl >/dev/null || {
+    echo "audioctl missing - install furios_pipewire first"; exit 1; }
 python3 -c "import gi; gi.require_version('Adw','1')" 2>/dev/null \
   || { echo "libadwaita bindings missing: apt install python3-gi gir1.2-adw-1"; exit 1; }
 

@@ -1,0 +1,22 @@
+Licence notice for furios_pipewire
+==================================
+
+The source files in this repository are MIT (see LICENSE). Every file we wrote
+carries an SPDX header saying so.
+
+The built plugin is not MIT. `libspa-droid.so` compiles six source files from
+pulseaudio-modules-droid-modern into itself:
+
+    droid-util.c  droid-config.c  config-parser-xml.c
+    conversion.c  sllist.c        utils.c
+
+Those are LGPL-2.1 (Copyright (C) 2013-2022 Jolla Ltd.), version 2.1 only, not
+"or later". The resulting binary is a combined work and can only be distributed
+under the terms of the LGPL-2.1 - the .deb from packaging/build-deb.sh
+included, which ships a matching Debian copyright file.
+
+Anyone taking only the MIT files from here - the SPA node, the WirePlumber
+scripts, audioctl - takes on none of that.
+
+The full picture, including the projects this work is built on, is in the
+"Licence and credits" section of README.md.
