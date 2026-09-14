@@ -77,6 +77,8 @@ tests/run-tests.sh      # ohne Bildschirm, ohne root, ohne Telefon in der Hand
 tests/coverage.sh       # Zeilenabdeckung, mit der Standardbibliothek gemessen
 ```
 
+Stand: **143 Tests, 100 % der 804 Zeilen** von `misc-de.py`.
+
 `tests/gi_stub.py` tritt an die Stelle von PyGObject: das Fenster wird im
 Testprozess gebaut, gefuellt und geklickt, ohne dass ein Wayland-Server
 laeuft. Was so nicht geprueft werden kann, ist, was ein Mensch sieht - ob der

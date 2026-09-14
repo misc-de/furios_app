@@ -1003,6 +1003,126 @@ class TheWindow(unittest.TestCase):
         self.assertEqual([], [r for r in self.ran if "config" in r[0]])
         self.assertIn("Could not", str(win.toasts.text))
 
+    def test_the_click_itself_goes_through_the_question(self):
+        """Not just confirm_restore in isolation: the button must be wired to
+        it. Wired straight to the handler it would act on the tap, and every
+        test above would still pass."""
+        gerufen = []
+        recorder.reset()
+        _grp, btn = self.win.build_restore_group("what it costs", gerufen.append)
+        klick = [c[1][1] for c in recorder.calls
+                 if c[0] == "Gtk.Button.connect()" and c[1] and c[1][0] == "clicked"]
+        self.assertEqual(1, len(klick))
+        klick[0](btn)
+        self.assertEqual([], gerufen)
+        self.win.on_restore_response(None, "restore")
+        self.assertEqual([btn], gerufen)
+
+    def test_a_way_back_does_nothing_while_something_else_runs(self):
+        """Two switches at once is how a half-applied state is made."""
+        for handler in (self.win.on_gps_restore, self.win.on_switches_restore):
+            with self.subTest(handler=handler.__name__):
+                self.win.busy = True
+                self.ran.clear()
+                handler(None)
+                self.assertEqual([], self.ran)
+        self.win.busy = False
+
+    def test_without_pkexec_the_location_way_back_says_so(self):
+        win = self.gps_win()
+        real = switcher.PKEXEC
+        try:
+            switcher.PKEXEC = None
+            self.ran.clear()
+            win.busy = False
+            win.on_gps_restore(None)
+            self.assertEqual([], self.ran)
+            self.assertIn("pkexec", str(win.toasts.text))
+        finally:
+            switcher.PKEXEC = real
+
+    def test_a_location_way_back_that_fails_is_reported(self):
+        win = self.gps_win()
+        win.on_gps_restored(False, "gpsctl: no")
+        self.assertIn("Could not", str(win.toasts.text))
+
+    def test_the_indicator_rows_read_what_systemd_answers(self):
+        """"active" and "enabled" are systemd's words, and they are the whole
+        answer - anything else means not running, not remembered."""
+        win = self.switches_win()
+        win.on_indicator_active(True, "active\n")
+        self.assertTrue(win.sw_row.get_active())
+        self.assertEqual("running", win.sw_row.subtitle)
+        win.on_indicator_active(True, "failed\n")
+        self.assertFalse(win.sw_row.get_active())
+        self.assertEqual("not running", win.sw_row.subtitle)
+        # is-enabled exits non-zero for a disabled unit, so a failed call is
+        # an answer here, not an error.
+        win.on_indicator_enabled(True, "enabled\n")
+        self.assertTrue(win.sw_persist.get_active())
+        win.on_indicator_enabled(False, "disabled\n")
+        self.assertFalse(win.sw_persist.get_active())
+
+    def test_a_unit_that_would_not_start_says_so(self):
+        win = self.switches_win()
+        win.after_indicator(False, "", "start")
+        self.assertIn("Could not start", str(win.toasts.text))
+
+    def test_filling_the_switches_page_writes_nothing_back(self):
+        """The rows are set from what was read; without the guard each of
+        those writes would look like somebody flipping the switch."""
+        win = self.switches_win()
+        win._loading = True
+        self.ran.clear()
+        win.on_indicator_switch(win.sw_row, None)
+        win.on_indicator_persist(win.sw_persist, None)
+        win.set_extra("wifi", win.sw_wifi)
+        self.assertEqual([], self.ran)
+        win._loading = False
+
+    def test_a_tool_that_did_not_answer_is_not_shown_as_a_position(self):
+        win = self.switches_win()
+        win.on_switches_status(False, "")
+        self.assertIn("did not answer", win.srow_cam.subtitle)
+        self.assertIn("did not answer", win.srow_net.subtitle)
+
+    def test_an_unfetched_camera_list_says_how_to_fetch_it(self):
+        """The list needs root once. Until then the row must not imply that
+        one camera is spared - the switch takes all of them either way."""
+        win = self.switches_win()
+        win.on_switches_status(True, self.JSON.replace(
+            '"cameras": ["Back", "Front", "Back"]', '"cameras": []'))
+        self.assertIn("all of them", win.srow_cams.subtitle)
+        self.assertIn("--refresh", win.srow_cams.subtitle)
+
+    def test_choosing_bluetooth_is_written_through_the_tool_too(self):
+        """The Wi-Fi row is checked above; this one exists so that the second
+        row cannot quietly write the first one's name."""
+        win = self.switches_win()
+        self.ran.clear()
+        win._loading = False
+        win.sw_bt.set_active(True)
+        win.on_extra_bt(win.sw_bt, None)
+        self.assertEqual(["config", "bluetooth", "on"], list(self.ran[-1][0][1:]))
+
+    def test_switching_a_radio_on_says_what_it_will_do(self):
+        """"on" is the half that changes behaviour later, when the slider
+        moves - so it is the half that gets said out loud."""
+        win = self.switches_win()
+        win.after_extra(True, "wifi", "on")
+        self.assertIn("go off with the network switch", str(win.toasts.text))
+        win.toasts.text = None
+        win.after_extra(True, "wifi", "off")
+        self.assertIsNone(win.toasts.text)
+
+    def test_a_radio_that_could_not_be_changed_is_read_back(self):
+        win = self.switches_win()
+        self.ran.clear()
+        win.after_extra(False, "wifi", "on")
+        self.assertIn("Could not change wifi", str(win.toasts.text))
+        # and the page is re-read, so the switch returns to what is true
+        self.assertTrue(self.ran)
+
     def test_the_question_repeats_the_words_the_page_carries(self):
         """Nothing new to read at the moment of deciding."""
         recorder.reset()
