@@ -100,13 +100,27 @@ def profile_in_words(p):
     return PROFILE_WORDS.get(p, p)
 
 
-def run_async(argv, on_done, on_line=None):
+# Long enough that nothing honest is ever cut off - audioctl alone may wait 15
+# seconds for a sink, and a switch behind pkexec runs several systemctl calls
+# after that - and short enough that a phone is not left with a greyed-out
+# window and a pulsing bar until somebody kills the app.
+CALL_TIMEOUT = 90
+
+
+def run_async(argv, on_done, on_line=None, timeout=CALL_TIMEOUT):
     """audioctl runs for up to 15 seconds (it waits for a sink), so never
     call it blocking - the window would freeze.
 
     If on_line is passed, lines arrive one by one while the program is still
     running. That is the difference between "something is happening" and a
-    window that looks dead for ten seconds."""
+    window that looks dead for ten seconds.
+
+    Every call is bounded. systemctl can block on a job that is itself
+    waiting, and a helper that never returns used to mean set_busy(True) with
+    nothing to ever set it back: the switches stay grey, the progress bar
+    keeps pulsing, and the only way out is to kill the window. A bounded wait
+    turns that into an error message, which is a state somebody can act on.
+    """
     try:
         proc = Gio.Subprocess.new(
             argv, Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_MERGE
@@ -114,6 +128,38 @@ def run_async(argv, on_done, on_line=None):
     except GLib.Error as err:
         on_done(False, str(err))
         return
+
+    # on_done exactly once, whichever of the two gets there first. The caller's
+    # callback is held under its own name: the readers below look "on_done" up
+    # when they run, so rebinding it without this would have settle calling
+    # itself for ever.
+    finish = on_done
+    state = {"done": False, "timer": 0}
+
+    def settle(ok, out):
+        if state["done"]:
+            return
+        state["done"] = True
+        if state["timer"]:
+            GLib.source_remove(state["timer"])
+            state["timer"] = 0
+        finish(ok, out)
+
+    def give_up():
+        state["timer"] = 0
+        if not state["done"]:
+            # force_exit, not a polite signal: what is being waited on is a
+            # program that has already stopped answering.
+            proc.force_exit()
+        # Handed to settle either way rather than checked twice here. Whether
+        # an answer is too late is one question and it has one place to be
+        # asked, which is also the place a reader answering twice runs into.
+        settle(False, f"{argv[0]} did not answer within {timeout} seconds")
+        return False
+
+    if timeout:
+        state["timer"] = GLib.timeout_add_seconds(timeout, give_up)
+    on_done = settle
 
     if on_line is None:
         def finished(p, res):
