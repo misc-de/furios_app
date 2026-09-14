@@ -3,15 +3,16 @@
 # SPDX-License-Identifier: MIT
 """The switches for a FuriPhone that has been repaired by hand.
 
-Two pages, and each is one switch: the audio stack talks to the Android HAL
-through PipeWire or through PulseAudio as shipped, and the modem runs with the
-repairs from furios_modem_fixes or exactly as it came. The tools do the work -
-audioctl and modemctl - and this front end only calls them and shows what is
-actually running.
+Three pages, and each is one switch: the audio stack talks to the Android HAL
+through PipeWire or through PulseAudio as shipped, the modem runs with the
+repairs from furios_modem_fixes or exactly as it came, and geoclue either has
+the filter that throws away positions derived from the carrier's IP address or
+it does not. The tools do the work - audioctl, modemctl and gpsctl - and this
+front end only calls them and shows what is actually running.
 
-The modem page exists only when modemctl does. A tab that is always there and
-always says "not installed" is worse than no tab: it makes a phone where
-nothing is wrong look like a phone where something is.
+The modem and GPS pages exist only when their tool does. A tab that is always
+there and always says "not installed" is worse than no tab: it makes a phone
+where nothing is wrong look like a phone where something is.
 
 Deliberately plain: on a phone you want a button, not a control room.
 """
@@ -59,6 +60,8 @@ AUDIOCTL = _tool("audioctl")
 DMNR = _tool("furios-audio-dmnr")
 # Ships in a different package (furios_modem_fixes) and may simply not be here.
 MODEMCTL = _tool_maybe("modemctl")
+# Same again, from furios_gps.
+GPSCTL = _tool_maybe("gpsctl")
 # Switching the modem writes /usr/lib and /etc, so it needs root, and unlike
 # audioctl there is no version of it that does not. polkit's own helper is how
 # that is asked for; the action this phone carries allows it without a prompt
@@ -168,6 +171,8 @@ class Window(Adw.ApplicationWindow):
         self.audio_ok = True
         self.dmnr_ok = True
         self.modem_ok = True
+        self.gps_ok = True
+        self.gps_rows = []
 
         toolbar = Adw.ToolbarView()
         header = Adw.HeaderBar()
@@ -268,8 +273,18 @@ class Window(Adw.ApplicationWindow):
                 self.build_modem_page(), "modem", "Modem", "network-cellular-symbolic"
             )
 
+        self.gps_rows = []
+        if GPSCTL:
+            self.stack.add_titled_with_icon(
+                self.build_gps_page(), "gps", "GPS", "find-location-symbolic"
+            )
+
+        # Revealed when there is more than one page, rather than when the modem
+        # page in particular is there. Naming one page here is how a third one
+        # gets added and reaches nobody, because the bar that switches to it
+        # stays hidden on a phone without the second.
         switcher = Adw.ViewSwitcherBar(stack=self.stack)
-        switcher.set_reveal(bool(MODEMCTL))
+        switcher.set_reveal(bool(MODEMCTL) or bool(GPSCTL))
         toolbar.add_bottom_bar(switcher)
 
         self.toasts = Adw.ToastOverlay()
@@ -353,6 +368,157 @@ class Window(Adw.ApplicationWindow):
                            self.modem_restore_btn]
         return mpage
 
+    # ------------------------------------------------------------ GPS
+
+    def build_gps_page(self):
+        """Where the phone says it is.
+
+        The same question as the other two pages - as shipped, or repaired -
+        but the "off" side is the one that needs explaining here. Off does not
+        mean "no location". It means geoclue publishes the position of the
+        carrier's exit node as though the phone had been observed there.
+        """
+        gpage = Adw.PreferencesPage()
+
+        grp = Adw.PreferencesGroup(
+            title="Location",
+            description="Off is FuriOS as it came: asked where it is with no "
+            "Wi-Fi it recognises, the service answers with the position of "
+            "this phone's IP address - on mobile data the carrier's exit node, "
+            "tens of kilometres away - and geoclue passes it on as a position "
+            "like any other.",
+        )
+        self.gps_row = Adw.SwitchRow(
+            title="Filter active",
+            subtitle="reading …",
+        )
+        self.gps_row.connect("notify::active", self.on_gps_switch)
+        grp.add(self.gps_row)
+
+        self.gps_persist = Adw.SwitchRow(
+            title="Remember this choice",
+            subtitle="Off: the next boot returns to what was recorded",
+            active=True,
+        )
+        grp.add(self.gps_persist)
+
+        self.gps_progress = Gtk.ProgressBar(show_text=True, text="")
+        for m in ("top", "bottom"):
+            getattr(self.gps_progress, "set_margin_" + m)(6)
+        for m in ("start", "end"):
+            getattr(self.gps_progress, "set_margin_" + m)(12)
+        self.gps_revealer = Gtk.Revealer(
+            child=self.gps_progress,
+            transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN,
+            reveal_child=False,
+        )
+        grp.add(self.gps_revealer)
+        gpage.add(grp)
+
+        info = Adw.PreferencesGroup(title="Status")
+        self.grow_profile = Adw.ActionRow(title="Profile", subtitle="…")
+        self.grow_seen = Adw.ActionRow(title="Since this boot", subtitle="…")
+        self.grow_health = Adw.ActionRow(title="Checks", subtitle="…")
+        for row in (self.grow_profile, self.grow_seen, self.grow_health):
+            row.set_subtitle_selectable(True)
+            info.add(row)
+        gpage.add(info)
+
+        # No second button to turn this off with. On the other two pages the
+        # way back restores something - sound, a working network - and is worth
+        # its own control. Here the way back is the switch above, and a button
+        # that did the same thing would only be a second way to arrive at the
+        # carrier's IP address.
+        self.gps_rows = [self.gps_row, self.gps_persist]
+        return gpage
+
+    def on_gps_profile(self, ok, out):
+        """gpsctl prints the profile and *then* fails, when the two halves of
+        the state disagree - the switch is "mixed" and it exits 1 to say so.
+
+        So the return code is not what decides whether there was an answer.
+        Reading it that way would turn the one state a person most needs to see
+        into "gpsctl did not answer", on a phone where gpsctl answered
+        perfectly well and had something important to report.
+        """
+        found = self._keyed(out)
+        recorded, actual = found.get("recorded"), found.get("actual")
+        if not recorded or not actual:
+            self.gps_ok = False
+            self.gps_row.set_sensitive(False)
+            self.grow_profile.set_subtitle("gpsctl did not answer")
+            return
+        self.gps_ok = True
+
+        if actual == "fixed":
+            words = "IP positions are thrown away"
+        elif actual == "shipped":
+            words = "FuriOS as it came - the IP position is published"
+        else:
+            words = "half applied - use \"Filter active\" to settle it"
+        if recorded != actual and actual in ("fixed", "shipped"):
+            words += f" · not remembered, the next boot returns to \"{recorded}\""
+        self.grow_profile.set_subtitle(words)
+
+        self._syncing = True
+        self.gps_row.set_active(actual == "fixed")
+        self.gps_persist.set_active(recorded == actual)
+        self._syncing = False
+        self.gps_row.set_subtitle(
+            "On: a position that is really just this phone's IP address is refused"
+            if actual == "fixed"
+            else "Off: the carrier's exit node is published as a position"
+        )
+
+    def on_gps_status(self, ok, out):
+        if not out:
+            self.grow_health.set_subtitle("gpsctl did not answer")
+            self.grow_seen.set_subtitle("nothing to count")
+            return
+        bad = sum(1 for line in out.splitlines() if "FAIL" in line)
+        good = sum(1 for line in out.splitlines() if " ok " in line)
+        self.grow_health.set_subtitle(
+            f"{good} in place" if bad == 0 else f"{good} in place, {bad} not"
+        )
+        # "since boot: 5 asked, 0 located, 5 IP fallbacks rejected" - said back
+        # as it was printed. Counting nothing is a normal state and reads as one
+        # on a phone that has not asked yet, so it is not dressed up as a fault.
+        for line in out.splitlines():
+            if line.strip().startswith("since boot:"):
+                self.grow_seen.set_subtitle(line.split(":", 1)[1].strip())
+                break
+        else:
+            self.grow_seen.set_subtitle("nothing counted yet")
+
+    def on_gps_switch(self, row, _param):
+        if self._syncing or self.busy:
+            return
+        if not PKEXEC:
+            self.toast("pkexec is missing - cannot ask for the rights to switch")
+            return
+        mode = "set" if self.gps_persist.get_active() else "try"
+        want = "fixed" if row.get_active() else "shipped"
+        self.set_busy(True)
+        self.gps_progress.set_text("Switching …")
+        self.gps_revealer.set_reveal_child(True)
+        self.pulse_start("Switching the location filter …")
+        run_async([PKEXEC, GPSCTL, mode, want], self.on_gps_switched,
+                  on_line=self.on_progress_line)
+
+    def on_gps_switched(self, ok, out):
+        self.pulse_stop()
+        self.gps_revealer.set_reveal_child(False)
+        if not ok:
+            self.toast("Switching the location filter failed")
+            self.report(out or "No output.")
+        elif not self.gps_row.get_active():
+            # Not a neutral "done": the switch has just been turned off, and
+            # what that means is the thing somebody should be told.
+            self.toast("Filter off - the IP position is published again")
+        else:
+            self.toast("Filter on - IP positions are refused")
+        self.refresh()
+
     # ------------------------------------------------------------ Zustand
 
     def refresh(self):
@@ -363,6 +529,9 @@ class Window(Adw.ApplicationWindow):
             # reason the page can show something before anybody touches it.
             run_async([MODEMCTL, "profile"], self.on_modem_profile)
             run_async([MODEMCTL, "status"], self.on_modem_status)
+        if GPSCTL:
+            run_async([GPSCTL, "profile"], self.on_gps_profile)
+            run_async([GPSCTL, "status"], self.on_gps_status)
 
     # "recorded: x" and "actual: y", split on the colon rather than matched
     # against a prefix. modemctl lives in another package, so this is a
@@ -590,6 +759,8 @@ class Window(Adw.ApplicationWindow):
         # may assume the second page exists.
         for row in self.modem_rows:
             row.set_sensitive(not busy and self.modem_ok)
+        for row in self.gps_rows:
+            row.set_sensitive(not busy and self.gps_ok)
         if busy:
             self.switch_row.set_subtitle("Switching, this takes a moment …")
         elif not self.audio_ok:

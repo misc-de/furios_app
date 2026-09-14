@@ -2,8 +2,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 misc-de
 # SPDX-License-Identifier: MIT
 # Installs the switcher app (GTK4/libadwaita) with its icon and launcher
-# entry. Changes nothing about the active audio profile, and nothing about the
-# modem - the modem page only appears if modemctl is installed as well.
+# entry. Changes nothing about the active audio profile, nothing about the
+# modem and nothing about where the phone says it is - the modem and GPS pages
+# only appear if modemctl and gpsctl are installed as well.
 set -e
 cd "$(dirname "$0")"
 
@@ -30,3 +31,4 @@ echo
 echo "Done. It appears in the app grid as \"misc-de\"."
 echo "Start it directly: misc-de"
 command -v modemctl >/dev/null || echo "(no modemctl here, so no modem page - that is not a fault)"
+command -v gpsctl >/dev/null || echo "(no gpsctl here, so no GPS page - that is not a fault)"
