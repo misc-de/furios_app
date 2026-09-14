@@ -14,10 +14,8 @@ deren Zustand und sagt, was eine Entscheidung kostet:
 | GPS | `gpsctl` | [furios_gps](https://github.com/misc-de/furios_gps) |
 | Switches | `killswitch-indicator` | [furios_killswitch](https://github.com/misc-de/furios_killswitch) |
 
-Nur `audioctl` muss da sein. Fehlt eines der anderen, fehlt sein Reiter - und
-weil die Reiterleiste sich erst ab der zweiten Seite zeigt, sieht ein Telefon
-ohne diese Pakete aus wie eine App, die nur Audio kann. Ein Reiter, der
-dauernd "nicht installiert" sagt, laesst ein gesundes Telefon kaputt aussehen.
+Nur `audioctl` muss da sein. Fehlt eines der anderen, ist sein Reiter
+trotzdem da und bietet an, es zu holen - siehe unten.
 
 ## Installation
 
@@ -30,49 +28,53 @@ die App im App-Raster; direkt starten geht mit `misc-de`.
 
 Voraussetzungen: `python3-gi`, `gir1.2-adw-1` und `audioctl`.
 
-## Components: was fehlt, woher es kommt, was es tut
+## Wenn ein Werkzeug fehlt
 
-Der Knopf oben links oeffnet eine Seite, die alle vier Werkzeuge auflistet -
-auch die, die nicht installiert sind und deshalb keinen Reiter haben. Pro
-Werkzeug drei Zeilen: was es tut, aus welchem Repo es kommt, und wie es auf
-diesem Telefon steht.
+Jeder Reiter ist da, auch wenn sein Werkzeug es nicht ist. Dann zeigt er genau
+drei Dinge - was er tun wuerde, aus welchem Repo das kommt, und was beim
+Installieren passieren wird - und einen **Install**-Knopf. Sonst nichts:
+Schalter und Statuszeilen ohne etwas dahinter waeren Attrappen, und eine Seite
+voller ausgegrauter Bedienelemente sieht aus wie ein kaputtes Telefon statt
+nach einem fehlenden Paket.
 
-Dazu ein Knopf, und der heisst je nach Lage anders:
+Geholt wird nach `~/.local/share/misc-de/<repo>`, installiert wird daraus.
+Drei der vier Installer schreiben nach `/usr/local` und brauchen root; dieses
+Telefon hat keinen polkit-Agenten (`pkexec` antwortet "No authentication agent
+found"), also wird es gemacht wie im Terminal: `sudo` fragt einmal nach dem
+Passwort, das Skript laeuft als du, und nur seine eigenen sudo-Zeilen werden
+root. Danach wirft `sudo -k` das Ticket weg.
 
-| Lage | Knopf | was passiert |
-|---|---|---|
-| nicht installiert | **Install** | `git clone` nach `~/.local/share/misc-de/<repo>`, dann `./install.sh` daraus |
-| unser Klon, Repo ist weiter | **Update (N new)** | `git pull --ff-only`, dann `./install.sh` |
-| unser Klon, gleichstand | Up to date | nichts, der Knopf ist aus |
-| installiert, kein Klon | **Fetch the source** | nur klonen, damit Updates ueberhaupt sichtbar werden |
-| **eigener Klon** anderswo | Kept by you | **nichts** - siehe unten |
+Das Passwort geht durch die Pipe an `sudo` und nirgendwo sonst - nicht in
+`argv`, wo jedes `ps` es mitliest, nicht in eine Datei, nicht in die Umgebung,
+nicht in eine Logzeile -, und aus dem Eingabefeld ist es weg, sobald die Frage
+beantwortet ist. Ein falsches Passwort meldet `sudo` mit seinen eigenen
+Worten; die Kette bricht dort ab, statt einen Installer zu starten, der nicht
+fertig werden kann. Ein frisch geholtes Werkzeug bekommt seinen Reiterinhalt
+beim naechsten Start - die Seiten werden gebaut, wenn das Fenster aufgeht.
 
-**Ein Klon, den du selbst haeltst, wird nie angefasst.** Gefunden wird er an
-seiner origin-URL, nicht am Verzeichnisnamen (dasselbe Repo heisst hier
-`furios_gps_fix` und oben `furios_gps`), und dann bleibt es beim Hinsehen:
-`git ls-remote` fragt den Server nach seinem HEAD, `git rev-parse` liest den
-des Klons, und die Zeile sagt "up to date" oder "there is something new
-upstream". Kein `fetch`, kein `pull` - in einem fremden Arbeitsbaum kann
-unfertige Arbeit liegen, und was damit geschieht, entscheidet ihr Besitzer im
-Terminal.
+## Wenn es im Repo etwas Neues gibt
 
-**Vor jedem Holen wird gefragt**, und die Frage sagt die Befehle an, die
-laufen werden. Drei der vier Installer schreiben nach `/usr/local` und
-brauchen root - dieses Telefon hat keinen polkit-Agenten (`pkexec` antwortet
-"No authentication agent found"), also wird es gemacht wie im Terminal: `sudo`
-fragt einmal nach dem Passwort, das Installationsskript laeuft als du, und nur
-seine eigenen sudo-Zeilen werden root. Danach wird das Ticket mit `sudo -k`
-wieder weggeworfen.
+Beim Start sieht die App einmal nach, ob die installierten Werkzeuge noch dem
+Stand ihres Repos entsprechen. Gibt es Neues, erscheint am **Fuss der
+betreffenden Seite** eine Gruppe "Update available" mit dem, was dort wartet,
+und einem **Update**-Knopf. Gibt es nichts - oder war die Frage nicht zu
+beantworten, weil das Telefon gerade kein Netz hat -, erscheint gar nichts.
+Ein Angebot, das immer da ist, sagt nichts.
 
-Das Passwort geht durch die Pipe an `sudo` und nirgendwo sonst: nicht in
-`argv` (wo jedes `ps` es mitlesen wuerde), nicht in eine Datei, nicht in die
-Umgebung, nicht in eine Logzeile. Aus dem Eingabefeld wird es geloescht, sobald
-die Frage beantwortet ist. Ein falsches Passwort meldet `sudo` mit seinen
-eigenen Worten, und die Kette bricht dort ab, statt einen Installer zu
-starten, der nicht fertig werden kann.
+Wie nachgesehen wird, haengt davon ab, wem der Klon gehoert:
 
-Ein frisch geholtes Werkzeug bekommt seinen Reiter erst beim naechsten Start -
-die Reiter werden gebaut, wenn das Fenster aufgeht, und die Meldung sagt das.
+- **Unser eigener** (in `~/.local/share/misc-de`): `git fetch`, dann zaehlen,
+  wie viele Commits warten.
+- **Deiner** (gefunden an der origin-URL, nicht am Verzeichnisnamen - dasselbe
+  Repo heisst hier `furios_gps_fix` und oben `furios_gps`): `git ls-remote`
+  fragt den Server nach seinem HEAD, `git rev-parse` liest den des Klons.
+  **Kein fetch, kein pull** - das schriebe in ein fremdes `.git`.
+
+Ein Update in einem Klon, der dir gehoert, sagt das in der Rueckfrage, und es
+beginnt mit einer Wache: liegt dort irgendetwas Uncommittetes, wird **nichts**
+angefasst und der Grund steht als Satz da. Gezogen wird `--ff-only` - ein
+Merge ist keine Entscheidung, die eine App fuer einen fremden Arbeitsbaum
+trifft.
 
 ## Was jede Seite tut
 
@@ -121,7 +123,7 @@ tests/run-tests.sh      # ohne Bildschirm, ohne root, ohne Telefon in der Hand
 tests/coverage.sh       # Zeilenabdeckung, mit der Standardbibliothek gemessen
 ```
 
-Stand: **182 Tests, 100 % der 1075 Zeilen** von `misc-de.py`.
+Stand: **179 Tests, 100 % der 1052 Zeilen** von `misc-de.py`.
 
 `tests/gi_stub.py` tritt an die Stelle von PyGObject: das Fenster wird im
 Testprozess gebaut, gefuellt und geklickt, ohne dass ein Wayland-Server

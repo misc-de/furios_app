@@ -136,6 +136,8 @@ COMPONENTS = [
     {
         "tool": "audioctl",
         "page": "Audio",
+        "key": "audio",
+        "icon": "audio-speakers-symbolic",
         "url": "https://github.com/misc-de/furios_pipewire",
         "dir": "furios_pipewire",
         "root": True,
@@ -145,6 +147,8 @@ COMPONENTS = [
     {
         "tool": "modemctl",
         "page": "Modem",
+        "key": "modem",
+        "icon": "network-cellular-symbolic",
         "url": "https://github.com/misc-de/furios_modem_fixes",
         "dir": "furios_modem_fixes",
         "root": True,
@@ -154,6 +158,8 @@ COMPONENTS = [
     {
         "tool": "gpsctl",
         "page": "GPS",
+        "key": "gps",
+        "icon": "find-location-symbolic",
         "url": "https://github.com/misc-de/furios_gps",
         "dir": "furios_gps",
         "root": True,
@@ -163,6 +169,8 @@ COMPONENTS = [
     {
         "tool": "killswitch-indicator",
         "page": "Switches",
+        "key": "switches",
+        "icon": "changes-prevent-symbolic",
         "url": "https://github.com/misc-de/furios_killswitch",
         "dir": "furios_killswitch",
         "root": False,
@@ -205,33 +213,19 @@ def clone_elsewhere(url, base=None):
     return None
 
 
-def component_state(installed, mine, foreign, behind):
-    """What a component offers right now: (state, button text, sensitive).
-
-    Kept out of the widgets so the table below can be read as a table, and so
-    the one case that matters most - a clone somebody else keeps - can be
-    checked without a window: we do not pull in a working tree that is not
-    ours, whatever state it is in.
-    """
-    if foreign and not mine:
-        return ("own", "Kept by you", False)
-    if not installed:
-        return ("install", "Install", True)
-    if not mine:
-        return ("source", "Fetch the source", True)
-    if behind is None:
-        return ("update", "Update", True)      # could not ask; let them try
-    if behind == 0:
-        return ("current", "Up to date", False)
-    return ("update", "Update (%d new)" % behind, True)
-
-
-def component_steps(comp, zustand, wort):
+def component_steps(comp, zustand, wort, pfad=None):
     """The commands one fetch consists of, as (argv, stdin, cwd).
 
     A list, not a method: what runs as root, in which directory, and where the
     password goes is the part worth being able to read - and to check without
     starting anything.
+
+    An update may point at a clone somebody keeps themselves, so it starts by
+    refusing to touch one that has local changes: "git status --porcelain" as
+    a guard, with its own sentence, because a bare exit code would leave
+    somebody staring at a failure with no reason attached. --ff-only does the
+    rest - a merge is not something an app decides on behalf of a working
+    tree.
 
     The installer is NOT run with sudo. It runs as the user, exactly as it
     would in a terminal, and only its own sudo lines become root: run as root
@@ -239,14 +233,18 @@ def component_steps(comp, zustand, wort):
     installer refuses to be root altogether. What sudo is used for here is a
     ticket, taken once, dropped again at the end.
     """
-    pfad = clone_path(comp)
+    pfad = pfad or clone_path(comp)
     schritte = []
     if zustand == "update":
+        schritte.append((["bash", "-c",
+                          'test -z "$(git -C "$1" status --porcelain)" || '
+                          '{ echo "This clone has uncommitted changes. '
+                          'Nothing was touched - finish or stash them first, '
+                          'then update again."; exit 1; }',
+                          "guard", pfad], None, None))
         schritte.append((["git", "-C", pfad, "pull", "--ff-only"], None, None))
     else:
         schritte.append((["git", "clone", comp["url"], pfad], None, None))
-    if zustand == "source":
-        return schritte
     if comp["root"]:
         # -S reads the password from the pipe; -p "" keeps sudo's prompt out
         # of the output this window shows.
@@ -397,7 +395,7 @@ class Window(Adw.ApplicationWindow):
         self._restore_pending = (None, None)
         # Same idea on the components page: which fetch is waiting for an
         # answer, and the entry its password would come from.
-        self._comp_pending = (None, None, None)
+        self._comp_pending = (None, None, None, None)
         self.comp_rows = {}
         self.modem_rows = []
         # Whether there is anything behind each control. A switch whose tool
@@ -419,14 +417,6 @@ class Window(Adw.ApplicationWindow):
         self.refresh_btn.connect("clicked", lambda *_: self.refresh())
         header.pack_end(self.refresh_btn)
 
-        # The components live behind their own button rather than in a fifth
-        # tab: four tabs already fill 360 logical pixels, and this is a place
-        # people visit twice - once to fetch something, once when an update is
-        # due.
-        self.parts_btn = Gtk.Button(icon_name="system-software-install-symbolic")
-        self.parts_btn.set_tooltip_text("Components: what is installed, and from where")
-        self.parts_btn.connect("clicked", self.open_components)
-        header.pack_start(self.parts_btn)
 
         page = Adw.PreferencesPage()
 
@@ -501,40 +491,42 @@ class Window(Adw.ApplicationWindow):
         # into being if modemctl is installed, and with a single page the
         # switcher bar stays hidden - so on a phone without the modem package
         # nothing about this window looks different from before.
+        # Every tab exists, whether its tool does or not. A phone with only
+        # audioctl used to show a single page and look like an app that can do
+        # nothing else - the other three were missing without ever saying so.
+        # Now the tab is there and says what it would need, where that comes
+        # from and what it does, and offers to fetch it. What it does NOT show
+        # is the rest of the page: switches and status rows for a tool that is
+        # not there would be furniture with nothing behind it.
         self.stack = Adw.ViewStack()
-        self.stack.add_titled_with_icon(page, "audio", "Audio", "audio-speakers-symbolic")
-
         self.modem_rows = []
-        if MODEMCTL:
-            self.stack.add_titled_with_icon(
-                self.build_modem_page(), "modem", "Modem", "network-cellular-symbolic"
-            )
-
         self.gps_rows = []
-        if GPSCTL:
-            self.stack.add_titled_with_icon(
-                self.build_gps_page(), "gps", "GPS", "find-location-symbolic"
-            )
-
         self.sw_rows = []
-        if KILLSWITCH:
+        self.comp_rows = {}
+        bauer = {"audio": lambda: page,
+                 "modem": self.build_modem_page,
+                 "gps": self.build_gps_page,
+                 "switches": self.build_switches_page}
+        # One source of truth for "is this tool here", written down while the
+        # pages are built and read by refresh() afterwards. Asked twice - once
+        # here, once from the module constants - a page could end up unbuilt
+        # while something still asks its tool for a status, and the answer
+        # would arrive at rows that were never created.
+        self.live = {}
+        for comp in COMPONENTS:
+            werkzeug = _tool_maybe(comp["tool"])
+            self.live[comp["key"]] = werkzeug
+            seite = (self.build_page_with_update(comp, bauer[comp["key"]])
+                     if werkzeug else self.build_missing_page(comp))
             self.stack.add_titled_with_icon(
-                self.build_switches_page(), "switches", "Switches",
-                "changes-prevent-symbolic"
-            )
+                seite, comp["key"], comp["page"], comp["icon"])
 
-        # Revealed when there is more than one page, rather than when the modem
-        # page in particular is there. Naming one page here is how a third one
-        # gets added and reaches nobody, because the bar that switches to it
-        # stays hidden on a phone without the second.
-        #
         # Directly under the header, not at the foot of the window: the tabs
         # belong with the title of what they switch, and down there they sat
         # where a page's last control is - one thumb's width from "Restore
         # shipped state".
         self.switcher_bar = Adw.ViewSwitcherBar(stack=self.stack)
-        self.switcher_bar.set_reveal(
-            bool(MODEMCTL) or bool(GPSCTL) or bool(KILLSWITCH))
+        self.switcher_bar.set_reveal(True)
         toolbar.add_top_bar(self.switcher_bar)
 
         self.toasts = Adw.ToastOverlay()
@@ -543,119 +535,119 @@ class Window(Adw.ApplicationWindow):
         self.set_content(toolbar)
 
         self.refresh()
+        # Once per window, not on every refresh: this one goes to the network,
+        # and a button people press to re-read their phone should not start
+        # four connections every time.
+        self.check_updates()
 
 
     # ------------------------------------------------------------ Komponenten
 
-    def open_components(self, _btn=None):
-        """One page: what each tab needs, where it comes from, what it does."""
-        self.comp_rows = {}
-        page = Adw.PreferencesPage()
+    def build_missing_page(self, comp):
+        """The page of a tool that is not here: what it would do, where it
+        comes from, and one button.
 
-        erklaerung = Adw.PreferencesGroup(
-            description="Every tab here is one tool, and every tool is its own "
-            "repository. What is fetched is cloned to " + CLONE_HOME + " and "
-            "installed from there; three of the four write to /usr/local, so "
-            "sudo asks once for your password, the installer runs as you, and "
-            "the ticket is dropped afterwards. A clone you keep yourself is "
-            "only ever read - never pulled, never installed from.",
+        Nothing else. The switches and status rows of the real page would be
+        furniture with nothing behind it - and a page full of greyed-out
+        controls reads like a broken phone rather than a missing package.
+        """
+        seite = Adw.PreferencesPage()
+        grp = Adw.PreferencesGroup(
+            title=comp["page"] + " · not installed",
+            description="This tab drives " + comp["tool"] + ", and that is not "
+            "on this phone. It can be fetched and installed from here; until "
+            "then there is nothing to show.",
         )
-        page.add(erklaerung)
-
-        for comp in COMPONENTS:
-            page.add(self.build_component_group(comp))
-
-        self.parts_page = page
-        inhalt = Adw.ToolbarView()
-        kopf = Adw.HeaderBar()
-        inhalt.add_top_bar(kopf)
-        self.parts_toasts = Adw.ToastOverlay()
-        self.parts_toasts.set_child(page)
-        inhalt.set_content(self.parts_toasts)
-
-        self.parts_dialog = Adw.Dialog(title="Components")
-        self.parts_dialog.set_content_width(400)
-        self.parts_dialog.set_content_height(640)
-        self.parts_dialog.set_child(inhalt)
-        self.parts_dialog.present(self)
-        self.read_components()
-
-    def build_component_group(self, comp):
-        grp = Adw.PreferencesGroup(title="%s · %s" % (comp["page"], comp["tool"]))
         zeilen = {}
-        zeilen["does"] = Adw.ActionRow(title="What it does", subtitle=comp["does"])
+        zeilen["does"] = Adw.ActionRow(title="What it would do",
+                                       subtitle=comp["does"])
         zeilen["from"] = Adw.ActionRow(title="Comes from", subtitle=comp["url"])
-        zeilen["state"] = Adw.ActionRow(title="On this phone", subtitle="reading …")
+        zeilen["state"] = Adw.ActionRow(
+            title="What will happen",
+            subtitle="cloned to " + clone_path(comp) + ", then ./install.sh"
+            + (" - that one needs root, so sudo will ask for your password"
+               if comp["root"] else " - no root needed"))
         for zeile in zeilen.values():
             zeile.set_subtitle_selectable(True)
             grp.add(zeile)
-        btn = Gtk.Button(label="…")
+        btn = Gtk.Button(label="Install")
         btn.add_css_class("pill")
         btn.set_halign(Gtk.Align.CENTER)
         btn.set_margin_top(6)
         btn.set_margin_bottom(6)
-        btn.set_sensitive(False)
-        btn.connect("clicked", lambda _b, c=comp: self.ask_component(c))
+        btn.connect("clicked", lambda _b, c=comp: self.ask_component(c, "install"))
         grp.add(btn)
         zeilen["button"] = btn
         self.comp_rows[comp["tool"]] = zeilen
-        return grp
+        seite.add(grp)
+        return seite
 
-    def read_components(self):
-        """Fill every group, and ask the network only where there is a clone."""
+    def build_page_with_update(self, comp, bauen):
+        """The real page, with a way to update what is behind it.
+
+        The group is built hidden and only appears once someone has looked and
+        found something: an "Update" that is always there says nothing, and an
+        app that keeps offering an update it never checked for is worse than
+        one that offers none.
+        """
+        seite = bauen()
+        grp = Adw.PreferencesGroup(title="Update available")
+        grp.set_visible(False)
+        zeile = Adw.ActionRow(title="What is new", subtitle="…")
+        zeile.set_subtitle_selectable(True)
+        grp.add(zeile)
+        btn = Gtk.Button(label="Update")
+        btn.add_css_class("pill")
+        btn.set_halign(Gtk.Align.CENTER)
+        btn.set_margin_top(6)
+        btn.set_margin_bottom(6)
+        btn.connect("clicked", lambda _b, c=comp: self.ask_component(c, "update"))
+        grp.add(btn)
+        self.comp_rows[comp["tool"]] = {"group": grp, "state": zeile,
+                                        "button": btn}
+        seite.add(grp)
+        return seite
+
+    def check_updates(self):
+        """Ask, once per window, whether any of the installed tools has moved
+        on. Bounded like every other call here - a phone in a tunnel must not
+        be left with a page that says "checking" for ever."""
         for comp in COMPONENTS:
-            zeilen = self.comp_rows[comp["tool"]]
-            installiert = _tool_maybe(comp["tool"])
+            if not _tool_maybe(comp["tool"]) or comp["tool"] not in self.comp_rows:
+                continue
             meiner = clone_path(comp) if is_clone(clone_path(comp)) else None
-            fremder = clone_elsewhere(comp["url"])
-            worte = ("installed · " + installiert) if installiert else "not installed"
             if meiner:
-                worte += " · clone here, checking for updates …"
-            elif fremder:
-                worte += (" · your own clone at " + fremder
-                          + ", left untouched · looking upstream …")
-            zeilen["state"].set_subtitle(worte)
-            self.set_component_button(comp, installiert, meiner, fremder, None)
-            if meiner:
-                self.check_component(comp, installiert, meiner, fremder)
-            elif fremder:
-                self.peek_upstream(comp, installiert, fremder)
+                self.check_component(comp, meiner)
+            else:
+                fremder = clone_elsewhere(comp["url"])
+                if fremder:
+                    self.peek_upstream(comp, fremder)
 
-    def set_component_button(self, comp, installiert, meiner, fremder, behind):
-        zustand, text, aktiv = component_state(
-            bool(installiert), bool(meiner), bool(fremder), behind)
-        btn = self.comp_rows[comp["tool"]]["button"]
-        btn.set_label(text)
-        btn.set_sensitive(aktiv and not self.busy)
-        self.comp_rows[comp["tool"]]["state_name"] = zustand
-
-    def check_component(self, comp, installiert, meiner, fremder):
-        """git fetch, then count what is waiting. Both bounded like everything
-        else here: a phone in a tunnel must not leave the page saying
-        "checking" for ever."""
+    def check_component(self, comp, meiner):
+        """Our own clone: fetch, then count what is waiting."""
         def gezaehlt(ok, out):
             behind = behind_count(out) if ok else None
-            zeilen = self.comp_rows[comp["tool"]]
-            worte = ("installed · " + installiert) if installiert else "not installed"
-            if behind is None:
-                worte += " · clone here, could not check for updates"
-            elif behind == 0:
-                worte += " · clone here, up to date"
-            else:
-                worte += " · clone here, %d commit(s) behind" % behind
-            zeilen["state"].set_subtitle(worte)
-            self.set_component_button(comp, installiert, meiner, fremder, behind)
+            if behind:
+                self.offer_update(comp, "%d new commit(s) in %s"
+                                  % (behind, comp["url"]), meiner)
 
         def geholt(ok, _out):
-            if not ok:
-                gezaehlt(False, "")
-                return
-            run_async(["git", "-C", meiner, "rev-list", "--count", "HEAD..@{u}"],
-                      gezaehlt, timeout=30)
+            if ok:
+                run_async(["git", "-C", meiner, "rev-list", "--count",
+                           "HEAD..@{u}"], gezaehlt, timeout=30)
 
         run_async(["git", "-C", meiner, "fetch", "--quiet"], geholt, timeout=60)
 
-    def peek_upstream(self, comp, installiert, fremder):
+    def offer_update(self, comp, worte, pfad):
+        """Show the group at the foot of the page, and say where it would
+        pull. The path matters: it may be a clone somebody keeps themselves."""
+        zeilen = self.comp_rows[comp["tool"]]
+        zeilen["path"] = pfad
+        zeilen["state"].set_subtitle(worte + " · " + pfad)
+        zeilen["group"].set_visible(True)
+        zeilen["button"].set_sensitive(not self.busy)
+
+    def peek_upstream(self, comp, fremder):
         """Is there something new for a clone we must not touch?
 
         Answered by asking the server what its HEAD is and comparing it with
@@ -665,17 +657,10 @@ class Window(Adw.ApplicationWindow):
         terminal.
         """
         def verglichen(ok, out, oben):
-            zeilen = self.comp_rows[comp["tool"]]
-            worte = ("installed · " + installiert) if installiert else "not installed"
-            worte += " · your own clone at " + fremder + ", left untouched"
             hier = (out or "").strip().split()
-            if not ok or not oben or not hier:
-                worte += " · could not look upstream"
-            elif hier[0] == oben:
-                worte += " · up to date"
-            else:
-                worte += " · there is something new upstream"
-            zeilen["state"].set_subtitle(worte)
+            if not ok or not oben or not hier or hier[0] == oben:
+                return                         # nothing to say, so nothing said
+            self.offer_update(comp, "something new in " + comp["url"], fremder)
 
         def oben_gelesen(ok, out):
             kopf = (out or "").split()
@@ -686,7 +671,7 @@ class Window(Adw.ApplicationWindow):
         run_async(["git", "ls-remote", comp["url"], "HEAD"], oben_gelesen,
                   timeout=60)
 
-    def ask_component(self, comp):
+    def ask_component(self, comp, zustand):
         """Ask before fetching anything, and say exactly what will happen.
 
         Including the part that is easy to gloss over: this runs a script from
@@ -694,60 +679,62 @@ class Window(Adw.ApplicationWindow):
         """
         if self.busy:
             return
-        zustand = self.comp_rows[comp["tool"]].get("state_name")
-        pfad = clone_path(comp)
+        pfad = self.comp_rows[comp["tool"]].get("path") or clone_path(comp)
         schritte = []
         if zustand == "update":
-            schritte.append("git pull in " + pfad)
+            schritte.append("git pull --ff-only in " + pfad)
         else:
             schritte.append("git clone " + comp["url"] + " to " + pfad)
-        if zustand != "source":
-            schritte.append("run ./install.sh from that clone")
+        schritte.append("run ./install.sh from that clone")
         text = "\n".join("%d. %s" % (n, t) for n, t in enumerate(schritte, 1))
         body = text + "\n\nThat is code from the internet, running on this "
-        if comp["root"] and zustand != "source":
+        if comp["root"]:
             body += ("phone. The installer writes to /usr/local, so sudo will "
                      "ask for your password below - it goes to sudo and "
                      "nowhere else, and the ticket is dropped when this is "
                      "done.")
         else:
             body += "phone. Nothing here needs root."
+        if zustand == "update" and not pfad.startswith(CLONE_HOME):
+            body += ("\n\nThis is your own clone. With anything uncommitted "
+                     "in it, nothing is touched at all.")
 
         dlg = Adw.AlertDialog(heading=comp["tool"] + "?", body=body)
         eingabe = None
-        if comp["root"] and zustand != "source":
+        if comp["root"]:
             eingabe = Adw.PasswordEntryRow(title="Your password (for sudo)")
             grp = Adw.PreferencesGroup()
             grp.add(eingabe)
             dlg.set_extra_child(grp)
-        dlg.add_response("go", "Fetch and install" if zustand != "source"
-                         else "Fetch the source")
+        dlg.add_response("go", "Update" if zustand == "update"
+                         else "Fetch and install")
         dlg.add_response("cancel", "Cancel")
         dlg.set_default_response("cancel")
         dlg.set_close_response("cancel")
-        self._comp_pending = (comp, zustand, eingabe)
+        self._comp_pending = (comp, zustand, eingabe, pfad)
         dlg.connect("response", self.on_component_response)
         dlg.present(self)
 
     def on_component_response(self, _dlg, response):
-        comp, zustand, eingabe = self._comp_pending
-        self._comp_pending = (None, None, None)
+        comp, zustand, eingabe, pfad = self._comp_pending
+        self._comp_pending = (None, None, None, None)
         if response != "go" or comp is None:
             return
         wort = eingabe.get_text() if eingabe is not None else None
         if eingabe is not None:
             eingabe.set_text("")               # not kept a moment longer
-        self.run_component(comp, zustand, wort)
+        self.run_component(comp, zustand, wort, pfad)
 
-    def run_component(self, comp, zustand, wort):
+    def run_component(self, comp, zustand, wort, pfad=None):
         os.makedirs(CLONE_HOME, exist_ok=True)
-        schritte = component_steps(comp, zustand, wort)
+        schritte = component_steps(comp, zustand, wort, pfad)
 
         zeile = self.comp_rows[comp["tool"]]["state"]
         zeile.set_subtitle("working …")
         self.set_busy(True)
-        for tool in self.comp_rows:
-            self.comp_rows[tool]["button"].set_sensitive(False)
+        for zeilen in self.comp_rows.values():
+            if zeilen.get("button") is not None:
+                zeilen["button"].set_sensitive(False)
 
         rest = list(schritte)
 
@@ -771,13 +758,14 @@ class Window(Adw.ApplicationWindow):
             # A wrong password shows up here as sudo's own words, which say it
             # better than anything this window could invent.
             self.report(out or "No output.")
-        self.read_components()
         self.refresh()
 
     # ------------------------------------------------ Der Weg zurueck
     #
     # One way back, built the same way on every page: same group title, same
-    # button, same words, same place - the last thing on the page. Only the
+    # button, same words, same place - the foot of the page, below everything
+    # the page is about. (An update offer can appear under it; that one is
+    # about the tool itself, not about what the page does.) Only the
     # description differs, because what "as it came" costs is a different
     # thing on each of them.
     #
@@ -1310,22 +1298,30 @@ class Window(Adw.ApplicationWindow):
     # ------------------------------------------------------------ Zustand
 
     def refresh(self):
+        """Ask every tool whose page was actually built.
+
+        self.live, not the module constants: a page that was not built has no
+        rows for an answer to arrive at, and an answer that arrives anyway
+        takes the callback down with an AttributeError nobody sees.
+        """
         run_async([AUDIOCTL, "status"], self.on_status)
         run_async([DMNR, "status"], self.on_dmnr_status)
-        if MODEMCTL:
+        if self.live.get("modem"):
             # Both read-only, and neither needs root - which is the whole
             # reason the page can show something before anybody touches it.
-            run_async([MODEMCTL, "profile"], self.on_modem_profile)
-            run_async([MODEMCTL, "status"], self.on_modem_status)
-        if GPSCTL:
-            run_async([GPSCTL, "profile"], self.on_gps_profile)
-            run_async([GPSCTL, "status"], self.on_gps_status)
-        if KILLSWITCH:
-            run_async([KILLSWITCH, "status", "--json"], self.on_switches_status)
+            run_async([self.live["modem"], "profile"], self.on_modem_profile)
+            run_async([self.live["modem"], "status"], self.on_modem_status)
+        if self.live.get("gps"):
+            run_async([self.live["gps"], "profile"], self.on_gps_profile)
+            run_async([self.live["gps"], "status"], self.on_gps_status)
+        if self.live.get("switches"):
+            run_async([self.live["switches"], "status", "--json"],
+                      self.on_switches_status)
             run_async(["systemctl", "--user", "is-active",
                        "killswitch-indicator"], self.on_indicator_active)
             run_async(["systemctl", "--user", "is-enabled",
                        "killswitch-indicator"], self.on_indicator_enabled)
+
 
     # "recorded: x" and "actual: y", split on the colon rather than matched
     # against a prefix. modemctl lives in another package, so this is a
