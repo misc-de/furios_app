@@ -161,6 +161,13 @@ class Window(Adw.ApplicationWindow):
         self.busy = False
         self._syncing = False
         self.modem_rows = []
+        # Whether there is anything behind each control. A switch whose tool
+        # did not answer must not look operable - and it must not become
+        # operable again the moment something else finishes, which is what
+        # happened as long as set_busy was the only hand on the sensitivity.
+        self.audio_ok = True
+        self.dmnr_ok = True
+        self.modem_ok = True
 
         toolbar = Adw.ToolbarView()
         header = Adw.HeaderBar()
@@ -372,9 +379,11 @@ class Window(Adw.ApplicationWindow):
 
     def on_modem_profile(self, ok, out):
         if not ok:
+            self.modem_ok = False
             self.modem_row.set_sensitive(False)
             self.mrow_profile.set_subtitle("modemctl did not answer")
             return
+        self.modem_ok = True
         found = self._keyed(out)
         recorded, actual = found.get("recorded", "?"), found.get("actual", "?")
 
@@ -472,9 +481,11 @@ class Window(Adw.ApplicationWindow):
 
     def on_dmnr_status(self, ok, out):
         if not ok:
+            self.dmnr_ok = False
             self.dmnr_row.set_sensitive(False)
             self.dmnr_row.set_subtitle("not available on this device")
             return
+        self.dmnr_ok = True
         on = "state=on" in out
         self._syncing = True
         self.dmnr_row.set_active(on)
@@ -507,8 +518,21 @@ class Window(Adw.ApplicationWindow):
         # the phone had been on pw-hal permanently for two days.
         sticks = profile != "unknown" and persistent == profile and not testmode
 
+        # Nothing came back that names a profile: say that, and leave both
+        # switches where they are. Showing them off would be a statement about
+        # a phone this window knows nothing about - and "off" happens to be
+        # the shipped state, so it would be a plausible, wrong one.
+        self.audio_ok = profile != "unknown"
+        if not self.audio_ok:
+            self.row_profile.set_subtitle("audioctl did not answer")
+            self.row_server.set_subtitle(server_in_words(server))
+            self.row_sinks.set_subtitle(sinks.replace(",", ", ") or "none")
+            self.persist_row.set_subtitle("audioctl did not answer")
+            self.set_busy(False)
+            return
+
         text = profile_in_words(profile)
-        if profile == "unknown" or persistent == "unknown":
+        if persistent == "unknown":
             pass
         elif sticks:
             text += " - permanent"
@@ -558,16 +582,18 @@ class Window(Adw.ApplicationWindow):
 
     def set_busy(self, busy):
         self.busy = busy
-        self.switch_row.set_sensitive(not busy)
-        self.persist_row.set_sensitive(not busy)
-        self.dmnr_row.set_sensitive(not busy)
+        self.switch_row.set_sensitive(not busy and self.audio_ok)
+        self.persist_row.set_sensitive(not busy and self.audio_ok)
+        self.dmnr_row.set_sensitive(not busy and self.dmnr_ok)
         self.refresh_btn.set_sensitive(not busy)
         # Empty when there is no modem page, which is the point: nothing here
         # may assume the second page exists.
         for row in self.modem_rows:
-            row.set_sensitive(not busy)
+            row.set_sensitive(not busy and self.modem_ok)
         if busy:
             self.switch_row.set_subtitle("Switching, this takes a moment …")
+        elif not self.audio_ok:
+            self.switch_row.set_subtitle("audioctl did not answer")
         elif self.switch_row.get_active():
             self.switch_row.set_subtitle("On: PipeWire talks to the HAL directly")
         else:
