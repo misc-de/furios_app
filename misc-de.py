@@ -411,7 +411,12 @@ class Window(Adw.ApplicationWindow):
             "can be added, and are then switched off in software whenever the "
             "slider moves, and back on when it returns. Only radios switched "
             "off here are switched back on: one turned off by hand beforehand "
-            "stays off.",
+            "stays off.\n\n"
+            "All three rows say what the SLIDER takes down with it. They are "
+            "not the only way to turn these radios off: Settings switches "
+            "mobile data, Wi-Fi and Bluetooth any time you like, through "
+            "NetworkManager, and that path has nothing to do with this "
+            "switch.",
         )
         self.srow_net = Adw.ActionRow(title="Position", subtitle="…")
         self.srow_net.set_subtitle_selectable(True)
@@ -421,21 +426,23 @@ class Window(Adw.ApplicationWindow):
         # only way to "deselect" it would be to start the modem back up behind
         # the switch - undermining the very thing somebody flipped it for.
         self.sw_modem = Adw.SwitchRow(
-            title="Turn off the mobile network",
-            subtitle="always on - the switch itself does this, in firmware, "
-            "and it cannot be opted out of",
+            title="The mobile network goes with the switch",
+            subtitle="always - firmware stops the RIL about two seconds after "
+            "the slider moves, long before anything here hears about it, so "
+            "there is nothing to choose. (Switching mobile data off in "
+            "Settings is a different thing entirely, and works as always.)",
             active=True,
         )
         self.sw_modem.set_sensitive(False)
         net.add(self.sw_modem)
         self.sw_wifi = Adw.SwitchRow(
-            title="Turn off Wi-Fi as well",
+            title="Take Wi-Fi down with it as well",
             subtitle="reading …",
         )
         self.sw_wifi.connect("notify::active", self.on_extra_wifi)
         net.add(self.sw_wifi)
         self.sw_bt = Adw.SwitchRow(
-            title="Turn off Bluetooth as well",
+            title="Take Bluetooth down with it as well",
             subtitle="reading …",
         )
         self.sw_bt.connect("notify::active", self.on_extra_bt)
