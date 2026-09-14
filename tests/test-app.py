@@ -206,6 +206,12 @@ class ComponentTable(unittest.TestCase):
         finally:
             shutil_real.rmtree(base, ignore_errors=True)
 
+    def nirgends(self):
+        """A path that does not exist, and will not while the test runs."""
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil_real.rmtree, d, True)
+        return os.path.join(d, "noch-nicht-da")
+
     def test_what_git_answers_is_read_as_a_number_or_as_nothing(self):
         self.assertEqual(0, switcher.behind_count("0\n"))
         self.assertEqual(7, switcher.behind_count("7"))
@@ -213,13 +219,69 @@ class ComponentTable(unittest.TestCase):
         self.assertIsNone(switcher.behind_count("fatal: no upstream configured"))
 
     def test_an_install_clones_asks_sudo_once_and_drops_the_ticket(self):
-        schritte = switcher.component_steps(self.komp(), "install", "geheim")
+        # With a path, not the default: the default is a real directory on
+        # this phone, and once it exists this test measures the retry instead
+        # of the clone - which is how it first went green on a machine where
+        # the clone was already there.
+        schritte = switcher.component_steps(self.komp(), "install", "geheim",
+                                            self.nirgends())
         befehle = [" ".join(argv) for argv, _s, _c, _e in schritte]
         self.assertIn("git clone", befehle[0])
         self.assertEqual(1, len([b for b in befehle if b.startswith("sudo -S")]))
         self.assertTrue(any(b.endswith("install.sh") for b in befehle), befehle)
         self.assertEqual("sudo -k", befehle[-1],
                          "the ticket has to be dropped when the work is done")
+
+    def klon(self, url):
+        """A directory that git would recognise as a clone of `url`."""
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil_real.rmtree, d, True)
+        os.mkdir(os.path.join(d, ".git"))
+        with open(os.path.join(d, ".git", "config"), "w") as fh:
+            fh.write('[remote "origin"]\n\turl = %s\n' % url)
+        return d
+
+    def test_a_second_install_uses_the_clone_the_first_one_made(self):
+        """Read off the phone on 14.9.2026: the first Install cloned and then
+        failed further down, and every press after that ran "git clone" into
+        that same clone - "destination path already exists and is not an empty
+        directory", for ever, with no way out from inside the app."""
+        komp = self.komp()
+        schritte = switcher.component_steps(komp, "install", "geheim",
+                                            self.klon(komp["url"]))
+        befehle = [" ".join(argv) for argv, _s, _c, _e in schritte]
+        self.assertEqual([], [b for b in befehle if "git clone" in b])
+        self.assertTrue(any("pull --ff-only" in b for b in befehle), befehle)
+        self.assertTrue(any(b.endswith("install.sh") for b in befehle))
+
+    def test_a_clone_that_cannot_be_updated_is_installed_anyway(self):
+        """No network is a reason to install what is already here, not a
+        reason to refuse. Run for real: the chain stops at the first non-zero
+        exit, so this step has to end in one that is zero."""
+        komp = self.komp()
+        pfad = self.klon(komp["url"])
+        schritt = switcher.component_steps(komp, "install", "x", pfad)[0]
+        fertig = subprocess_real.run(schritt[0], capture_output=True)
+        self.assertEqual(0, fertig.returncode, fertig.stderr)
+        self.assertIn("installing what is already in it",
+                      fertig.stdout.decode())
+
+    def test_something_else_in_the_way_is_left_alone_and_said_so(self):
+        """A directory that is not a clone of this repository. Deleting it is
+        not this app's decision - saying which one it is, is."""
+        komp = self.komp()
+        fremd = tempfile.mkdtemp()
+        self.addCleanup(shutil_real.rmtree, fremd, True)
+        with open(os.path.join(fremd, "meins.txt"), "w") as fh:
+            fh.write("nicht von uns")
+        schritte = switcher.component_steps(komp, "install", "x", fremd)
+        self.assertEqual([], [a for a, _s, _c, _e in schritte
+                              if a[0] == "git" and "clone" in a])
+        fertig = subprocess_real.run(schritte[0][0], capture_output=True)
+        self.assertNotEqual(0, fertig.returncode)
+        self.assertIn("in the way", fertig.stdout.decode())
+        self.assertIn(fremd, fertig.stdout.decode())
+        self.assertTrue(os.path.exists(os.path.join(fremd, "meins.txt")))
 
     def test_the_password_never_reaches_a_command_line(self):
         """It goes to sudo through the pipe. In argv every "ps" on the phone
@@ -1211,7 +1273,10 @@ class TheWindow(unittest.TestCase):
 
     def test_the_question_says_the_commands_it_will_run(self):
         recorder.reset()
-        self.win.comp_rows[self.komponente()["tool"]] = {}
+        leer = tempfile.mkdtemp()
+        self.addCleanup(shutil_real.rmtree, leer, True)
+        self.win.comp_rows[self.komponente()["tool"]] = {
+            "path": os.path.join(leer, "noch-nicht-da")}
         self.win.ask_component(self.komponente(), "install")
         body = str([c for c in recorder.calls
                     if c[0] == "Adw.AlertDialog"][-1][2].get("body", ""))

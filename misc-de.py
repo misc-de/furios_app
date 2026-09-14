@@ -192,13 +192,21 @@ def is_clone(path):
     return bool(path) and os.path.isdir(os.path.join(path, ".git"))
 
 
-def clone_elsewhere(url, base=None):
-    """A clone of `url` the user keeps themselves, or None.
+def is_clone_of(path, url):
+    """Is this directory a clone of that repository?
 
-    Found by its origin, not by its directory name: the same repository sits
-    in ~/Projekte/furios_gps_fix here and is called furios_gps upstream, and a
-    name comparison would miss exactly the clone that must not be touched.
+    By its origin, never by its name: the same repository sits in
+    ~/Projekte/furios_gps_fix here and is called furios_gps upstream.
     """
+    try:
+        with open(os.path.join(path, ".git", "config")) as fh:
+            return url in fh.read()
+    except OSError:
+        return False
+
+
+def clone_elsewhere(url, base=None):
+    """A clone of `url` the user keeps themselves, or None."""
     base = OWN_CLONES if base is None else base
     try:
         namen = sorted(os.listdir(base))
@@ -206,12 +214,7 @@ def clone_elsewhere(url, base=None):
         return None
     for name in namen:
         pfad = os.path.join(base, name)
-        try:
-            with open(os.path.join(pfad, ".git", "config")) as fh:
-                text = fh.read()
-        except OSError:
-            continue
-        if url in text:
+        if is_clone_of(pfad, url):
             return pfad
     return None
 
@@ -324,6 +327,49 @@ class Askpass:
         self.helfer = None
 
 
+def source_steps(comp, zustand, pfad):
+    """Getting the code here: the commands, and the sentence somebody is asked
+    to agree to. Both from one place, because the question in front of a
+    person and what actually runs must not be able to drift apart.
+
+    Four cases, and the two in the middle are the ones this used to get wrong.
+    A second press of Install ran "git clone" into the clone the first press
+    had already made and died with "destination path already exists and is
+    not an empty directory" - for ever, with no way out from inside the app.
+    Seen on the phone on 14.9.2026, after an install that had failed further
+    down for another reason.
+    """
+    if zustand == "update":
+        wache = (["bash", "-c",
+                  'test -z "$(git -C "$1" status --porcelain)" || '
+                  '{ echo "This clone has uncommitted changes. Nothing was '
+                  'touched - finish or stash them first, then update '
+                  'again."; exit 1; }', "guard", pfad], None, None, None)
+        return ([wache,
+                 (["git", "-C", pfad, "pull", "--ff-only"], None, None, None)],
+                "git pull --ff-only in " + pfad)
+    if is_clone_of(pfad, comp["url"]):
+        # Ours, from an earlier press. Bring it up to date if that works and
+        # install from it either way: no network is a reason to install what
+        # is here, not a reason to refuse.
+        return ([(["bash", "-c",
+                   'git -C "$1" pull --ff-only || echo "Could not update the '
+                   'clone - installing what is already in it."',
+                   "retry", pfad], None, None, None)],
+                "the clone in " + pfad + " is already here - update it if "
+                "possible, install from it either way")
+    if os.path.exists(pfad):
+        # Not a clone of this repository, and not ours to delete.
+        return ([(["bash", "-c",
+                   'echo "$1 is in the way: it exists and is not a clone of '
+                   '$2. Nothing was touched - move it aside, then try '
+                   'again."; exit 1', "weg", pfad, comp["url"]],
+                  None, None, None)],
+                pfad + " is in the way - it is not a clone of " + comp["url"])
+    return ([(["git", "clone", comp["url"], pfad], None, None, None)],
+            "git clone " + comp["url"] + " to " + pfad)
+
+
 def installer_env(askpass):
     """What the installer is told, beyond where it runs.
 
@@ -365,18 +411,7 @@ def component_steps(comp, zustand, wort, pfad=None, askpass=None):
     not let them use that ticket. Which it may not: see Askpass.
     """
     pfad = pfad or clone_path(comp)
-    schritte = []
-    if zustand == "update":
-        schritte.append((["bash", "-c",
-                          'test -z "$(git -C "$1" status --porcelain)" || '
-                          '{ echo "This clone has uncommitted changes. '
-                          'Nothing was touched - finish or stash them first, '
-                          'then update again."; exit 1; }',
-                          "guard", pfad], None, None, None))
-        schritte.append((["git", "-C", pfad, "pull", "--ff-only"], None, None,
-                         None))
-    else:
-        schritte.append((["git", "clone", comp["url"], pfad], None, None, None))
+    schritte = list(source_steps(comp, zustand, pfad)[0])
     if comp["root"]:
         # -S reads the password from the pipe; -p "" keeps sudo's prompt out
         # of the output this window shows. It stays even though the helper
@@ -763,7 +798,7 @@ class Window(Adw.ApplicationWindow):
         zeilen["from"] = Adw.ActionRow(title="Comes from", subtitle=comp["url"])
         zeilen["state"] = Adw.ActionRow(
             title="What will happen",
-            subtitle="cloned to " + clone_path(comp) + ", then ./install.sh"
+            subtitle="fetched to " + clone_path(comp) + ", then ./install.sh"
             + (" - that one needs root, so sudo will ask for your password"
                if comp["root"] else " - no root needed"))
         for zeile in zeilen.values():
@@ -871,12 +906,8 @@ class Window(Adw.ApplicationWindow):
         if self.busy:
             return
         pfad = self.comp_rows[comp["tool"]].get("path") or clone_path(comp)
-        schritte = []
-        if zustand == "update":
-            schritte.append("git pull --ff-only in " + pfad)
-        else:
-            schritte.append("git clone " + comp["url"] + " to " + pfad)
-        schritte.append("run ./install.sh from that clone")
+        schritte = [source_steps(comp, zustand, pfad)[1],
+                    "run ./install.sh from that clone"]
         text = "\n".join("%d. %s" % (n, t) for n, t in enumerate(schritte, 1))
         body = text + "\n\nThat is code from the internet, running on this "
         if comp["root"]:
