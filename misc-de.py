@@ -423,15 +423,13 @@ class Window(Adw.ApplicationWindow):
         """
         spage = Adw.PreferencesPage()
 
-        grp = Adw.PreferencesGroup(
-            title="Indicator",
-            description="Shows an icon in the top bar for as long as the "
-            "camera or the network switch is engaged. Nothing else on the "
-            "phone says so: there is no rfkill device for these, and the bar "
-            "keeps showing the bars of whatever the modem last reported. The "
-            "microphone switch gets no icon - see 3 below.",
-        )
-        self.sw_row = Adw.SwitchRow(title="Icons in the top bar", subtitle="reading …")
+        # No paragraphs on this page. Each group is a switch, each row says
+        # what it is, and what needed explaining sits in the row's own
+        # subtitle - where it is read next to the thing it is about.
+        grp = Adw.PreferencesGroup(title="Indicator")
+        self.sw_row = Adw.SwitchRow(
+            title="Icons for the camera and network switch",
+            subtitle="reading …")
         self.sw_row.connect("notify::active", self.on_indicator_switch)
         grp.add(self.sw_row)
         self.sw_persist = Adw.SwitchRow(
@@ -443,15 +441,7 @@ class Window(Adw.ApplicationWindow):
         grp.add(self.sw_persist)
         spage.add(grp)
 
-        cam = Adw.PreferencesGroup(
-            title="1 · Camera",
-            description="This always covers ALL cameras at once - there is no "
-            "picking one. Engaged, the Android side stops camerahalserver, the "
-            "one service every camera goes through: signal 9, about two "
-            "seconds after the slider moves. No power is cut - the sensors "
-            "stay connected, but nothing is left running that could reach "
-            "them.",
-        )
+        cam = Adw.PreferencesGroup(title="1 · Camera")
         self.srow_cam = Adw.ActionRow(title="Position", subtitle="…")
         self.srow_cam_hal = Adw.ActionRow(title="Camera service", subtitle="…")
         self.srow_cams = Adw.ActionRow(title="Cameras affected", subtitle="…")
@@ -460,20 +450,7 @@ class Window(Adw.ApplicationWindow):
             cam.add(row)
         spage.add(cam)
 
-        net = Adw.PreferencesGroup(
-            title="2 · Network",
-            description="By itself this switch takes down the modem and "
-            "nothing else - Wi-Fi and Bluetooth keep running. The two below "
-            "can be added, and are then switched off in software whenever the "
-            "slider moves, and back on when it returns. Only radios switched "
-            "off here are switched back on: one turned off by hand beforehand "
-            "stays off.\n\n"
-            "All three rows say what the SLIDER takes down with it. They are "
-            "not the only way to turn these radios off: Settings switches "
-            "mobile data, Wi-Fi and Bluetooth any time you like, through "
-            "NetworkManager, and that path has nothing to do with this "
-            "switch.",
-        )
+        net = Adw.PreferencesGroup(title="2 · Network")
         self.srow_net = Adw.ActionRow(title="Position", subtitle="…")
         self.srow_net.set_subtitle_selectable(True)
         net.add(self.srow_net)
@@ -483,10 +460,8 @@ class Window(Adw.ApplicationWindow):
         # the switch - undermining the very thing somebody flipped it for.
         self.sw_modem = Adw.SwitchRow(
             title="The mobile network goes with the switch",
-            subtitle="always - firmware stops the RIL about two seconds after "
-            "the slider moves, long before anything here hears about it, so "
-            "there is nothing to choose. (Switching mobile data off in "
-            "Settings is a different thing entirely, and works as always.)",
+            subtitle="always, and not ours to change - firmware does it. "
+            "(Settings switches mobile data off separately, any time.)",
             active=True,
         )
         self.sw_modem.set_sensitive(False)
@@ -505,33 +480,15 @@ class Window(Adw.ApplicationWindow):
         net.add(self.sw_bt)
         spage.add(net)
 
-        mic = Adw.PreferencesGroup(
-            title="3 · Microphone",
-            description="Cuts the BUILT-IN microphones - measured: the level "
-            "drops by 37.8 dB and what is left is the converter's own noise. "
-            "A headset brings its own microphone along a path of its own, over "
-            "Bluetooth or the jack, and this switch is not in that path (not "
-            "verified here - ask and it can be measured with a headset "
-            "connected).\n\n"
-            "It cannot be switched from software, and its position cannot be "
-            "read either. It is the only one of the three that physically cuts "
-            "the line, and that is exactly why the system cannot see it: a "
-            "built-in microphone is not a device that announces itself, it is "
-            "an analogue line into a codec input. Engaged against free, 2337 "
-            "lines of GPIOs, properties, ALSA controls and jack states came "
-            "back identical.\n\n"
-            "Nothing here tries to work it out anyway. Telling the two apart "
-            "means opening the microphone and listening for a few seconds - "
-            "the one thing this switch is flipped to prevent - and the answer "
-            "would hold for those seconds only: moved while the screen is on, "
-            "the switch tells nobody, so nothing would go looking. An icon "
-            "that is right some of the time is worse than none, so there is no "
-            "icon for this switch and nothing is measured in the background. "
-            "The slider on the housing is the display.",
-        )
+        mic = Adw.PreferencesGroup(title="3 · Microphone")
+        # The one line that cannot go: without it the row reads like a defect.
+        # It cuts the built-in microphones for real, and reading the position
+        # would mean opening them - which is what the switch is flipped
+        # against. The long version lives in the project's FINDINGS.md.
         self.srow_mic = Adw.ActionRow(
             title="Position",
-            subtitle="not readable - and not listened for either")
+            subtitle="not readable - finding out would mean opening the "
+            "microphone, which is what this switch is against")
         self.srow_mic.set_subtitle_selectable(True)
         mic.add(self.srow_mic)
         # For anyone who does want a number: one measurement, asked for by
@@ -539,8 +496,7 @@ class Window(Adw.ApplicationWindow):
         # an invitation, and this one should be a decision.
         hint = Adw.ActionRow(
             title="Measure once by hand",
-            subtitle="killswitch-indicator mic-check - opens the microphone "
-            "for three seconds and says what it heard")
+            subtitle="killswitch-indicator mic-check")
         hint.set_subtitle_selectable(True)
         mic.add(hint)
         spage.add(mic)
