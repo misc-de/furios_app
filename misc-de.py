@@ -86,6 +86,17 @@ def server_in_words(raw):
     return raw
 
 
+PROFILE_WORDS = {
+    "pw-hal": "PipeWire owns the HAL",
+    "standard": "PulseAudio owns the HAL (as shipped)",
+    "pw-tunnel": "PulseAudio owns the HAL, PipeWire gets a sink",
+}
+
+
+def profile_in_words(p):
+    return PROFILE_WORDS.get(p, p)
+
+
 def run_async(argv, on_done, on_line=None):
     """audioctl runs for up to 15 seconds (it waits for a sink), so never
     call it blocking - the window would freeze.
@@ -432,12 +443,14 @@ class Window(Adw.ApplicationWindow):
         )
 
     def on_status(self, ok, out):
-        profile, server, sinks = "unknown", "-", "-"
+        profile, persistent, server, sinks = "unknown", "unknown", "-", "-"
         warn = None
         testmode = False
         for line in out.splitlines():
             if line.startswith("Profile (active):"):
                 profile = line.split(":", 1)[1].strip()
+            elif line.startswith("Profile (persistent):"):
+                persistent = line.split(":", 1)[1].strip()
             elif line.startswith("WARNING:"):
                 warn = line.split(":", 1)[1].strip()
             elif line.startswith("Test mode:"):
@@ -447,16 +460,19 @@ class Window(Adw.ApplicationWindow):
             elif line.startswith("Sinks:"):
                 sinks = line.split(":", 1)[1].strip()
 
-        if profile == "pw-hal":
-            text = "PipeWire owns the HAL"
-        elif profile == "standard":
-            text = "PulseAudio owns the HAL (as shipped)"
-        elif profile == "pw-tunnel":
-            text = "PulseAudio owns the HAL, PipeWire gets a sink"
+        # What survives a reboot is not what is running: audioctl keeps both,
+        # and "try" changes only the first of them. Showing one and calling it
+        # the state is how this window claimed the shipped stack was set while
+        # the phone had been on pw-hal permanently for two days.
+        sticks = profile != "unknown" and persistent == profile and not testmode
+
+        text = profile_in_words(profile)
+        if profile == "unknown" or persistent == "unknown":
+            pass
+        elif sticks:
+            text += " - permanent"
         else:
-            text = profile
-        if testmode:
-            text += " - until reboot"
+            text += f" - until the next reboot, then {profile_in_words(persistent)}"
         if warn:
             text += f" | {warn}"
         self.row_profile.set_subtitle(text)
@@ -466,7 +482,19 @@ class Window(Adw.ApplicationWindow):
         # Schalter nachfuehren, ohne dabei ein Umschalten auszuloesen.
         self._syncing = True
         self.switch_row.set_active(profile == "pw-hal")
+        # This one is both a report and a choice: it says whether what is
+        # running now is what the phone comes back to, and it decides between
+        # "set" and "try" for the next switch.
+        self.persist_row.set_active(sticks)
         self._syncing = False
+        if persistent == "unknown":
+            self.persist_row.set_subtitle("Off: a reboot returns to the shipped state")
+        elif sticks:
+            self.persist_row.set_subtitle("On: this is what the phone comes back to")
+        else:
+            self.persist_row.set_subtitle(
+                f"Off: a reboot returns to {profile_in_words(persistent)}"
+            )
         self.set_busy(False)
 
     def pulse_start(self, text):
