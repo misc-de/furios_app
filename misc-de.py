@@ -214,6 +214,9 @@ class Window(Adw.ApplicationWindow):
         self.set_default_size(360, 480)
         self.busy = False
         self._syncing = False
+        # Which way back is waiting for an answer, set while the question is
+        # on screen. A pair, never a bare handler: the button belongs with it.
+        self._restore_pending = (None, None)
         self.modem_rows = []
         # Whether there is anything behind each control. A switch whose tool
         # did not answer must not look operable - and it must not become
@@ -294,19 +297,11 @@ class Window(Adw.ApplicationWindow):
 
 
         # --- Notnagel ---
-        rescue = Adw.PreferencesGroup(
-            title="If you hear nothing",
-            description="Returns to the shipped state and sends sound to the "
-            "speaker - audible volume, unmuted.",
-        )
-        btn = Gtk.Button(label="Restore sound")
-        btn.add_css_class("pill")
-        btn.add_css_class("suggested-action")
-        btn.set_halign(Gtk.Align.CENTER)
-        btn.set_margin_top(6)
-        btn.set_margin_bottom(6)
-        btn.connect("clicked", self.on_rescue)
-        rescue.add(btn)
+        rescue, self.rescue_btn = self.build_restore_group(
+            "Returns to the shipped state and sends sound to the speaker - "
+            "audible volume, unmuted. This is also the one to press when you "
+            "hear nothing at all.",
+            self.on_rescue)
         page.add(rescue)
 
         # --- die Seiten ---
@@ -352,6 +347,67 @@ class Window(Adw.ApplicationWindow):
 
         self.refresh()
 
+
+    # ------------------------------------------------ Der Weg zurueck
+    #
+    # One way back, built the same way on every page: same group title, same
+    # button, same words, same place - the last thing on the page. Only the
+    # description differs, because what "as it came" costs is a different
+    # thing on each of them.
+    #
+    # Before this, audio had a blue "Restore sound" and the modem a red
+    # "Restore shipped state" while the other two pages had none at all. Three
+    # different shapes for one idea, and the colours made a claim on top of
+    # it: blue said "do this", red said "careful". Neither is true in general
+    # - whether going back is a rescue or a loss depends on the page, and the
+    # description is where that belongs. So the button is plain everywhere.
+
+    RESTORE_TITLE = "Back to how it shipped"
+    RESTORE_LABEL = "Restore shipped state"
+
+    def build_restore_group(self, description, handler):
+        """The group and the button; the caller adds the group to its page.
+
+        The button asks before it acts. None of these four is a keystroke to
+        take back: the audio one restarts the sound stack, the modem one takes
+        the repairs out and leaves the phone without a network, the location
+        one starts publishing an IP-derived position again, and the switches
+        one takes the icons away. The question is the same everywhere, and it
+        repeats the same words the group carries - nothing new to read at the
+        moment of deciding.
+        """
+        grp = Adw.PreferencesGroup(title=self.RESTORE_TITLE,
+                                   description=description)
+        btn = Gtk.Button(label=self.RESTORE_LABEL)
+        btn.add_css_class("pill")
+        btn.set_halign(Gtk.Align.CENTER)
+        btn.set_margin_top(6)
+        btn.set_margin_bottom(6)
+        btn.connect("clicked", lambda button:
+                    self.confirm_restore(description, handler, button))
+        grp.add(btn)
+        return grp, btn
+
+    def confirm_restore(self, body, handler, btn):
+        """Ask first, act on "Restore" only.
+
+        Cancel is the default and also what closing the dialog means, so a
+        stray tap anywhere outside it does nothing at all.
+        """
+        self._restore_pending = (handler, btn)
+        dlg = Adw.AlertDialog(heading=self.RESTORE_TITLE + "?", body=body)
+        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("restore", self.RESTORE_LABEL)
+        dlg.set_default_response("cancel")
+        dlg.set_close_response("cancel")
+        dlg.connect("response", self.on_restore_response)
+        dlg.present(self)
+
+    def on_restore_response(self, _dlg, response):
+        handler, btn = self._restore_pending
+        self._restore_pending = (None, None)
+        if response == "restore" and handler is not None:
+            handler(btn)
 
     # ------------------------------------------------------------ Switches
 
@@ -489,7 +545,20 @@ class Window(Adw.ApplicationWindow):
         mic.add(hint)
         spage.add(mic)
 
-        self.sw_rows = [self.sw_row, self.sw_persist, self.sw_wifi, self.sw_bt]
+        # Nothing here can undo what the sliders do - they are hardware, and
+        # Android acts on them before this program hears about it. What this
+        # page added is the indicator and the two extra radios, and that is
+        # exactly what goes away again.
+        back, self.sw_restore_btn = self.build_restore_group(
+            "Stops the icons in the top bar and takes them out of the next "
+            "boot, and leaves Wi-Fi and Bluetooth out of the network switch. "
+            "The sliders themselves keep doing what they do - that is "
+            "hardware, and nothing here reaches it.",
+            self.on_switches_restore)
+        spage.add(back)
+
+        self.sw_rows = [self.sw_row, self.sw_persist, self.sw_wifi, self.sw_bt,
+                        self.sw_restore_btn]
         return spage
 
     def on_switches_status(self, ok, out):
@@ -586,6 +655,32 @@ class Window(Adw.ApplicationWindow):
             self.toasts.add_toast(Adw.Toast(
                 title=f"{radio} will go off with the network switch"))
 
+    def on_switches_restore(self, _btn):
+        """Everything this page added, taken back out - in one go.
+
+        Three commands, not one: the tool owns the two extra radios and
+        systemd owns the unit. They run one after the other and stop at the
+        first failure, so a half-done state is reported rather than passed off
+        as success.
+        """
+        if self.busy:
+            return
+        self.set_busy(True)
+        self.run_chain([
+            [KILLSWITCH, "config", "wifi", "off"],
+            [KILLSWITCH, "config", "bluetooth", "off"],
+            ["systemctl", "--user", "disable", "--now", "killswitch-indicator"],
+        ], self.on_switches_restored)
+
+    def on_switches_restored(self, ok, out):
+        if ok:
+            self.toast("Shipped state - no icons, and the switch takes only "
+                       "the modem")
+        else:
+            self.toast("Could not restore the shipped state")
+            self.report(out or "No output.")
+        self.refresh()
+
     # ------------------------------------------------------------ Modem
 
     def build_modem_page(self):
@@ -635,25 +730,14 @@ class Window(Adw.ApplicationWindow):
             info.add(row)
         mpage.add(info)
 
-        # The counterpart to "Restore sound" on the audio page, and named for
-        # what it does rather than for rescue: taking the repairs out is a way
-        # back to the phone as it came, not a way out of trouble. The audio
-        # button restores something audible; this one takes function away, so
-        # it says so and is styled as the destructive thing it is.
-        back = Adw.PreferencesGroup(
-            title="Back to how it shipped",
-            description="Takes every repair out, restarts the modem stack and "
-            "remembers it. With Wi-Fi off there is then no route out and no "
-            "name resolution.",
-        )
-        self.modem_restore_btn = Gtk.Button(label="Restore shipped state")
-        self.modem_restore_btn.add_css_class("pill")
-        self.modem_restore_btn.add_css_class("destructive-action")
-        self.modem_restore_btn.set_halign(Gtk.Align.CENTER)
-        self.modem_restore_btn.set_margin_top(6)
-        self.modem_restore_btn.set_margin_bottom(6)
-        self.modem_restore_btn.connect("clicked", self.on_modem_restore)
-        back.add(self.modem_restore_btn)
+        # What it costs here is the opposite of the audio page: that one
+        # brings something back, this one takes function away. Same button,
+        # and the description carries the difference.
+        back, self.modem_restore_btn = self.build_restore_group(
+            "Takes every repair out, restarts the modem stack and remembers "
+            "it. With Wi-Fi off there is then no route out and no name "
+            "resolution.",
+            self.on_modem_restore)
         mpage.add(back)
 
         self.modem_rows = [self.modem_row, self.modem_persist,
@@ -716,12 +800,19 @@ class Window(Adw.ApplicationWindow):
             info.add(row)
         gpage.add(info)
 
-        # No second button to turn this off with. On the other two pages the
-        # way back restores something - sound, a working network - and is worth
-        # its own control. Here the way back is the switch above, and a button
-        # that did the same thing would only be a second way to arrive at the
-        # carrier's IP address.
-        self.gps_rows = [self.gps_row, self.gps_persist]
+        # The switch above reaches the same state, and for a while that was
+        # the argument against a button here. But a way back that exists on
+        # some pages and not on others is one somebody has to go looking for -
+        # so it is here too, worded so that nobody presses it by mistake.
+        back, self.gps_restore_btn = self.build_restore_group(
+            "Switches the filter off and remembers it. Asked where it is with "
+            "no Wi-Fi it recognises, the phone then publishes the position of "
+            "its own IP address again - on mobile data the carrier's exit "
+            "node, tens of kilometres away.",
+            self.on_gps_restore)
+        gpage.add(back)
+
+        self.gps_rows = [self.gps_row, self.gps_persist, self.gps_restore_btn]
         return gpage
 
     def on_gps_profile(self, ok, out):
@@ -809,6 +900,33 @@ class Window(Adw.ApplicationWindow):
             self.toast("Filter off - the IP position is published again")
         else:
             self.toast("Filter on - IP positions are refused")
+        self.refresh()
+
+    def on_gps_restore(self, _btn):
+        if self.busy:
+            return
+        if not PKEXEC:
+            self.toast("pkexec is missing - cannot ask for the rights to switch")
+            return
+        self.set_busy(True)
+        self.gps_progress.set_text("Restoring …")
+        self.gps_revealer.set_reveal_child(True)
+        self.pulse_start("Back to the shipped state …")
+        # "set", not "try", like the other pages: what it restores is what the
+        # phone comes back to after the next boot.
+        run_async([PKEXEC, GPSCTL, "set", "shipped"], self.on_gps_restored,
+                  on_line=self.on_progress_line)
+
+    def on_gps_restored(self, ok, out):
+        self.pulse_stop()
+        self.gps_revealer.set_reveal_child(False)
+        if ok:
+            # Again not a neutral "done" - what was switched off is the part
+            # that matters.
+            self.toast("Shipped state - the IP position is published again")
+        else:
+            self.toast("Could not restore the shipped state")
+            self.report(out or "No output.")
         self.refresh()
 
     # ------------------------------------------------------------ Zustand
@@ -1053,12 +1171,18 @@ class Window(Adw.ApplicationWindow):
         self.persist_row.set_sensitive(not busy and self.audio_ok)
         self.dmnr_row.set_sensitive(not busy and self.dmnr_ok)
         self.refresh_btn.set_sensitive(not busy)
+        self.rescue_btn.set_sensitive(not busy)
         # Empty when there is no modem page, which is the point: nothing here
         # may assume the second page exists.
         for row in self.modem_rows:
             row.set_sensitive(not busy and self.modem_ok)
         for row in self.gps_rows:
             row.set_sensitive(not busy and self.gps_ok)
+        # The switches page has no tool state to be unsure about - the rows
+        # are there or the page is not - so busy is the only thing that closes
+        # them.
+        for row in self.sw_rows:
+            row.set_sensitive(not busy)
         if busy:
             self.switch_row.set_subtitle("Switching, this takes a moment …")
         elif not self.audio_ok:
@@ -1132,6 +1256,20 @@ class Window(Adw.ApplicationWindow):
         if not ok:
             self.report(out or "No output.")
         self.refresh()
+
+    def run_chain(self, commands, done):
+        """Run several commands one after another, stopping at the first that
+        fails. The last output seen is what `done` is handed, because that is
+        the one worth showing."""
+        rest = list(commands)
+
+        def step(ok=True, out=""):
+            if not ok or not rest:
+                done(ok, out)
+                return
+            run_async(rest.pop(0), step)
+
+        step()
 
     # ------------------------------------------------------------ Meldungen
 
