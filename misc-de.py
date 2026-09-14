@@ -321,7 +321,29 @@ class Window(Adw.ApplicationWindow):
             info.add(row)
         mpage.add(info)
 
-        self.modem_rows = [self.modem_row, self.modem_persist]
+        # The counterpart to "Restore sound" on the audio page, and named for
+        # what it does rather than for rescue: taking the repairs out is a way
+        # back to the phone as it came, not a way out of trouble. The audio
+        # button restores something audible; this one takes function away, so
+        # it says so and is styled as the destructive thing it is.
+        back = Adw.PreferencesGroup(
+            title="Back to how it shipped",
+            description="Takes every repair out, restarts the modem stack and "
+            "remembers it. With Wi-Fi off there is then no route out and no "
+            "name resolution.",
+        )
+        self.modem_restore_btn = Gtk.Button(label="Restore shipped state")
+        self.modem_restore_btn.add_css_class("pill")
+        self.modem_restore_btn.add_css_class("destructive-action")
+        self.modem_restore_btn.set_halign(Gtk.Align.CENTER)
+        self.modem_restore_btn.set_margin_top(6)
+        self.modem_restore_btn.set_margin_bottom(6)
+        self.modem_restore_btn.connect("clicked", self.on_modem_restore)
+        back.add(self.modem_restore_btn)
+        mpage.add(back)
+
+        self.modem_rows = [self.modem_row, self.modem_persist,
+                           self.modem_restore_btn]
         return mpage
 
     # ------------------------------------------------------------ Zustand
@@ -408,6 +430,32 @@ class Window(Adw.ApplicationWindow):
         self.pulse_start("Switching the modem …")
         run_async([PKEXEC, MODEMCTL, mode, want], self.on_modem_switched,
                   on_line=self.on_progress_line)
+
+    def on_modem_restore(self, _btn):
+        if self.busy:
+            return
+        if not PKEXEC:
+            self.toast("pkexec is missing - cannot ask for the rights to switch")
+            return
+        self.set_busy(True)
+        self.modem_progress.set_text("Restoring …")
+        self.modem_revealer.set_reveal_child(True)
+        self.pulse_start("Back to the shipped state …")
+        # "set", not "try": the same promise the audio button makes - what it
+        # restores is what the phone comes back to. And the same command a
+        # person would type, so there is one truth about what this does.
+        run_async([PKEXEC, MODEMCTL, "set", "shipped"], self.on_modem_restored,
+                  on_line=self.on_progress_line)
+
+    def on_modem_restored(self, ok, out):
+        self.pulse_stop()
+        self.modem_revealer.set_reveal_child(False)
+        if ok:
+            self.toast("Shipped state - no network without Wi-Fi")
+        else:
+            self.toast("Could not restore the shipped state")
+            self.report(out or "No output.")
+        self.refresh()
 
     def on_modem_switched(self, ok, out):
         self.pulse_stop()
