@@ -336,9 +336,15 @@ class Window(Adw.ApplicationWindow):
         # page in particular is there. Naming one page here is how a third one
         # gets added and reaches nobody, because the bar that switches to it
         # stays hidden on a phone without the second.
-        switcher = Adw.ViewSwitcherBar(stack=self.stack)
-        switcher.set_reveal(bool(MODEMCTL) or bool(GPSCTL) or bool(KILLSWITCH))
-        toolbar.add_bottom_bar(switcher)
+        #
+        # Directly under the header, not at the foot of the window: the tabs
+        # belong with the title of what they switch, and down there they sat
+        # where a page's last control is - one thumb's width from "Restore
+        # shipped state".
+        self.switcher_bar = Adw.ViewSwitcherBar(stack=self.stack)
+        self.switcher_bar.set_reveal(
+            bool(MODEMCTL) or bool(GPSCTL) or bool(KILLSWITCH))
+        toolbar.add_top_bar(self.switcher_bar)
 
         self.toasts = Adw.ToastOverlay()
         self.toasts.set_child(self.stack)
