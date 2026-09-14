@@ -402,8 +402,11 @@ class Window(Adw.ApplicationWindow):
         """
         self._restore_pending = (handler, btn)
         dlg = Adw.AlertDialog(heading=self.RESTORE_TITLE + "?", body=body)
-        dlg.add_response("cancel", "Cancel")
+        # Restore first, Cancel second - libadwaita stacks them the other way
+        # round on a narrow screen, so this is what puts Cancel on top, under
+        # the thumb, and the acting answer below it. Checked on the phone.
         dlg.add_response("restore", self.RESTORE_LABEL)
+        dlg.add_response("cancel", "Cancel")
         dlg.set_default_response("cancel")
         dlg.set_close_response("cancel")
         dlg.connect("response", self.on_restore_response)

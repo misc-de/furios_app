@@ -954,6 +954,17 @@ class TheWindow(unittest.TestCase):
         self.win.on_restore_response(None, "cancel")
         self.assertEqual([], gerufen)
 
+    def test_cancel_is_the_answer_under_the_thumb(self):
+        """libadwaita stacks the answers in reverse on a narrow screen: the one
+        added LAST is drawn on top. Added the obvious way round, "Restore
+        shipped state" sat exactly where a thumb reaches first - seen on the
+        phone, which is the only place this can be seen at all."""
+        recorder.reset()
+        self.win.confirm_restore("what it costs", lambda _b: None, None)
+        antworten = [c[1][0] for c in recorder.calls
+                     if c[0] == "Adw.AlertDialog.add_response()" and c[1]]
+        self.assertEqual(["restore", "cancel"], antworten)
+
     def test_answering_restore_is_what_runs_it(self):
         gerufen = []
         self.win.confirm_restore("what it costs", gerufen.append, "btn")
