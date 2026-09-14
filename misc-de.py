@@ -31,6 +31,7 @@ from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 # left to authenticate and no password for this app to handle.
 
 APP_ID = "de.misc-de.tools"
+import json
 import os
 import shutil
 
@@ -50,12 +51,16 @@ def _tool(name):
 # Like _tool, but it admits when the program is not there at all. The modem
 # page is built from this: present or absent, never present-and-broken.
 def _tool_maybe(name):
-    for path in ("/usr/local/bin/" + name, "/usr/bin/" + name):
+    # ~/.local/bin is searched too, and last: a tool that needs no root at all
+    # is installed there, and killswitch-indicator is one of those.
+    home_bin = os.path.expanduser("~/.local/bin/" + name)
+    for path in ("/usr/local/bin/" + name, "/usr/bin/" + name, home_bin):
         if os.access(path, os.X_OK):
             return path
     return shutil.which(name)
 
 
+KILLSWITCH = _tool_maybe("killswitch-indicator")
 AUDIOCTL = _tool("audioctl")
 DMNR = _tool("furios-audio-dmnr")
 # Ships in a different package (furios_modem_fixes) and may simply not be here.
@@ -325,12 +330,19 @@ class Window(Adw.ApplicationWindow):
                 self.build_gps_page(), "gps", "GPS", "find-location-symbolic"
             )
 
+        self.sw_rows = []
+        if KILLSWITCH:
+            self.stack.add_titled_with_icon(
+                self.build_switches_page(), "switches", "Switches",
+                "changes-prevent-symbolic"
+            )
+
         # Revealed when there is more than one page, rather than when the modem
         # page in particular is there. Naming one page here is how a third one
         # gets added and reaches nobody, because the bar that switches to it
         # stays hidden on a phone without the second.
         switcher = Adw.ViewSwitcherBar(stack=self.stack)
-        switcher.set_reveal(bool(MODEMCTL) or bool(GPSCTL))
+        switcher.set_reveal(bool(MODEMCTL) or bool(GPSCTL) or bool(KILLSWITCH))
         toolbar.add_bottom_bar(switcher)
 
         self.toasts = Adw.ToastOverlay()
@@ -339,6 +351,249 @@ class Window(Adw.ApplicationWindow):
         self.set_content(toolbar)
 
         self.refresh()
+
+
+    # ------------------------------------------------------------ Switches
+
+    def build_switches_page(self):
+        """The three sliders on the housing, and what each of them really does.
+
+        They look alike and work nothing alike. Camera and network are software
+        kills: a GPIO tells the Android side, which stops a service with signal
+        9. The microphone one cuts the line, which is why it is the only one
+        the system cannot see at all - and the only one that is beyond doubt.
+        """
+        spage = Adw.PreferencesPage()
+
+        grp = Adw.PreferencesGroup(
+            title="Indicator",
+            description="Shows an icon in the top bar for as long as a switch "
+            "is engaged. Nothing else on the phone says so: there is no rfkill "
+            "device for these, and the bar keeps showing the bars of whatever "
+            "the modem last reported.",
+        )
+        self.sw_row = Adw.SwitchRow(title="Icons in the top bar", subtitle="reading …")
+        self.sw_row.connect("notify::active", self.on_indicator_switch)
+        grp.add(self.sw_row)
+        self.sw_persist = Adw.SwitchRow(
+            title="Remember this choice",
+            subtitle="Off: gone again after the next boot",
+            active=True,
+        )
+        self.sw_persist.connect("notify::active", self.on_indicator_persist)
+        grp.add(self.sw_persist)
+        spage.add(grp)
+
+        cam = Adw.PreferencesGroup(
+            title="1 · Camera",
+            description="This always covers ALL cameras at once - there is no "
+            "picking one. Engaged, the Android side stops camerahalserver, the "
+            "one service every camera goes through: signal 9, about two "
+            "seconds after the slider moves. No power is cut - the sensors "
+            "stay connected, but nothing is left running that could reach "
+            "them.",
+        )
+        self.srow_cam = Adw.ActionRow(title="Position", subtitle="…")
+        self.srow_cam_hal = Adw.ActionRow(title="Camera service", subtitle="…")
+        self.srow_cams = Adw.ActionRow(title="Cameras affected", subtitle="…")
+        for row in (self.srow_cam, self.srow_cam_hal, self.srow_cams):
+            row.set_subtitle_selectable(True)
+            cam.add(row)
+        spage.add(cam)
+
+        net = Adw.PreferencesGroup(
+            title="2 · Network",
+            description="By itself this switch takes down the modem and "
+            "nothing else - Wi-Fi and Bluetooth keep running. The two below "
+            "can be added, and are then switched off in software whenever the "
+            "slider moves, and back on when it returns. Only radios switched "
+            "off here are switched back on: one turned off by hand beforehand "
+            "stays off.",
+        )
+        self.srow_net = Adw.ActionRow(title="Position", subtitle="…")
+        self.srow_net.set_subtitle_selectable(True)
+        net.add(self.srow_net)
+        # Shown as a switch like the other two, but fixed on: the Android side
+        # stops the RIL before any program here learns the slider moved. The
+        # only way to "deselect" it would be to start the modem back up behind
+        # the switch - undermining the very thing somebody flipped it for.
+        self.sw_modem = Adw.SwitchRow(
+            title="Turn off the mobile network",
+            subtitle="always on - the switch itself does this, in firmware, "
+            "and it cannot be opted out of",
+            active=True,
+        )
+        self.sw_modem.set_sensitive(False)
+        net.add(self.sw_modem)
+        self.sw_wifi = Adw.SwitchRow(
+            title="Turn off Wi-Fi as well",
+            subtitle="reading …",
+        )
+        self.sw_wifi.connect("notify::active", self.on_extra_wifi)
+        net.add(self.sw_wifi)
+        self.sw_bt = Adw.SwitchRow(
+            title="Turn off Bluetooth as well",
+            subtitle="reading …",
+        )
+        self.sw_bt.connect("notify::active", self.on_extra_bt)
+        net.add(self.sw_bt)
+        spage.add(net)
+
+        mic = Adw.PreferencesGroup(
+            title="3 · Microphone",
+            description="Cuts the BUILT-IN microphones - measured: the level "
+            "drops by 37.8 dB and what is left is the converter's own noise. "
+            "A headset brings its own microphone along a path of its own, over "
+            "Bluetooth or the jack, and this switch is not in that path (not "
+            "verified here - ask and it can be measured with a headset "
+            "connected).\n\n"
+            "It cannot be switched from software, and its position cannot be "
+            "read either. It is the only one of the three that physically cuts "
+            "the line, and that is exactly why the system cannot see it: a "
+            "built-in microphone is not a device that announces itself, it is "
+            "an analogue line into a codec input. Engaged against free, 2337 "
+            "lines of GPIOs, properties, ALSA controls and jack states came "
+            "back identical.",
+        )
+        self.srow_mic = Adw.ActionRow(title="Last measurement", subtitle="…")
+        self.srow_mic.set_subtitle_selectable(True)
+        mic.add(self.srow_mic)
+        self.mic_button = Gtk.Button(label="Listen now")
+        self.mic_button.set_margin_top(6)
+        self.mic_button.set_margin_bottom(6)
+        self.mic_button.set_halign(Gtk.Align.CENTER)
+        self.mic_button.connect("clicked", self.on_mic_check)
+        mic.add(self.mic_button)
+        spage.add(mic)
+
+        self.sw_rows = [self.sw_row, self.sw_persist, self.sw_wifi, self.sw_bt]
+        return spage
+
+    def on_switches_status(self, ok, out):
+        if not ok:
+            for row in (self.srow_cam, self.srow_net):
+                row.set_subtitle("killswitch-indicator did not answer")
+            return
+        try:
+            data = json.loads(out)
+        except ValueError:
+            self.srow_cam.set_subtitle("unreadable answer")
+            return
+
+        def stellung(value):
+            return {"0": "engaged", "1": "free"}.get(value, "unknown")
+
+        self.srow_cam.set_subtitle(stellung(data.get("switches", {}).get("cam_switch")))
+        self.srow_net.set_subtitle(stellung(data.get("switches", {}).get("nwk_switch")))
+
+        hal = data.get("camera_hal")
+        self.srow_cam_hal.set_subtitle(
+            "running" if hal else "stopped" if hal is False else "unknown")
+
+        cams = data.get("cameras")
+        if cams:
+            seiten = ", ".join(c.lower() for c in cams)
+            self.srow_cams.set_subtitle(f"all {len(cams)} ({seiten}) - never one alone")
+        else:
+            self.srow_cams.set_subtitle(
+                "all of them - list not fetched yet "
+                "(sudo killswitch-indicator cameras --refresh)")
+
+        extras = data.get("network_extras", {})
+        radios = data.get("radios", {})
+        self._loading = True
+        self.sw_wifi.set_active(bool(extras.get("wifi")))
+        self.sw_bt.set_active(bool(extras.get("bluetooth")))
+        self._loading = False
+        for row, key in ((self.sw_wifi, "wifi"), (self.sw_bt, "bluetooth")):
+            zustand = radios.get(key)
+            row.set_subtitle("currently on" if zustand else
+                             "currently off" if zustand is False else "not reachable")
+
+        mic = data.get("mic")
+        if not mic:
+            self.srow_mic.set_subtitle("not measured yet")
+        else:
+            when = GLib.DateTime.new_from_unix_local(mic.get("when", 0))
+            # The tool speaks German, this window does not.
+            urteil = {"GESPERRT": "engaged", "frei": "free",
+                      "unbrauchbar": "unusable"}.get(mic.get("verdict"),
+                                                     mic.get("verdict", "?"))
+            self.srow_mic.set_subtitle(
+                f"{urteil} - median {mic.get('median')} "
+                f"at {when.format('%H:%M')} ({mic.get('reason', '?')})")
+
+    def on_indicator_active(self, ok, out):
+        aktiv = ok and out.strip() == "active"
+        self._loading = True
+        self.sw_row.set_active(aktiv)
+        self._loading = False
+        self.sw_row.set_subtitle("running" if aktiv else "not running")
+
+    def on_indicator_enabled(self, ok, out):
+        self._loading = True
+        self.sw_persist.set_active(ok and out.strip() == "enabled")
+        self._loading = False
+
+    def on_indicator_switch(self, row, _param):
+        if getattr(self, "_loading", False):
+            return
+        verb = "start" if row.get_active() else "stop"
+        run_async(["systemctl", "--user", verb, "killswitch-indicator"],
+                  lambda ok, out: self.after_indicator(ok, out, verb))
+
+    def after_indicator(self, ok, out, verb):
+        if not ok:
+            self.toasts.add_toast(Adw.Toast(title=f"Could not {verb} the indicator"))
+        self.refresh()
+
+    def on_indicator_persist(self, row, _param):
+        if getattr(self, "_loading", False):
+            return
+        verb = "enable" if row.get_active() else "disable"
+        run_async(["systemctl", "--user", verb, "killswitch-indicator"],
+                  lambda ok, out: self.after_indicator(ok, out, verb))
+
+    def on_extra_wifi(self, row, _param):
+        self.set_extra("wifi", row)
+
+    def on_extra_bt(self, row, _param):
+        self.set_extra("bluetooth", row)
+
+    def set_extra(self, radio, row):
+        if getattr(self, "_loading", False):
+            return
+        wert = "on" if row.get_active() else "off"
+        run_async([KILLSWITCH, "config", radio, wert],
+                  lambda ok, out: self.after_extra(ok, radio, wert))
+
+    def after_extra(self, ok, radio, wert):
+        if not ok:
+            self.toasts.add_toast(Adw.Toast(title=f"Could not change {radio}"))
+            self.refresh()
+            return
+        if wert == "on":
+            self.toasts.add_toast(Adw.Toast(
+                title=f"{radio} will go off with the network switch"))
+
+    def on_mic_check(self, _button):
+        self.mic_button.set_sensitive(False)
+        self.mic_button.set_label("listening …")
+        self.srow_mic.set_subtitle("recording three seconds …")
+        run_async([KILLSWITCH, "mic-check"], self.after_mic_check, timeout=30)
+
+    def after_mic_check(self, ok, out):
+        self.mic_button.set_sensitive(True)
+        self.mic_button.set_label("Listen now")
+        if not ok:
+            self.srow_mic.set_subtitle("measurement failed")
+            return
+        zeilen = [z.strip() for z in out.splitlines() if z.strip()]
+        urteil = next((z for z in zeilen if z.startswith("Mikrofon:")), "")
+        werte = next((z for z in zeilen if z.startswith("Median")), "")
+        urteil = urteil.replace("Mikrofon:", "").strip()
+        urteil = {"GESPERRT": "engaged", "frei": "free"}.get(urteil, urteil)
+        self.srow_mic.set_subtitle(f"{urteil} - {werte}" if werte else urteil)
 
     # ------------------------------------------------------------ Modem
 
@@ -578,6 +833,12 @@ class Window(Adw.ApplicationWindow):
         if GPSCTL:
             run_async([GPSCTL, "profile"], self.on_gps_profile)
             run_async([GPSCTL, "status"], self.on_gps_status)
+        if KILLSWITCH:
+            run_async([KILLSWITCH, "status", "--json"], self.on_switches_status)
+            run_async(["systemctl", "--user", "is-active",
+                       "killswitch-indicator"], self.on_indicator_active)
+            run_async(["systemctl", "--user", "is-enabled",
+                       "killswitch-indicator"], self.on_indicator_enabled)
 
     # "recorded: x" and "actual: y", split on the colon rather than matched
     # against a prefix. modemctl lives in another package, so this is a
