@@ -188,6 +188,19 @@ class Window(Adw.ApplicationWindow):
         )
         grp.add(self.persist_row)
 
+        # Echo during a call, in the same group as the stack switch and
+        # without the essay it used to carry: MediaTek's dual-microphone
+        # method against noise and echo is disabled for calls on this device
+        # although the chip could do it, and this lays a modified tuning file
+        # over the vendor's. Experimental - it restarts audio and a reboot
+        # undoes it.
+        self.dmnr_row = Adw.SwitchRow(
+            title="Handsfree echo suppression (DMNR)",
+            subtitle="Vendor setting: off",
+        )
+        self.dmnr_row.connect("notify::active", self.on_dmnr)
+        grp.add(self.dmnr_row)
+
         # Progress: deliberately pulsing instead of a percentage. Nobody
         # knows in advance how long the switch takes - audioctl waits up to 15
         # seconds for a sink. An invented percentage that gets stuck at 90 %
@@ -216,26 +229,6 @@ class Window(Adw.ApplicationWindow):
             info.add(row)
         page.add(info)
 
-        # --- echo during a call ---
-        #
-        # MediaTek's dual-microphone method against noise and echo is disabled
-        # for calls on this device, although the chip could do it. The switch
-        # lays a modified tuning file over the vendor's.
-        echo_grp = Adw.PreferencesGroup(
-            title="Call echo",
-            description="The vendor disabled MediaTek's dual-mic echo "
-            "suppression (DMNR) for calls, although this phone has two "
-            "microphones and the chip supports it. Turning it on may stop the "
-            "other side from hearing themselves - especially on speakerphone. "
-            "Experimental: it restarts audio and is undone by a reboot.",
-        )
-        self.dmnr_row = Adw.SwitchRow(
-            title="Handsfree echo suppression (DMNR)",
-            subtitle="Vendor setting: off",
-        )
-        self.dmnr_row.connect("notify::active", self.on_dmnr)
-        echo_grp.add(self.dmnr_row)
-        page.add(echo_grp)
 
         # --- Notnagel ---
         rescue = Adw.PreferencesGroup(
