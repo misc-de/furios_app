@@ -61,8 +61,12 @@ def _tool_maybe(name):
     return shutil.which(name)
 
 
-AUDIOCTL = _tool("audioctl")
-DMNR = _tool("furios-audio-dmnr")
+# Like the other three, audioctl has no constant here: it can be installed
+# from the Audio tab while this window is open, and a path read at import
+# would still say /usr/bin afterwards - where nothing is. The window keeps
+# what it found in self.live; furios-audio-dmnr comes with the same installer
+# and is looked up when it is used.
+DMNR = "furios-audio-dmnr"
 # modemctl, gpsctl and killswitch-indicator have NO constant here on purpose.
 # They ship in other packages, may simply not be on the phone, and - since the
 # components page can fetch one - may arrive while this window is open. A
@@ -968,7 +972,13 @@ class Window(Adw.ApplicationWindow):
                 return
             argv, stdin, cwd, env = rest.pop(0)
             zeile.set_subtitle(argv[0] + " …")
-            run_async(argv, schritt, timeout=600, cwd=cwd, stdin=stdin,
+            # The installer gets its own patience. A clone or a pull is over
+            # in seconds, but an installer may have to fetch build packages
+            # over a phone connection and compile something afterwards - the
+            # audio one builds an SPA plugin - and a wait that runs out mid
+            # apt-get leaves a half-installed system behind.
+            frist = 1800 if argv[0].endswith("install.sh") else 600
+            run_async(argv, schritt, timeout=frist, cwd=cwd, stdin=stdin,
                       env=env)
 
         schritt()
@@ -1550,8 +1560,15 @@ class Window(Adw.ApplicationWindow):
         rows for an answer to arrive at, and an answer that arrives anyway
         takes the callback down with an AttributeError nobody sees.
         """
-        run_async([AUDIOCTL, "status"], self.on_status)
-        run_async([DMNR, "status"], self.on_dmnr_status)
+        if self.live.get("audio"):
+            run_async([self.live["audio"], "status"], self.on_status)
+            dmnr = _tool_maybe(DMNR)
+            if dmnr:
+                run_async([dmnr, "status"], self.on_dmnr_status)
+            else:
+                # Same installer, so this only happens in the seconds after
+                # one that stopped half way. The row says so and closes.
+                self.on_dmnr_status(False, "")
         if self.live.get("modem"):
             # Both read-only, and neither needs root - which is the whole
             # reason the page can show something before anybody touches it.
@@ -1827,7 +1844,9 @@ class Window(Adw.ApplicationWindow):
             return
         want_pw = row.get_active()
         mode = "set" if self.persist_row.get_active() else "try"
-        argv = [AUDIOCTL, mode, "pw-hal"] if want_pw else [AUDIOCTL, "set", "standard"]
+        audioctl = self.live["audio"]
+        argv = ([audioctl, mode, "pw-hal"] if want_pw
+                else [audioctl, "set", "standard"])
         self.set_busy(True)
         self.pulse_start("Switching …")
         run_async(argv, self.on_switched, on_line=self.on_progress_line)
@@ -1852,7 +1871,8 @@ class Window(Adw.ApplicationWindow):
             return
         self.set_busy(True)
         self.pulse_start("Switching echo suppression …")
-        run_async([DMNR, "on" if row.get_active() else "off"], self.on_dmnr_done,
+        run_async([_tool_maybe(DMNR) or DMNR,
+                   "on" if row.get_active() else "off"], self.on_dmnr_done,
                   on_line=self.on_progress_line)
 
     def on_dmnr_done(self, ok, out):
@@ -1871,7 +1891,7 @@ class Window(Adw.ApplicationWindow):
         self.pulse_start("Restoring …")
         # The same recovery as on the command line - one truth, not two
         # versions that can drift apart.
-        run_async([AUDIOCTL, "rescue"], self.on_rescued,
+        run_async([self.live["audio"], "rescue"], self.on_rescued,
                   on_line=self.on_progress_line)
 
     def on_rescued(self, ok, out):

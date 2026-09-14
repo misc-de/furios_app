@@ -56,6 +56,8 @@ switcher = load(ROOT / "misc-de.py", "switcher")
 # them any more - it looks while it builds a page, because one of them can
 # arrive from the components page while the window is open - so a test that
 # needs to know which widgets exist looks the same way.
+AUDIOCTL = switcher._tool_maybe("audioctl")
+DMNR = switcher._tool_maybe("furios-audio-dmnr")
 MODEMCTL = switcher._tool_maybe("modemctl")
 GPSCTL = switcher._tool_maybe("gpsctl")
 KILLSWITCH = switcher._tool_maybe("killswitch-indicator")
@@ -74,8 +76,8 @@ class AppReadsAudioctl(unittest.TestCase):
     def setUpClass(cls):
         sys.modules.setdefault("gi", None)
         cls.app = (ROOT / "misc-de.py").read_text()
-        cls.audioctl = cls.installed(switcher.AUDIOCTL)
-        cls.dmnr = cls.installed(switcher.DMNR)
+        cls.audioctl = cls.installed(AUDIOCTL)
+        cls.dmnr = cls.installed(DMNR)
 
     @staticmethod
     def installed(path):
@@ -990,7 +992,11 @@ class TheWindow(unittest.TestCase):
         must not leave one of the others unasked - which is how a window ends
         up showing a state that stopped being true ten minutes ago."""
         self.win.refresh()
-        expected = (2 + (2 if MODEMCTL else 0)
+        # Audio is counted like the rest now: audioctl can be missing too, and
+        # asking a tool that is not there was how a callback ended up at rows
+        # nobody had built.
+        expected = ((1 + bool(DMNR) if AUDIOCTL else 0)
+                    + (2 if MODEMCTL else 0)
                     + (2 if GPSCTL else 0)
                     # status --json, plus is-active and is-enabled for the unit
                     + (3 if KILLSWITCH else 0))
@@ -1225,7 +1231,14 @@ class TheWindow(unittest.TestCase):
         finally:
             switcher.run_async = echt
         self.assertEqual([], [a for a in gefragt if "gpsctl" in a[0]])
-        self.assertTrue([a for a in gefragt if "audioctl" in a[0]])
+        # And one that IS here is asked - whichever of them this machine has.
+        # Naming audioctl would only measure whether this phone happens to
+        # have it installed.
+        da = [c["tool"] for c in switcher.COMPONENTS
+              if c["tool"] != "gpsctl" and switcher._tool_maybe(c["tool"])]
+        if da:
+            self.assertTrue([a for a in gefragt
+                             if any(t in a[0] for t in da)], gefragt)
 
     def test_a_missing_tool_still_gets_its_tab(self):
         win = self.ohne("modemctl", "gpsctl", "killswitch-indicator")
@@ -1416,6 +1429,23 @@ class TheWindow(unittest.TestCase):
         self.assertEqual([], protokoll)
         self.assertIsNone(self.win.askpass)
 
+    def test_the_installer_gets_longer_than_a_clone_does(self):
+        """The audio installer builds an SPA plugin and may fetch build
+        packages over a phone connection first. A wait that runs out in the
+        middle of apt-get leaves a half-installed system behind."""
+        comp = self.komponente()
+        self.mit_sockel(comp)
+        fristen = {}
+        for _ in range(len(switcher.component_steps(comp, "install", "x"))):
+            argv, done, _on_line, kw = self.ran.pop(0)
+            fristen[argv[0]] = kw.get("timeout")
+            if argv[0].endswith("install.sh"):
+                break
+            done(True, "")
+        self.assertEqual(1800, fristen["./install.sh"])
+        self.assertTrue(all(w == 600 for k, w in fristen.items()
+                            if not k.endswith("install.sh")), fristen)
+
     def test_a_fetch_that_is_over_gives_the_buttons_back(self):
         """Read off the phone on 14.9.2026: after one install - the one that
         failed - no Install button on any tab could be pressed again, on any
@@ -1541,7 +1571,15 @@ class TheWindow(unittest.TestCase):
         installer's own output is the only thing that can explain that."""
         win = self.ohne("gpsctl")
         recorder.reset()
-        win.component_done(self.komponente(), True, "ln: Permission denied")
+        # Absent during the window AND during the answer: this machine may
+        # well have gpsctl installed, and then the swap would succeed and the
+        # test would measure the opposite of what it says.
+        echt = switcher._tool_maybe
+        switcher._tool_maybe = lambda n: None if n == "gpsctl" else echt(n)
+        try:
+            win.component_done(self.komponente(), True, "ln: Permission denied")
+        finally:
+            switcher._tool_maybe = echt
         self.assertTrue(any("not on the phone" in t
                             for t in self.toast_texte()))
         koerper = [str(c[2].get("body", "")) for c in recorder.calls
