@@ -362,15 +362,18 @@ class Window(Adw.ApplicationWindow):
         kills: a GPIO tells the Android side, which stops a service with signal
         9. The microphone one cuts the line, which is why it is the only one
         the system cannot see at all - and the only one that is beyond doubt.
+        It is therefore also the only one with no reading here: finding out
+        would mean listening, and this page says so instead of guessing.
         """
         spage = Adw.PreferencesPage()
 
         grp = Adw.PreferencesGroup(
             title="Indicator",
-            description="Shows an icon in the top bar for as long as a switch "
-            "is engaged. Nothing else on the phone says so: there is no rfkill "
-            "device for these, and the bar keeps showing the bars of whatever "
-            "the modem last reported.",
+            description="Shows an icon in the top bar for as long as the "
+            "camera or the network switch is engaged. Nothing else on the "
+            "phone says so: there is no rfkill device for these, and the bar "
+            "keeps showing the bars of whatever the modem last reported. The "
+            "microphone switch gets no icon - see 3 below.",
         )
         self.sw_row = Adw.SwitchRow(title="Icons in the top bar", subtitle="reading …")
         self.sw_row.connect("notify::active", self.on_indicator_switch)
@@ -453,17 +456,30 @@ class Window(Adw.ApplicationWindow):
             "built-in microphone is not a device that announces itself, it is "
             "an analogue line into a codec input. Engaged against free, 2337 "
             "lines of GPIOs, properties, ALSA controls and jack states came "
-            "back identical.",
+            "back identical.\n\n"
+            "Nothing here tries to work it out anyway. Telling the two apart "
+            "means opening the microphone and listening for a few seconds - "
+            "the one thing this switch is flipped to prevent - and the answer "
+            "would hold for those seconds only: moved while the screen is on, "
+            "the switch tells nobody, so nothing would go looking. An icon "
+            "that is right some of the time is worse than none, so there is no "
+            "icon for this switch and nothing is measured in the background. "
+            "The slider on the housing is the display.",
         )
-        self.srow_mic = Adw.ActionRow(title="Last measurement", subtitle="…")
+        self.srow_mic = Adw.ActionRow(
+            title="Position",
+            subtitle="not readable - and not listened for either")
         self.srow_mic.set_subtitle_selectable(True)
         mic.add(self.srow_mic)
-        self.mic_button = Gtk.Button(label="Listen now")
-        self.mic_button.set_margin_top(6)
-        self.mic_button.set_margin_bottom(6)
-        self.mic_button.set_halign(Gtk.Align.CENTER)
-        self.mic_button.connect("clicked", self.on_mic_check)
-        mic.add(self.mic_button)
+        # For anyone who does want a number: one measurement, asked for by
+        # hand, on the terminal. Deliberately not a button here - a button is
+        # an invitation, and this one should be a decision.
+        hint = Adw.ActionRow(
+            title="Measure once by hand",
+            subtitle="killswitch-indicator mic-check - opens the microphone "
+            "for three seconds and says what it heard")
+        hint.set_subtitle_selectable(True)
+        mic.add(hint)
         spage.add(mic)
 
         self.sw_rows = [self.sw_row, self.sw_persist, self.sw_wifi, self.sw_bt]
@@ -509,19 +525,6 @@ class Window(Adw.ApplicationWindow):
             zustand = radios.get(key)
             row.set_subtitle("currently on" if zustand else
                              "currently off" if zustand is False else "not reachable")
-
-        mic = data.get("mic")
-        if not mic:
-            self.srow_mic.set_subtitle("not measured yet")
-        else:
-            when = GLib.DateTime.new_from_unix_local(mic.get("when", 0))
-            # The tool speaks German, this window does not.
-            urteil = {"GESPERRT": "engaged", "frei": "free",
-                      "unbrauchbar": "unusable"}.get(mic.get("verdict"),
-                                                     mic.get("verdict", "?"))
-            self.srow_mic.set_subtitle(
-                f"{urteil} - median {mic.get('median')} "
-                f"at {when.format('%H:%M')} ({mic.get('reason', '?')})")
 
     def on_indicator_active(self, ok, out):
         aktiv = ok and out.strip() == "active"
@@ -575,25 +578,6 @@ class Window(Adw.ApplicationWindow):
         if wert == "on":
             self.toasts.add_toast(Adw.Toast(
                 title=f"{radio} will go off with the network switch"))
-
-    def on_mic_check(self, _button):
-        self.mic_button.set_sensitive(False)
-        self.mic_button.set_label("listening …")
-        self.srow_mic.set_subtitle("recording three seconds …")
-        run_async([KILLSWITCH, "mic-check"], self.after_mic_check, timeout=30)
-
-    def after_mic_check(self, ok, out):
-        self.mic_button.set_sensitive(True)
-        self.mic_button.set_label("Listen now")
-        if not ok:
-            self.srow_mic.set_subtitle("measurement failed")
-            return
-        zeilen = [z.strip() for z in out.splitlines() if z.strip()]
-        urteil = next((z for z in zeilen if z.startswith("Mikrofon:")), "")
-        werte = next((z for z in zeilen if z.startswith("Median")), "")
-        urteil = urteil.replace("Mikrofon:", "").strip()
-        urteil = {"GESPERRT": "engaged", "frei": "free"}.get(urteil, urteil)
-        self.srow_mic.set_subtitle(f"{urteil} - {werte}" if werte else urteil)
 
     # ------------------------------------------------------------ Modem
 
