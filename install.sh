@@ -8,11 +8,14 @@
 set -e
 cd "$(dirname "$0")"
 
-# audioctl is what the first tab drives; without it the app would open and
-# have nothing to say. It lives in its own repository:
-# https://github.com/misc-de/furios_pipewire
-command -v audioctl >/dev/null || {
-    echo "audioctl missing - install furios_pipewire first"; exit 1; }
+# audioctl used to be a hard requirement here. It is not one any more: a tab
+# whose tool is missing now says so and offers to fetch it, so the app has
+# something to say on a phone where nothing else is installed yet - and
+# refusing to install would leave somebody with no way to get there at all.
+command -v audioctl >/dev/null || cat <<'HINT'
+Note: audioctl is not installed yet. The Audio tab will offer to fetch it
+      (github.com/misc-de/furios_pipewire), like the other three tabs do.
+HINT
 python3 -c "import gi; gi.require_version('Adw','1')" 2>/dev/null \
   || { echo "libadwaita bindings missing: apt install python3-gi gir1.2-adw-1"; exit 1; }
 
