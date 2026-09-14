@@ -1010,6 +1010,23 @@ class TheWindow(unittest.TestCase):
         self.assertNotIn("engaged", win.srow_cam.subtitle)
         self.assertNotIn("free", win.srow_cam.subtitle)
 
+    def test_no_page_starts_with_a_paragraph_under_its_heading(self):
+        """A group with a description draws its title higher than one without,
+        so a single paragraph put the Modem heading twelve pixels above every
+        other tab's. Seen on the phone, measured in a screenshot.
+
+        Two kinds of group may still carry a description: the way back, whose
+        text is also the question it asks, and the offer on a page whose tool
+        is missing, which has nothing else to show.
+        """
+        recorder.reset()
+        switcher.Window(switcher.Adw.Application())
+        mit_absatz = [str(c[2].get("title", "")) for c in recorder.calls
+                      if c[0] == "Adw.PreferencesGroup" and c[2].get("description")]
+        erlaubt = [t for t in mit_absatz
+                   if t == switcher.Window.RESTORE_TITLE or "not installed" in t]
+        self.assertEqual(sorted(mit_absatz), sorted(erlaubt), mit_absatz)
+
     def test_the_switches_page_explains_itself_in_rows_not_paragraphs(self):
         """The four groups on this page carry a title and nothing else. What
         needs saying sits in the row it is about - the way back keeps its

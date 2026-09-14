@@ -1061,12 +1061,13 @@ class Window(Adw.ApplicationWindow):
         the phone as it shipped, or the phone as somebody repaired it."""
         mpage = Adw.PreferencesPage()
 
-        grp = Adw.PreferencesGroup(
-            title="Modem",
-            description="Off is FuriOS exactly as it came: no fallback route "
-            "when Wi-Fi goes away, no name resolution without it, and a signal "
-            "bar that cannot leave zero.",
-        )
+        # No paragraph under the heading. It was the last one left, and it
+        # showed: a group with a description puts its title higher than a
+        # group without one, so this page's heading sat twelve pixels above
+        # the heading of every other tab. What it said is in the row below
+        # ("Off: the state the phone shipped in") and, in full, at the foot of
+        # the page under "Back to how it shipped".
+        grp = Adw.PreferencesGroup(title="Modem")
         self.modem_row = Adw.SwitchRow(
             title="Repairs active",
             subtitle="reading …",
@@ -1365,7 +1366,7 @@ class Window(Adw.ApplicationWindow):
         self.modem_row.set_subtitle(
             "On: patched, with a route and a resolver that work without Wi-Fi"
             if actual == "fixed"
-            else "Off: the state the phone shipped in"
+            else "Off: as it shipped - no route and no resolver without Wi-Fi"
         )
 
     def on_modem_status(self, ok, out):
