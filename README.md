@@ -30,6 +30,50 @@ die App im App-Raster; direkt starten geht mit `misc-de`.
 
 Voraussetzungen: `python3-gi`, `gir1.2-adw-1` und `audioctl`.
 
+## Components: was fehlt, woher es kommt, was es tut
+
+Der Knopf oben links oeffnet eine Seite, die alle vier Werkzeuge auflistet -
+auch die, die nicht installiert sind und deshalb keinen Reiter haben. Pro
+Werkzeug drei Zeilen: was es tut, aus welchem Repo es kommt, und wie es auf
+diesem Telefon steht.
+
+Dazu ein Knopf, und der heisst je nach Lage anders:
+
+| Lage | Knopf | was passiert |
+|---|---|---|
+| nicht installiert | **Install** | `git clone` nach `~/.local/share/misc-de/<repo>`, dann `./install.sh` daraus |
+| unser Klon, Repo ist weiter | **Update (N new)** | `git pull --ff-only`, dann `./install.sh` |
+| unser Klon, gleichstand | Up to date | nichts, der Knopf ist aus |
+| installiert, kein Klon | **Fetch the source** | nur klonen, damit Updates ueberhaupt sichtbar werden |
+| **eigener Klon** anderswo | Kept by you | **nichts** - siehe unten |
+
+**Ein Klon, den du selbst haeltst, wird nie angefasst.** Gefunden wird er an
+seiner origin-URL, nicht am Verzeichnisnamen (dasselbe Repo heisst hier
+`furios_gps_fix` und oben `furios_gps`), und dann bleibt es beim Hinsehen:
+`git ls-remote` fragt den Server nach seinem HEAD, `git rev-parse` liest den
+des Klons, und die Zeile sagt "up to date" oder "there is something new
+upstream". Kein `fetch`, kein `pull` - in einem fremden Arbeitsbaum kann
+unfertige Arbeit liegen, und was damit geschieht, entscheidet ihr Besitzer im
+Terminal.
+
+**Vor jedem Holen wird gefragt**, und die Frage sagt die Befehle an, die
+laufen werden. Drei der vier Installer schreiben nach `/usr/local` und
+brauchen root - dieses Telefon hat keinen polkit-Agenten (`pkexec` antwortet
+"No authentication agent found"), also wird es gemacht wie im Terminal: `sudo`
+fragt einmal nach dem Passwort, das Installationsskript laeuft als du, und nur
+seine eigenen sudo-Zeilen werden root. Danach wird das Ticket mit `sudo -k`
+wieder weggeworfen.
+
+Das Passwort geht durch die Pipe an `sudo` und nirgendwo sonst: nicht in
+`argv` (wo jedes `ps` es mitlesen wuerde), nicht in eine Datei, nicht in die
+Umgebung, nicht in eine Logzeile. Aus dem Eingabefeld wird es geloescht, sobald
+die Frage beantwortet ist. Ein falsches Passwort meldet `sudo` mit seinen
+eigenen Worten, und die Kette bricht dort ab, statt einen Installer zu
+starten, der nicht fertig werden kann.
+
+Ein frisch geholtes Werkzeug bekommt seinen Reiter erst beim naechsten Start -
+die Reiter werden gebaut, wenn das Fenster aufgeht, und die Meldung sagt das.
+
 ## Was jede Seite tut
 
 **Audio** - wem der Android-HAL gehoert (PipeWire direkt oder PulseAudio wie
@@ -77,7 +121,7 @@ tests/run-tests.sh      # ohne Bildschirm, ohne root, ohne Telefon in der Hand
 tests/coverage.sh       # Zeilenabdeckung, mit der Standardbibliothek gemessen
 ```
 
-Stand: **143 Tests, 100 % der 804 Zeilen** von `misc-de.py`.
+Stand: **182 Tests, 100 % der 1075 Zeilen** von `misc-de.py`.
 
 `tests/gi_stub.py` tritt an die Stelle von PyGObject: das Fenster wird im
 Testprozess gebaut, gefuellt und geklickt, ohne dass ein Wayland-Server

@@ -23,6 +23,7 @@ import re
 import shutil as shutil_real
 import subprocess as subprocess_real
 import sys
+import tempfile
 import types
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -146,6 +147,86 @@ class SwitcherWords(unittest.TestCase):
         self.assertEqual("jackd", switcher.server_in_words("jackd"))
 
 
+class ComponentTable(unittest.TestCase):
+    """What each component offers, decided away from the widgets.
+
+    The case that matters most is a clone somebody keeps themselves: this app
+    fetches into its own directory and never pulls in a working tree that is
+    not its own - there may be uncommitted work in it.
+    """
+
+    def test_a_missing_tool_is_offered(self):
+        self.assertEqual(("install", "Install", True),
+                         switcher.component_state(False, False, False, None))
+
+    def test_a_clone_of_ours_that_is_behind_offers_an_update(self):
+        zustand, text, aktiv = switcher.component_state(True, True, False, 3)
+        self.assertEqual(("update", True), (zustand, aktiv))
+        self.assertIn("3", text)
+
+    def test_a_clone_that_is_current_offers_nothing(self):
+        self.assertEqual(("current", "Up to date", False),
+                         switcher.component_state(True, True, False, 0))
+
+    def test_an_unanswerable_check_still_lets_you_try(self):
+        """No network, no upstream: "up to date" would be a claim nobody
+        checked."""
+        zustand, _text, aktiv = switcher.component_state(True, True, False, None)
+        self.assertEqual(("update", True), (zustand, aktiv))
+
+    def test_somebody_elses_clone_is_reported_and_left_alone(self):
+        zustand, text, aktiv = switcher.component_state(True, False, True, None)
+        self.assertEqual(("own", False), (zustand, aktiv))
+        self.assertIn("you", text.lower())
+
+    def test_an_installed_tool_without_a_clone_can_fetch_its_source(self):
+        """So that updates become visible at all - without a clone there is
+        nothing to compare against."""
+        self.assertEqual(("source", "Fetch the source", True),
+                         switcher.component_state(True, False, False, None))
+
+    def test_every_component_names_a_repository_and_what_it_does(self):
+        for comp in switcher.COMPONENTS:
+            with self.subTest(tool=comp["tool"]):
+                self.assertTrue(comp["url"].startswith("https://github.com/"))
+                self.assertGreater(len(comp["does"]), 30)
+                self.assertIn(comp["page"], ("Audio", "Modem", "GPS", "Switches"))
+
+    def test_a_clone_is_found_by_its_origin_not_by_its_name(self):
+        """The same repository sits in ~/Projekte/furios_gps_fix here and is
+        called furios_gps upstream. A name comparison would miss exactly the
+        clone that must not be touched."""
+        base = tempfile.mkdtemp()
+        try:
+            git = os.path.join(base, "anders_benannt", ".git")
+            os.makedirs(git)
+            with open(os.path.join(git, "config"), "w") as fh:
+                fh.write('[remote "origin"]\n\turl = '
+                         'https://github.com/misc-de/furios_gps.git\n')
+            self.assertEqual(
+                os.path.join(base, "anders_benannt"),
+                switcher.clone_elsewhere("https://github.com/misc-de/furios_gps", base))
+            self.assertIsNone(switcher.clone_elsewhere(
+                "https://github.com/misc-de/furios_pipewire", base))
+        finally:
+            shutil_real.rmtree(base, ignore_errors=True)
+
+    def test_a_directory_without_a_git_config_is_not_a_clone(self):
+        base = tempfile.mkdtemp()
+        try:
+            os.makedirs(os.path.join(base, "nur_ein_ordner"))
+            self.assertIsNone(switcher.clone_elsewhere("https://x/y", base))
+            self.assertIsNone(switcher.clone_elsewhere("https://x/y", base + "/weg"))
+        finally:
+            shutil_real.rmtree(base, ignore_errors=True)
+
+    def test_what_git_answers_is_read_as_a_number_or_as_nothing(self):
+        self.assertEqual(0, switcher.behind_count("0\n"))
+        self.assertEqual(7, switcher.behind_count("7"))
+        self.assertIsNone(switcher.behind_count(""))
+        self.assertIsNone(switcher.behind_count("fatal: no upstream configured"))
+
+
 class FakeProcess:
     """A Gio.Subprocess that hands back what a test wrote for it.
 
@@ -173,7 +254,8 @@ class FakeProcess:
             raise switcher.GLib.Error("pipe broke")
         return True, "\n".join(self.lines), None
 
-    def communicate_utf8_async(self, _stdin, _cancellable, callback):
+    def communicate_utf8_async(self, stdin, _cancellable, callback):
+        self.stdin = stdin              # what was written into the pipe
         if self.fail_at == "hang":
             return                      # never calls back
         callback(self, None)
@@ -344,6 +426,45 @@ class RunsAudioctl(unittest.TestCase):
         self.assertIn("did not answer", seen[0][1])
         self.assertTrue(process.killed)
 
+    def test_a_password_goes_into_the_pipe_and_a_launcher_sets_the_directory(self):
+        """The two things the components page needs from run_async: a working
+        directory, and a way in that is not the command line."""
+        process = self.arrange(lines=["done"])
+        gebaut = {}
+
+        class FakeLauncher:
+            def set_cwd(self, path):
+                gebaut["cwd"] = path
+
+            def spawnv(self, argv):
+                gebaut["argv"] = argv
+                return process
+
+        real = switcher.Gio.SubprocessLauncher.new
+        switcher.Gio.SubprocessLauncher.new = lambda flags: FakeLauncher()
+        try:
+            seen = []
+            switcher.run_async(["./install.sh"], lambda ok, out: seen.append(ok),
+                               cwd="/tmp/klon", stdin="wort\n")
+        finally:
+            switcher.Gio.SubprocessLauncher.new = real
+        self.assertEqual("/tmp/klon", gebaut.get("cwd"))
+        self.assertEqual(["./install.sh"], gebaut.get("argv"))
+        self.assertEqual("wort\n", process.stdin)
+        self.assertEqual([True], seen)
+
+    def test_without_a_directory_or_a_pipe_nothing_is_launched_the_long_way(self):
+        """The plain path stays plain - every other call in this app takes it."""
+        self.arrange(lines=["x"])
+        angefasst = []
+        real = switcher.Gio.SubprocessLauncher.new
+        switcher.Gio.SubprocessLauncher.new = lambda flags: angefasst.append(1)
+        try:
+            switcher.run_async(["audioctl", "status"], lambda ok, out: None)
+        finally:
+            switcher.Gio.SubprocessLauncher.new = real
+        self.assertEqual([], angefasst)
+
     def test_a_broken_pipe_without_a_line_callback_is_reported(self):
         self.arrange(lines=["x"], fail_at="communicate")
         seen = []
@@ -380,6 +501,9 @@ class Recording:
 
     def set_text(self, text):
         self.text = text
+
+    def get_text(self):
+        return self.text
 
     def set_fraction(self, value):
         self.fraction = value
@@ -496,8 +620,11 @@ class TheWindow(unittest.TestCase):
                                 self.win.sw_restore_btn]
         self.ran = []
         self.original = switcher.run_async
-        switcher.run_async = lambda argv, done, on_line=None: self.ran.append(
-            (argv, done, on_line))
+        # Four fields, not three: the components page passes cwd, stdin and a
+        # longer timeout, and a test that could not see them could not check
+        # that the password goes through the pipe and never through argv.
+        switcher.run_async = lambda argv, done, on_line=None, **kw: self.ran.append(
+            (argv, done, on_line, kw))
 
     def tearDown(self):
         switcher.run_async = self.original
@@ -888,6 +1015,350 @@ class TheWindow(unittest.TestCase):
                    for c in recorder.calls if c[0] == "Gtk.Button"]
         self.assertEqual([], [b for b in knoepfe if "listen" in b], knoepfe)
 
+    # --- the components page -----------------------------------------------
+    #
+    # Fetching a repository and running its installer is the most far-reaching
+    # thing this window does. Three properties are checked here and would each
+    # be a quiet disaster if they stopped holding: it asks first, the password
+    # travels through the pipe and never through a command line, and the
+    # ticket is dropped again when the work is done.
+
+    def komponente(self, tool="gpsctl"):
+        return next(c for c in switcher.COMPONENTS if c["tool"] == tool)
+
+    def test_the_components_page_lists_every_tool_with_its_source(self):
+        recorder.reset()
+        self.win.open_components()
+        gruppen = [str(c[2].get("title", "")) for c in recorder.calls
+                   if c[0] == "Adw.PreferencesGroup"]
+        for comp in switcher.COMPONENTS:
+            with self.subTest(tool=comp["tool"]):
+                self.assertTrue(any(comp["tool"] in g for g in gruppen), gruppen)
+        zeilen = [str(c[2].get("subtitle", "")) for c in recorder.calls
+                  if c[0] == "Adw.ActionRow"]
+        for comp in switcher.COMPONENTS:
+            self.assertIn(comp["url"], zeilen)
+
+    def test_fetching_asks_first_and_runs_nothing_on_the_tap(self):
+        self.win.open_components()
+        self.ran.clear()
+        self.win.ask_component(self.komponente())
+        self.assertEqual([], self.ran)
+
+    def test_the_question_says_what_will_be_run(self):
+        recorder.reset()
+        self.win.open_components()
+        self.win.ask_component(self.komponente())
+        dialoge = [c for c in recorder.calls if c[0] == "Adw.AlertDialog"]
+        body = str(dialoge[-1][2].get("body", ""))
+        self.assertIn("git clone", body)
+        self.assertIn("install.sh", body)
+        self.assertIn("sudo", body)
+
+    def test_cancel_sits_on_top_here_too_and_answers_nothing(self):
+        recorder.reset()
+        self.win.open_components()
+        self.win.ask_component(self.komponente())
+        antworten = [c[1][0] for c in recorder.calls
+                     if c[0] == "Adw.AlertDialog.add_response()" and c[1]]
+        self.assertEqual(["go", "cancel"], antworten)
+        self.ran.clear()
+        self.win.on_component_response(None, "cancel")
+        self.assertEqual([], self.ran)
+
+    def test_only_a_component_that_needs_root_is_asked_for_a_password(self):
+        recorder.reset()
+        self.win.open_components()
+        self.win.ask_component(self.komponente("gpsctl"))          # root
+        self.assertTrue([c for c in recorder.calls
+                         if c[0] == "Adw.PasswordEntryRow"])
+        recorder.reset()
+        self.win.ask_component(self.komponente("killswitch-indicator"))
+        self.assertEqual([], [c for c in recorder.calls
+                              if c[0] == "Adw.PasswordEntryRow"])
+
+    def schritte(self, comp, zustand, wort="geheim"):
+        """The steps as the app would run them - read, not executed.
+
+        Checked against the list rather than against a chain that has been
+        run: what runs as root, in which directory, and where the password
+        goes is exactly the part that must be readable without starting
+        anything.
+        """
+        return switcher.component_steps(comp, zustand, wort)
+
+    def test_an_install_clones_asks_sudo_once_and_drops_the_ticket(self):
+        gelaufen = self.schritte(self.komponente(), "install")
+        befehle = [" ".join(argv) for argv, _stdin, _cwd in gelaufen]
+        self.assertIn("git clone", befehle[0])
+        self.assertEqual(1, len([b for b in befehle if b.startswith("sudo -S")]))
+        self.assertTrue(any(b.endswith("install.sh") for b in befehle), befehle)
+        self.assertEqual("sudo -k", befehle[-1],
+                         "the ticket has to be dropped when the work is done")
+
+    def test_the_password_never_reaches_a_command_line(self):
+        """It goes to sudo through the pipe. In argv every "ps" on the phone
+        would read it, and so would anything that logs a command."""
+        gelaufen = self.schritte(self.komponente(), "install")
+        for argv, _stdin, _cwd in gelaufen:
+            with self.subTest(argv=argv):
+                self.assertNotIn("geheim", " ".join(argv))
+        durch_die_pipe = [stdin for _argv, stdin, _cwd in gelaufen if stdin]
+        self.assertEqual(["geheim\n"], durch_die_pipe)
+
+    def test_the_installer_runs_in_the_clone_as_the_user(self):
+        """Not as root: killswitch-indicator's installer refuses to be root,
+        and an installer run as root writes its user files into /root."""
+        gelaufen = self.schritte(self.komponente(), "install")
+        installer = [(argv, cwd) for argv, _stdin, cwd in gelaufen
+                     if argv[0].endswith("install.sh")]
+        self.assertEqual(1, len(installer))
+        argv, cwd = installer[0]
+        self.assertNotIn("sudo", argv)
+        self.assertEqual(switcher.clone_path(self.komponente()), cwd)
+
+    def test_a_component_without_root_never_calls_sudo(self):
+        gelaufen = self.schritte(self.komponente("killswitch-indicator"),
+                                 "install", None)
+        self.assertEqual([], [argv for argv, _s, _c in gelaufen
+                              if argv[0] == "sudo"])
+
+    def test_an_update_pulls_instead_of_cloning(self):
+        gelaufen = self.schritte(self.komponente(), "update")
+        self.assertIn("pull", gelaufen[0][0])
+        self.assertNotIn("clone", " ".join(gelaufen[0][0]))
+
+    def test_fetching_only_the_source_installs_nothing(self):
+        """The tool is already there; this is only so that updates become
+        visible. Running an installer here would change a working phone."""
+        gelaufen = self.schritte(self.komponente(), "source", None)
+        self.assertEqual(1, len(gelaufen))
+        self.assertIn("clone", " ".join(gelaufen[0][0]))
+
+    def test_the_chain_runs_the_steps_in_order(self):
+        """And hands each one what the list says - the cwd and the pipe
+        included, which is the only place the password is."""
+        self.win.open_components()
+        self.ran.clear()
+        self.win.busy = False
+        comp = self.komponente()
+        self.win.run_component(comp, "install", "geheim")
+        erwartet = switcher.component_steps(comp, "install", "geheim")
+        for argv, stdin, cwd in erwartet:
+            lauf, done, _on_line, kw = self.ran.pop(0)
+            self.assertEqual(argv, lauf)
+            self.assertEqual(stdin, kw.get("stdin"))
+            self.assertEqual(cwd, kw.get("cwd"))
+            done(True, "")
+
+    def test_a_step_that_fails_stops_the_chain_and_shows_what_it_said(self):
+        self.win.open_components()
+        self.ran.clear()
+        self.win.busy = False
+        self.win.run_component(self.komponente(), "install", "falsch")
+        _argv, done, _on_line, _kw = self.ran.pop(0)
+        done(False, "fatal: could not read from remote")
+        self.assertEqual([], [r for r in self.ran if "install.sh" in " ".join(r[0])])
+        self.assertIn("Could not set up", str(self.win.toasts.text))
+
+    def mit_klon(self, behind=None):
+        """Pretend our own clone is there, and answer the two git calls."""
+        real_path, real_is, real_else = (switcher.clone_path, switcher.is_clone,
+                                         switcher.clone_elsewhere)
+        switcher.clone_path = lambda comp: "/tmp/klon/" + comp["dir"]
+        switcher.is_clone = lambda path: True
+        switcher.clone_elsewhere = lambda url, base=None: None
+        try:
+            self.win.open_components()
+            for comp in switcher.COMPONENTS:
+                self.win.comp_rows[comp["tool"]]["state"] = Recording()
+            laeufe = [r for r in self.ran if "git" in r[0]]
+            self.ran.clear()
+            for _argv, done, _on_line, _kw in laeufe:
+                done(True, "")                 # fetch
+            for _argv, done, _on_line, _kw in list(self.ran):
+                done(True, "" if behind is None else str(behind))
+            self.ran.clear()
+        finally:
+            (switcher.clone_path, switcher.is_clone,
+             switcher.clone_elsewhere) = real_path, real_is, real_else
+
+    def test_a_clone_of_ours_is_checked_and_says_how_far_behind_it_is(self):
+        self.win.open_components()
+        self.ran.clear()
+        self.mit_klon(behind=2)
+        for comp in switcher.COMPONENTS:
+            with self.subTest(tool=comp["tool"]):
+                self.assertIn("2 commit",
+                              self.win.comp_rows[comp["tool"]]["state"].subtitle)
+
+    def test_a_clone_that_is_current_says_up_to_date(self):
+        self.win.open_components()
+        self.ran.clear()
+        self.mit_klon(behind=0)
+        gpsctl = self.win.comp_rows["gpsctl"]["state"].subtitle
+        self.assertIn("up to date", gpsctl)
+
+    def test_a_clone_somebody_else_keeps_is_named_and_not_touched(self):
+        """Named, so nobody wonders where their repository went - and left
+        alone, because it may have uncommitted work in it."""
+        real = switcher.clone_elsewhere
+        switcher.clone_elsewhere = lambda url, base=None: "/home/furios/Projekte/eigen"
+        try:
+            self.win.open_components()
+            for comp in switcher.COMPONENTS:
+                self.win.comp_rows[comp["tool"]]["state"] = Recording()
+            self.ran.clear()
+            self.win.read_components()
+            for comp in switcher.COMPONENTS:
+                with self.subTest(tool=comp["tool"]):
+                    zeile = self.win.comp_rows[comp["tool"]]["state"]
+                    self.assertIn("left untouched", zeile.subtitle)
+                    self.assertIn("/home/furios/Projekte/eigen", zeile.subtitle)
+            # Looked at, never changed: ls-remote and rev-parse only. A
+            # fetch would already write into somebody else's .git, a pull
+            # into their working tree.
+            befehle = [" ".join(r[0]) for r in self.ran if r[0][0] == "git"]
+            self.assertTrue(befehle, "nobody even looked")
+            for b in befehle:
+                with self.subTest(befehl=b):
+                    self.assertTrue("ls-remote" in b or "rev-parse" in b, b)
+            for verboten in ("fetch", "pull", "checkout", "reset"):
+                self.assertEqual([], [b for b in befehle if verboten in b])
+        finally:
+            switcher.clone_elsewhere = real
+
+    def test_something_new_upstream_is_said_but_not_acted_on(self):
+        """The one thing this app can honestly do with a clone it does not
+        own: say that the server has moved on."""
+        real = switcher.clone_elsewhere
+        switcher.clone_elsewhere = lambda url, base=None: "/home/furios/Projekte/eigen"
+        try:
+            self.win.open_components()
+            zeile = Recording()
+            self.win.comp_rows["gpsctl"]["state"] = zeile
+            self.ran.clear()
+            self.win.peek_upstream(self.komponente(), "/usr/bin/gpsctl",
+                                   "/home/furios/Projekte/eigen")
+            argv, done, _on_line, _kw = self.ran.pop(0)
+            self.assertIn("ls-remote", argv)
+            done(True, "abc123\tHEAD")
+            argv, done, _on_line, _kw = self.ran.pop(0)
+            self.assertIn("rev-parse", argv)
+            done(True, "def456")
+            self.assertIn("something new upstream", zeile.subtitle)
+            self.assertIn("left untouched", zeile.subtitle)
+            # the button stays out of reach
+            self.assertEqual("Kept by you",
+                             switcher.component_state(True, False, True, None)[1])
+        finally:
+            switcher.clone_elsewhere = real
+
+    def test_a_clone_that_matches_the_server_says_up_to_date(self):
+        self.win.open_components()
+        zeile = Recording()
+        self.win.comp_rows["gpsctl"]["state"] = zeile
+        self.ran.clear()
+        self.win.peek_upstream(self.komponente(), "/usr/bin/gpsctl", "/eigen")
+        _argv, done, _on_line, _kw = self.ran.pop(0)
+        done(True, "abc123\tHEAD")
+        _argv, done, _on_line, _kw = self.ran.pop(0)
+        done(True, "abc123\n")
+        self.assertIn("up to date", zeile.subtitle)
+
+    def test_no_answer_from_the_server_is_not_up_to_date(self):
+        """A phone in a tunnel must not be told its clone is current."""
+        self.win.open_components()
+        zeile = Recording()
+        self.win.comp_rows["gpsctl"]["state"] = zeile
+        self.ran.clear()
+        self.win.peek_upstream(self.komponente(), "/usr/bin/gpsctl", "/eigen")
+        _argv, done, _on_line, _kw = self.ran.pop(0)
+        done(False, "could not resolve host")
+        _argv, done, _on_line, _kw = self.ran.pop(0)
+        done(True, "abc123")
+        self.assertIn("could not look upstream", zeile.subtitle)
+
+    def test_nothing_is_offered_while_something_else_runs(self):
+        self.win.open_components()
+        self.ran.clear()
+        self.win.busy = True
+        try:
+            self.win.ask_component(self.komponente())
+            self.assertEqual([], self.ran)
+        finally:
+            self.win.busy = False
+
+    def test_an_update_says_pull_in_the_question_and_a_source_fetch_says_clone(self):
+        self.win.open_components()
+        for zustand, wort in (("update", "git pull"), ("source", "git clone")):
+            with self.subTest(zustand=zustand):
+                self.win.comp_rows["gpsctl"]["state_name"] = zustand
+                recorder.reset()
+                self.win.ask_component(self.komponente())
+                body = str([c for c in recorder.calls
+                            if c[0] == "Adw.AlertDialog"][-1][2].get("body", ""))
+                self.assertIn(wort, body)
+        # and fetching only the source says so on its own button
+        self.assertNotIn("install.sh", body)
+
+    def test_answering_go_starts_the_chain_with_what_was_typed(self):
+        self.win.open_components()
+        self.win.comp_rows["gpsctl"]["state_name"] = "install"
+        self.win.ask_component(self.komponente())
+        comp, zustand, eingabe = self.win._comp_pending
+        self.assertIsNotNone(eingabe)           # a password is asked for
+        feld = Recording()
+        feld.set_text("geheim")
+        self.win._comp_pending = (comp, zustand, feld)
+        self.ran.clear()
+        self.win.busy = False
+        self.win.on_component_response(None, "go")
+        argv, _done, _on_line, _kw = self.ran[0]
+        self.assertIn("clone", " ".join(argv))
+        self.assertEqual([], [a for a in self.ran if "geheim" in " ".join(a[0])])
+        self.assertEqual("", feld.text, "the password is wiped from the entry")
+
+    def test_a_wrong_password_is_reported_in_sudos_own_words(self):
+        """Better than anything this window could invent - and the chain stops
+        there rather than running an installer that cannot finish."""
+        self.win.open_components()
+        self.win.component_done(self.komponente(), False,
+                                "sudo: 3 incorrect password attempts")
+        self.assertIn("Could not set up", str(self.win.toasts.text))
+
+    def test_a_finished_fetch_says_the_tab_needs_a_restart(self):
+        """The tabs are built once, when the window opens - a tool that
+        arrives later cannot grow one by itself."""
+        self.win.open_components()
+        self.win.component_done(self.komponente(), True, "")
+        self.assertIn("restart", str(self.win.toasts.text))
+
+    def test_an_update_check_reads_how_far_behind_the_clone_is(self):
+        self.win.open_components()
+        comp = self.komponente()
+        self.ran.clear()
+        self.win.comp_rows[comp["tool"]]["state"] = Recording()
+        self.win.check_component(comp, "/usr/bin/gpsctl", "/tmp/klon", None)
+        argv, done, _on_line, _kw = self.ran.pop(0)
+        self.assertIn("fetch", argv)
+        done(True, "")
+        argv, done, _on_line, _kw = self.ran.pop(0)
+        self.assertIn("rev-list", argv)
+        done(True, "4\n")
+        self.assertIn("4 commit", self.win.comp_rows[comp["tool"]]["state"].subtitle)
+
+    def test_a_check_that_fails_says_so_rather_than_up_to_date(self):
+        self.win.open_components()
+        comp = self.komponente()
+        self.ran.clear()
+        self.win.comp_rows[comp["tool"]]["state"] = Recording()
+        self.win.check_component(comp, "/usr/bin/gpsctl", "/tmp/klon", None)
+        _argv, done, _on_line, _kw = self.ran.pop(0)
+        done(False, "could not resolve host")
+        self.assertIn("could not check",
+                      self.win.comp_rows[comp["tool"]]["state"].subtitle)
+
     # --- the way back, on every page ---------------------------------------
     #
     # One idea, one shape. Before this it was a blue "Restore sound" here, a
@@ -995,7 +1466,7 @@ class TheWindow(unittest.TestCase):
         win.on_switches_restore(None)
         gelaufen = []
         for _ in range(3):
-            argv, done, _on_line = self.ran.pop(0)
+            argv, done, _on_line, _kw = self.ran.pop(0)
             gelaufen.append(" ".join(argv))
             done(True, "")
         self.assertTrue(any("config wifi off" in c for c in gelaufen), gelaufen)
@@ -1009,7 +1480,7 @@ class TheWindow(unittest.TestCase):
         self.ran.clear()
         win.busy = False
         win.on_switches_restore(None)
-        _argv, done, _on_line = self.ran.pop(0)
+        _argv, done, _on_line, _kw = self.ran.pop(0)
         done(False, "nope")
         self.assertEqual([], [r for r in self.ran if "config" in r[0]])
         self.assertIn("Could not", str(win.toasts.text))

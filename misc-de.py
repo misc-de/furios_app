@@ -105,6 +105,173 @@ def profile_in_words(p):
     return PROFILE_WORDS.get(p, p)
 
 
+# ------------------------------------------------------------- Komponenten
+#
+# What this window drives lives in four repositories, and none of them is this
+# app. A phone with only audioctl installed shows one page and looks like an
+# app that can do nothing else - so the components page says what the other
+# pages would need, where it comes from and what it does, and offers to fetch
+# it.
+#
+# Two rules this is built on:
+#
+#   Clone into our own place, never into somebody's working tree. If there is
+#   already a clone of the same repository elsewhere (~/Projekte, typically),
+#   it is REPORTED and left alone: it may carry uncommitted work, and a "git
+#   pull" of ours would be the last thing anybody wants there.
+#
+#   The password goes to sudo and to nothing else. Three of the four installers
+#   write to /usr/local and want root; this phone has no polkit agent, so
+#   pkexec cannot ask (it answers "No authentication agent found"). What works
+#   is what a person does in a terminal: sudo asks once, and the installer runs
+#   as the user, with only its own sudo lines becoming root. Afterwards the
+#   ticket is dropped again with "sudo -k".
+CLONE_HOME = os.path.join(
+    os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")),
+    "misc-de")
+# Where people keep their own clones. Only ever read from.
+OWN_CLONES = os.path.expanduser("~/Projekte")
+
+COMPONENTS = [
+    {
+        "tool": "audioctl",
+        "page": "Audio",
+        "url": "https://github.com/misc-de/furios_pipewire",
+        "dir": "furios_pipewire",
+        "root": True,
+        "does": "PipeWire talks to the Android HAL directly instead of "
+                "PulseAudio: playback, recording, calls and Bluetooth audio",
+    },
+    {
+        "tool": "modemctl",
+        "page": "Modem",
+        "url": "https://github.com/misc-de/furios_modem_fixes",
+        "dir": "furios_modem_fixes",
+        "root": True,
+        "does": "the modem repairs: mobile data without Wi-Fi, signal bars "
+                "that move, 26 cell broadcast channels instead of 8",
+    },
+    {
+        "tool": "gpsctl",
+        "page": "GPS",
+        "url": "https://github.com/misc-de/furios_gps",
+        "dir": "furios_gps",
+        "root": True,
+        "does": "geoclue stops handing out the carrier's IP address as though "
+                "it were a position",
+    },
+    {
+        "tool": "killswitch-indicator",
+        "page": "Switches",
+        "url": "https://github.com/misc-de/furios_killswitch",
+        "dir": "furios_killswitch",
+        "root": False,
+        "does": "an icon in the top bar while the camera or the network "
+                "switch is engaged - nothing else on the phone says so",
+    },
+]
+
+
+def clone_path(comp):
+    """Where this app puts its own clone."""
+    return os.path.join(CLONE_HOME, comp["dir"])
+
+
+def is_clone(path):
+    return bool(path) and os.path.isdir(os.path.join(path, ".git"))
+
+
+def clone_elsewhere(url, base=None):
+    """A clone of `url` the user keeps themselves, or None.
+
+    Found by its origin, not by its directory name: the same repository sits
+    in ~/Projekte/furios_gps_fix here and is called furios_gps upstream, and a
+    name comparison would miss exactly the clone that must not be touched.
+    """
+    base = OWN_CLONES if base is None else base
+    try:
+        namen = sorted(os.listdir(base))
+    except OSError:
+        return None
+    for name in namen:
+        pfad = os.path.join(base, name)
+        try:
+            with open(os.path.join(pfad, ".git", "config")) as fh:
+                text = fh.read()
+        except OSError:
+            continue
+        if url in text:
+            return pfad
+    return None
+
+
+def component_state(installed, mine, foreign, behind):
+    """What a component offers right now: (state, button text, sensitive).
+
+    Kept out of the widgets so the table below can be read as a table, and so
+    the one case that matters most - a clone somebody else keeps - can be
+    checked without a window: we do not pull in a working tree that is not
+    ours, whatever state it is in.
+    """
+    if foreign and not mine:
+        return ("own", "Kept by you", False)
+    if not installed:
+        return ("install", "Install", True)
+    if not mine:
+        return ("source", "Fetch the source", True)
+    if behind is None:
+        return ("update", "Update", True)      # could not ask; let them try
+    if behind == 0:
+        return ("current", "Up to date", False)
+    return ("update", "Update (%d new)" % behind, True)
+
+
+def component_steps(comp, zustand, wort):
+    """The commands one fetch consists of, as (argv, stdin, cwd).
+
+    A list, not a method: what runs as root, in which directory, and where the
+    password goes is the part worth being able to read - and to check without
+    starting anything.
+
+    The installer is NOT run with sudo. It runs as the user, exactly as it
+    would in a terminal, and only its own sudo lines become root: run as root
+    it would write its user files into /root, and killswitch-indicator's
+    installer refuses to be root altogether. What sudo is used for here is a
+    ticket, taken once, dropped again at the end.
+    """
+    pfad = clone_path(comp)
+    schritte = []
+    if zustand == "update":
+        schritte.append((["git", "-C", pfad, "pull", "--ff-only"], None, None))
+    else:
+        schritte.append((["git", "clone", comp["url"], pfad], None, None))
+    if zustand == "source":
+        return schritte
+    if comp["root"]:
+        # -S reads the password from the pipe; -p "" keeps sudo's prompt out
+        # of the output this window shows.
+        schritte.append((["sudo", "-S", "-p", "", "-v"], (wort or "") + "\n", None))
+    schritte.append((["./install.sh"], None, pfad))
+    if comp["root"]:
+        schritte.append((["sudo", "-k"], None, None))
+    return schritte
+
+
+def behind_count(out):
+    """How many commits the clone is behind, from "git rev-list --count".
+
+    Anything that is not a number means the question could not be answered -
+    no upstream, no network, not a clone - and that is not "up to date".
+    """
+    text = (out or "").strip().splitlines()
+    if not text:
+        return None
+    try:
+        return int(text[-1].strip())
+    except ValueError:
+        return None
+
+
 # Long enough that nothing honest is ever cut off - audioctl alone may wait 15
 # seconds for a sink, and a switch behind pkexec runs several systemctl calls
 # after that - and short enough that a phone is not left with a greyed-out
@@ -112,7 +279,8 @@ def profile_in_words(p):
 CALL_TIMEOUT = 90
 
 
-def run_async(argv, on_done, on_line=None, timeout=CALL_TIMEOUT):
+def run_async(argv, on_done, on_line=None, timeout=CALL_TIMEOUT, cwd=None,
+              stdin=None):
     """audioctl runs for up to 15 seconds (it waits for a sink), so never
     call it blocking - the window would freeze.
 
@@ -126,10 +294,20 @@ def run_async(argv, on_done, on_line=None, timeout=CALL_TIMEOUT):
     keeps pulsing, and the only way out is to kill the window. A bounded wait
     turns that into an error message, which is a state somebody can act on.
     """
+    flags = Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_MERGE
+    if stdin is not None:
+        # The password reaches sudo through this pipe and nowhere else. Not in
+        # argv, where every "ps" on the phone would read it; not in a file, not
+        # in the environment, not in a log line.
+        flags |= Gio.SubprocessFlags.STDIN_PIPE
     try:
-        proc = Gio.Subprocess.new(
-            argv, Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_MERGE
-        )
+        if cwd is None and stdin is None:
+            proc = Gio.Subprocess.new(argv, flags)
+        else:
+            launcher = Gio.SubprocessLauncher.new(flags)
+            if cwd is not None:
+                launcher.set_cwd(cwd)
+            proc = launcher.spawnv(argv)
     except GLib.Error as err:
         on_done(False, str(err))
         return
@@ -174,7 +352,7 @@ def run_async(argv, on_done, on_line=None, timeout=CALL_TIMEOUT):
             except GLib.Error as err:
                 on_done(False, str(err))
 
-        proc.communicate_utf8_async(None, None, finished)
+        proc.communicate_utf8_async(stdin, None, finished)
         return
 
     stream = Gio.DataInputStream.new(proc.get_stdout_pipe())
@@ -217,6 +395,10 @@ class Window(Adw.ApplicationWindow):
         # Which way back is waiting for an answer, set while the question is
         # on screen. A pair, never a bare handler: the button belongs with it.
         self._restore_pending = (None, None)
+        # Same idea on the components page: which fetch is waiting for an
+        # answer, and the entry its password would come from.
+        self._comp_pending = (None, None, None)
+        self.comp_rows = {}
         self.modem_rows = []
         # Whether there is anything behind each control. A switch whose tool
         # did not answer must not look operable - and it must not become
@@ -236,6 +418,15 @@ class Window(Adw.ApplicationWindow):
         self.refresh_btn.set_tooltip_text("Reload status")
         self.refresh_btn.connect("clicked", lambda *_: self.refresh())
         header.pack_end(self.refresh_btn)
+
+        # The components live behind their own button rather than in a fifth
+        # tab: four tabs already fill 360 logical pixels, and this is a place
+        # people visit twice - once to fetch something, once when an update is
+        # due.
+        self.parts_btn = Gtk.Button(icon_name="system-software-install-symbolic")
+        self.parts_btn.set_tooltip_text("Components: what is installed, and from where")
+        self.parts_btn.connect("clicked", self.open_components)
+        header.pack_start(self.parts_btn)
 
         page = Adw.PreferencesPage()
 
@@ -353,6 +544,235 @@ class Window(Adw.ApplicationWindow):
 
         self.refresh()
 
+
+    # ------------------------------------------------------------ Komponenten
+
+    def open_components(self, _btn=None):
+        """One page: what each tab needs, where it comes from, what it does."""
+        self.comp_rows = {}
+        page = Adw.PreferencesPage()
+
+        erklaerung = Adw.PreferencesGroup(
+            description="Every tab here is one tool, and every tool is its own "
+            "repository. What is fetched is cloned to " + CLONE_HOME + " and "
+            "installed from there; three of the four write to /usr/local, so "
+            "sudo asks once for your password, the installer runs as you, and "
+            "the ticket is dropped afterwards. A clone you keep yourself is "
+            "only ever read - never pulled, never installed from.",
+        )
+        page.add(erklaerung)
+
+        for comp in COMPONENTS:
+            page.add(self.build_component_group(comp))
+
+        self.parts_page = page
+        inhalt = Adw.ToolbarView()
+        kopf = Adw.HeaderBar()
+        inhalt.add_top_bar(kopf)
+        self.parts_toasts = Adw.ToastOverlay()
+        self.parts_toasts.set_child(page)
+        inhalt.set_content(self.parts_toasts)
+
+        self.parts_dialog = Adw.Dialog(title="Components")
+        self.parts_dialog.set_content_width(400)
+        self.parts_dialog.set_content_height(640)
+        self.parts_dialog.set_child(inhalt)
+        self.parts_dialog.present(self)
+        self.read_components()
+
+    def build_component_group(self, comp):
+        grp = Adw.PreferencesGroup(title="%s · %s" % (comp["page"], comp["tool"]))
+        zeilen = {}
+        zeilen["does"] = Adw.ActionRow(title="What it does", subtitle=comp["does"])
+        zeilen["from"] = Adw.ActionRow(title="Comes from", subtitle=comp["url"])
+        zeilen["state"] = Adw.ActionRow(title="On this phone", subtitle="reading …")
+        for zeile in zeilen.values():
+            zeile.set_subtitle_selectable(True)
+            grp.add(zeile)
+        btn = Gtk.Button(label="…")
+        btn.add_css_class("pill")
+        btn.set_halign(Gtk.Align.CENTER)
+        btn.set_margin_top(6)
+        btn.set_margin_bottom(6)
+        btn.set_sensitive(False)
+        btn.connect("clicked", lambda _b, c=comp: self.ask_component(c))
+        grp.add(btn)
+        zeilen["button"] = btn
+        self.comp_rows[comp["tool"]] = zeilen
+        return grp
+
+    def read_components(self):
+        """Fill every group, and ask the network only where there is a clone."""
+        for comp in COMPONENTS:
+            zeilen = self.comp_rows[comp["tool"]]
+            installiert = _tool_maybe(comp["tool"])
+            meiner = clone_path(comp) if is_clone(clone_path(comp)) else None
+            fremder = clone_elsewhere(comp["url"])
+            worte = ("installed · " + installiert) if installiert else "not installed"
+            if meiner:
+                worte += " · clone here, checking for updates …"
+            elif fremder:
+                worte += (" · your own clone at " + fremder
+                          + ", left untouched · looking upstream …")
+            zeilen["state"].set_subtitle(worte)
+            self.set_component_button(comp, installiert, meiner, fremder, None)
+            if meiner:
+                self.check_component(comp, installiert, meiner, fremder)
+            elif fremder:
+                self.peek_upstream(comp, installiert, fremder)
+
+    def set_component_button(self, comp, installiert, meiner, fremder, behind):
+        zustand, text, aktiv = component_state(
+            bool(installiert), bool(meiner), bool(fremder), behind)
+        btn = self.comp_rows[comp["tool"]]["button"]
+        btn.set_label(text)
+        btn.set_sensitive(aktiv and not self.busy)
+        self.comp_rows[comp["tool"]]["state_name"] = zustand
+
+    def check_component(self, comp, installiert, meiner, fremder):
+        """git fetch, then count what is waiting. Both bounded like everything
+        else here: a phone in a tunnel must not leave the page saying
+        "checking" for ever."""
+        def gezaehlt(ok, out):
+            behind = behind_count(out) if ok else None
+            zeilen = self.comp_rows[comp["tool"]]
+            worte = ("installed · " + installiert) if installiert else "not installed"
+            if behind is None:
+                worte += " · clone here, could not check for updates"
+            elif behind == 0:
+                worte += " · clone here, up to date"
+            else:
+                worte += " · clone here, %d commit(s) behind" % behind
+            zeilen["state"].set_subtitle(worte)
+            self.set_component_button(comp, installiert, meiner, fremder, behind)
+
+        def geholt(ok, _out):
+            if not ok:
+                gezaehlt(False, "")
+                return
+            run_async(["git", "-C", meiner, "rev-list", "--count", "HEAD..@{u}"],
+                      gezaehlt, timeout=30)
+
+        run_async(["git", "-C", meiner, "fetch", "--quiet"], geholt, timeout=60)
+
+    def peek_upstream(self, comp, installiert, fremder):
+        """Is there something new for a clone we must not touch?
+
+        Answered by asking the server what its HEAD is and comparing it with
+        the clone's - "git ls-remote" writes nothing at all, not even the
+        remote refs a fetch would update. Somebody else's working tree is read
+        and nothing more; what to do about it is their business, in their
+        terminal.
+        """
+        def verglichen(ok, out, oben):
+            zeilen = self.comp_rows[comp["tool"]]
+            worte = ("installed · " + installiert) if installiert else "not installed"
+            worte += " · your own clone at " + fremder + ", left untouched"
+            hier = (out or "").strip().split()
+            if not ok or not oben or not hier:
+                worte += " · could not look upstream"
+            elif hier[0] == oben:
+                worte += " · up to date"
+            else:
+                worte += " · there is something new upstream"
+            zeilen["state"].set_subtitle(worte)
+
+        def oben_gelesen(ok, out):
+            kopf = (out or "").split()
+            oben = kopf[0] if ok and kopf else None
+            run_async(["git", "-C", fremder, "rev-parse", "HEAD"],
+                      lambda ok2, out2: verglichen(ok2, out2, oben), timeout=30)
+
+        run_async(["git", "ls-remote", comp["url"], "HEAD"], oben_gelesen,
+                  timeout=60)
+
+    def ask_component(self, comp):
+        """Ask before fetching anything, and say exactly what will happen.
+
+        Including the part that is easy to gloss over: this runs a script from
+        the internet, and for three of the four it runs commands as root.
+        """
+        if self.busy:
+            return
+        zustand = self.comp_rows[comp["tool"]].get("state_name")
+        pfad = clone_path(comp)
+        schritte = []
+        if zustand == "update":
+            schritte.append("git pull in " + pfad)
+        else:
+            schritte.append("git clone " + comp["url"] + " to " + pfad)
+        if zustand != "source":
+            schritte.append("run ./install.sh from that clone")
+        text = "\n".join("%d. %s" % (n, t) for n, t in enumerate(schritte, 1))
+        body = text + "\n\nThat is code from the internet, running on this "
+        if comp["root"] and zustand != "source":
+            body += ("phone. The installer writes to /usr/local, so sudo will "
+                     "ask for your password below - it goes to sudo and "
+                     "nowhere else, and the ticket is dropped when this is "
+                     "done.")
+        else:
+            body += "phone. Nothing here needs root."
+
+        dlg = Adw.AlertDialog(heading=comp["tool"] + "?", body=body)
+        eingabe = None
+        if comp["root"] and zustand != "source":
+            eingabe = Adw.PasswordEntryRow(title="Your password (for sudo)")
+            grp = Adw.PreferencesGroup()
+            grp.add(eingabe)
+            dlg.set_extra_child(grp)
+        dlg.add_response("go", "Fetch and install" if zustand != "source"
+                         else "Fetch the source")
+        dlg.add_response("cancel", "Cancel")
+        dlg.set_default_response("cancel")
+        dlg.set_close_response("cancel")
+        self._comp_pending = (comp, zustand, eingabe)
+        dlg.connect("response", self.on_component_response)
+        dlg.present(self)
+
+    def on_component_response(self, _dlg, response):
+        comp, zustand, eingabe = self._comp_pending
+        self._comp_pending = (None, None, None)
+        if response != "go" or comp is None:
+            return
+        wort = eingabe.get_text() if eingabe is not None else None
+        if eingabe is not None:
+            eingabe.set_text("")               # not kept a moment longer
+        self.run_component(comp, zustand, wort)
+
+    def run_component(self, comp, zustand, wort):
+        os.makedirs(CLONE_HOME, exist_ok=True)
+        schritte = component_steps(comp, zustand, wort)
+
+        zeile = self.comp_rows[comp["tool"]]["state"]
+        zeile.set_subtitle("working …")
+        self.set_busy(True)
+        for tool in self.comp_rows:
+            self.comp_rows[tool]["button"].set_sensitive(False)
+
+        rest = list(schritte)
+
+        def schritt(ok=True, out=""):
+            if not ok or not rest:
+                self.component_done(comp, ok, out)
+                return
+            argv, stdin, cwd = rest.pop(0)
+            zeile.set_subtitle(argv[0] + " …")
+            run_async(argv, schritt, timeout=600, cwd=cwd, stdin=stdin)
+
+        schritt()
+
+    def component_done(self, comp, ok, out):
+        self.set_busy(False)
+        if ok:
+            self.toast(comp["tool"] + " is in place - restart the app to get "
+                       "its tab")
+        else:
+            self.toast("Could not set up " + comp["tool"])
+            # A wrong password shows up here as sudo's own words, which say it
+            # better than anything this window could invent.
+            self.report(out or "No output.")
+        self.read_components()
+        self.refresh()
 
     # ------------------------------------------------ Der Weg zurueck
     #
