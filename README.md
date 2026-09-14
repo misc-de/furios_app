@@ -13,9 +13,30 @@ deren Zustand und sagt, was eine Entscheidung kostet:
 | Modem | `modemctl` | [furios_modem_fixes](https://github.com/misc-de/furios_modem_fixes) |
 | GPS | `gpsctl` | [furios_gps](https://github.com/misc-de/furios_gps) |
 | Switches | `killswitch-indicator` | [furios_killswitch](https://github.com/misc-de/furios_killswitch) |
+| App | `misc-de` | dieses Repo |
 
-Nur `audioctl` muss da sein. Fehlt eines der anderen, ist sein Reiter
-trotzdem da und bietet an, es zu holen - siehe unten.
+Keines davon muss da sein. Fehlt eines, ist sein Reiter trotzdem da und bietet
+an, es zu holen - siehe unten. Der fuenfte Reiter ist die App selbst: sie war
+das Letzte, was nur im Terminal zu aktualisieren war.
+
+## Der Reiter "App"
+
+Drei Zeilen - woher das Fenster laeuft, aus welchem Repo es kommt, aus welchem
+Klon ein Update kaeme - und ein Knopf, wenn es etwas zu tun gibt. Gefragt wird
+dabei etwas anderes als bei den vier Werkzeugen: nicht nur, ob auf dem Server
+neue Commits liegen, sondern ob das **laufende Programm dasselbe ist wie die
+`misc-de.py` im Klon**. Auf diesem Telefon wird die naechste Fassung in genau
+diesem Klon geschrieben; er ist also nie hinter dem Server, wohl aber
+regelmaessig vor dem, was installiert ist. Dann heisst das Angebot
+"reinstall": es wird nichts geholt, nur `./install.sh` in diesem Klon
+ausgefuehrt - ein `git pull` waere die falsche Frage, und seine Wache wuerde
+bei uncommitteten Aenderungen die Installation gleich mit verweigern.
+
+Danach laeuft in diesem Fenster noch die alte Fassung, also fragt es, ob es
+sich neu starten soll. Neu starten heisst `execv`: derselbe Prozess wird durch
+das neue Programm ersetzt. Eine zweite Instanz waere keine - die Application-ID
+laesst sie ihre Aktivierung an die laufende abgeben, und die praesentiert dann
+das ALTE Fenster.
 
 ## Installation
 
@@ -143,7 +164,7 @@ tests/run-tests.sh      # ohne Bildschirm, ohne root, ohne Telefon in der Hand
 tests/coverage.sh       # Zeilenabdeckung, mit der Standardbibliothek gemessen
 ```
 
-Stand: **192 Tests.** Die Zeilenabdeckung haengt daran, welche Werkzeuge auf
+Stand: **204 Tests.** Die Zeilenabdeckung haengt daran, welche Werkzeuge auf
 dem Telefon liegen - gemessen wird nur, was gebaut wird: mit allen vier waren
 es zuletzt 100 %, mit nur `modemctl` sind es 79 % von 1147 Zeilen.
 

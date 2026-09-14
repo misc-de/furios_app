@@ -34,6 +34,7 @@ APP_ID = "de.misc-de.tools"
 import json
 import os
 import shutil
+import sys
 import tempfile
 
 # From the package it lives in /usr/bin, from the source tree in /usr/local/bin.
@@ -183,6 +184,19 @@ COMPONENTS = [
         "root": False,
         "does": "an icon in the top bar while the camera or the network "
                 "switch is engaged - nothing else on the phone says so",
+    },
+    {
+        # The window itself. It drives four tools from four repositories and
+        # was the only thing left that had to be updated in a terminal - which
+        # is exactly the sentence the components page exists to avoid.
+        "tool": "misc-de",
+        "page": "App",
+        "key": "app",
+        "icon": "view-refresh-symbolic",
+        "url": "https://github.com/misc-de/furios_app",
+        "dir": "furios_app",
+        "root": True,
+        "does": "this window - the tabs, the switches and this page",
     },
 ]
 
@@ -343,6 +357,12 @@ def source_steps(comp, zustand, pfad):
     Seen on the phone on 14.9.2026, after an install that had failed further
     down for another reason.
     """
+    if zustand == "reinstall":
+        # Nothing to fetch: what is wanted is what is already in the clone.
+        # A pull here would be the wrong question, and with uncommitted work
+        # in that clone its guard would refuse the install as well.
+        return ([], "nothing is fetched - the clone in " + pfad
+                + " is used exactly as it is")
     if zustand == "update":
         wache = (["bash", "-c",
                   'test -z "$(git -C "$1" status --porcelain)" || '
@@ -687,7 +707,8 @@ class Window(Adw.ApplicationWindow):
         self.bauer = {"audio": lambda: page,
                       "modem": self.build_modem_page,
                       "gps": self.build_gps_page,
-                      "switches": self.build_switches_page}
+                      "switches": self.build_switches_page,
+                      "app": self.build_app_page}
         # One source of truth for "is this tool here", written down while the
         # pages are built and read by refresh() and by every handler
         # afterwards. Asked twice - once here, once from a module constant -
@@ -831,7 +852,8 @@ class Window(Adw.ApplicationWindow):
         zeile.set_subtitle_selectable(True)
         grp.add(zeile)
         btn = self.pill_button("Update")
-        btn.connect("clicked", lambda _b, c=comp: self.ask_component(c, "update"))
+        btn.connect("clicked", lambda _b, c=comp: self.ask_component(
+            c, self.comp_rows[c["tool"]].get("mode", "update")))
         grp.add(btn)
         self.comp_rows[comp["tool"]] = {"group": grp, "state": zeile,
                                         "button": btn}
@@ -845,39 +867,92 @@ class Window(Adw.ApplicationWindow):
         for comp in COMPONENTS:
             if not _tool_maybe(comp["tool"]) or comp["tool"] not in self.comp_rows:
                 continue
+            # For the window itself there is a second question, and on this
+            # phone it is the only one that ever has an answer: the clone here
+            # IS where the next version is written, so it is never behind the
+            # server - and an offer that could only ever be about somebody
+            # else's commits would never appear at all.
+            sonst = ((lambda c=comp: self.check_app_program(c))
+                     if comp["key"] == "app" else None)
             meiner = clone_path(comp) if is_clone(clone_path(comp)) else None
             if meiner:
-                self.check_component(comp, meiner)
+                self.check_component(comp, meiner, sonst)
             else:
                 fremder = clone_elsewhere(comp["url"])
                 if fremder:
-                    self.peek_upstream(comp, fremder)
+                    self.peek_upstream(comp, fremder, sonst)
+                elif sonst:
+                    sonst()
 
-    def check_component(self, comp, meiner):
-        """Our own clone: fetch, then count what is waiting."""
+    def check_component(self, comp, meiner, sonst=None):
+        """Our own clone: fetch, then count what is waiting.
+
+        `sonst` is asked when this found nothing - the second question some
+        components have, and the place where "nothing new on the server" and
+        "nothing to say at all" stop being the same sentence.
+        """
         def gezaehlt(ok, out):
             behind = behind_count(out) if ok else None
             if behind:
                 self.offer_update(comp, "%d new commit(s) in %s"
                                   % (behind, comp["url"]), meiner)
+            elif sonst:
+                sonst()
 
         def geholt(ok, _out):
             if ok:
                 run_async(["git", "-C", meiner, "rev-list", "--count",
                            "HEAD..@{u}"], gezaehlt, timeout=30)
+            elif sonst:
+                sonst()
 
         run_async(["git", "-C", meiner, "fetch", "--quiet"], geholt, timeout=60)
 
-    def offer_update(self, comp, worte, pfad):
+    def check_app_program(self, comp):
+        """Is the program that is running the one the clone has?
+
+        The git comparison answers a different question, and for this one
+        component it is usually the wrong one: the clone on this phone is
+        where the next version of the window is WRITTEN. It is never behind
+        the server - what it is, regularly, is newer than the program that is
+        installed, and until now the only way to close that gap was a
+        terminal.
+
+        Answered by comparing the two files, not by asking git: whether the
+        clone is committed, pushed or dirty is a different matter entirely.
+        """
+        quelle = (clone_path(comp) if is_clone_of(clone_path(comp), comp["url"])
+                  else clone_elsewhere(comp["url"]))
+        laufend = self.live.get("app")
+        if not quelle or not laufend:
+            return
+        try:
+            with open(os.path.join(quelle, "misc-de.py"), "rb") as fh:
+                im_klon = fh.read()
+            with open(laufend, "rb") as fh:
+                installiert = fh.read()
+        except OSError:
+            return                             # nothing to compare, nothing said
+        if im_klon != installiert:
+            self.offer_update(
+                comp, "the misc-de.py in this clone is not the program that "
+                "is running", quelle, "reinstall")
+
+    def offer_update(self, comp, worte, pfad, zustand="update"):
         """Show the group at the foot of the page, and say where it would
-        pull. The path matters: it may be a clone somebody keeps themselves."""
+        pull. The path matters: it may be a clone somebody keeps themselves.
+
+        The kind is remembered with it: "update" pulls and installs,
+        "reinstall" only installs what the clone already has.
+        """
         zeilen = self.comp_rows[comp["tool"]]
         zeilen["path"] = pfad
+        zeilen["mode"] = zustand
         zeilen["state"].set_subtitle(worte + " · " + pfad)
         zeilen["group"].set_visible(True)
         zeilen["button"].set_sensitive(not self.busy)
 
-    def peek_upstream(self, comp, fremder):
+    def peek_upstream(self, comp, fremder, sonst=None):
         """Is there something new for a clone we must not touch?
 
         Answered by asking the server what its HEAD is and comparing it with
@@ -889,6 +964,8 @@ class Window(Adw.ApplicationWindow):
         def verglichen(ok, out, oben):
             hier = (out or "").strip().split()
             if not ok or not oben or not hier or hier[0] == oben:
+                if sonst:
+                    sonst()
                 return                         # nothing to say, so nothing said
             self.offer_update(comp, "something new in " + comp["url"], fremder)
 
@@ -932,8 +1009,8 @@ class Window(Adw.ApplicationWindow):
             grp = Adw.PreferencesGroup()
             grp.add(eingabe)
             dlg.set_extra_child(grp)
-        dlg.add_response("go", "Update" if zustand == "update"
-                         else "Fetch and install")
+        dlg.add_response("go", "Fetch and install" if zustand == "install"
+                         else "Update")
         dlg.add_response("cancel", "Cancel")
         dlg.set_default_response("cancel")
         dlg.set_close_response("cancel")
@@ -999,7 +1076,12 @@ class Window(Adw.ApplicationWindow):
             gruppe = self.comp_rows.get(comp["tool"], {}).get("group")
             if gruppe is not None:
                 gruppe.set_visible(False)
-            self.toast(comp["tool"] + " is up to date")
+            if comp["key"] == "app":
+                # The one update that cannot take effect by itself: the new
+                # program is on disk and this window is the old one.
+                self.ask_restart()
+            else:
+                self.toast(comp["tool"] + " is up to date")
         elif ok:
             # The page first, the words after it: if the tab is already the
             # real one by the time the toast is read, the sentence is a
@@ -1037,6 +1119,71 @@ class Window(Adw.ApplicationWindow):
 
     RESTORE_TITLE = "Back to how it shipped"
     RESTORE_LABEL = "Restore shipped state"
+
+    def build_app_page(self):
+        """The window itself: where it runs from, where it comes from, and
+        where an update would be pulled.
+
+        No switch and no way back. There is no shipped state to return to -
+        this is not a repair of somebody else's phone, it is the thing you are
+        looking at. What it needs is the one thing every other tab already
+        had: a way to take the next version without a terminal.
+        """
+        seite = Adw.PreferencesPage()
+        grp = Adw.PreferencesGroup(title="This window")
+        self.arow_program = Adw.ActionRow(title="Runs from", subtitle="…")
+        self.arow_source = Adw.ActionRow(title="Comes from", subtitle="…")
+        self.arow_clone = Adw.ActionRow(title="Updates from", subtitle="…")
+        for row in (self.arow_program, self.arow_source, self.arow_clone):
+            row.set_subtitle_selectable(True)
+            grp.add(row)
+        seite.add(grp)
+        return seite
+
+    def app_rows(self):
+        """Fill that page. Cheap enough for every refresh: three strings, no
+        program is started for them."""
+        comp = next(c for c in COMPONENTS if c["key"] == "app")
+        self.arow_program.set_subtitle(self.live.get("app") or "not installed")
+        self.arow_source.set_subtitle(comp["url"])
+        eigener = clone_path(comp)
+        if is_clone_of(eigener, comp["url"]):
+            self.arow_clone.set_subtitle(eigener)
+            return
+        fremder = clone_elsewhere(comp["url"])
+        self.arow_clone.set_subtitle(
+            fremder + " - your own clone, so anything uncommitted in it stops "
+            "an update" if fremder
+            else "nothing cloned yet - it would be fetched to " + eigener)
+
+    def restart_self(self):
+        """Replace this process with the program that was just installed.
+
+        execv and not "start a copy, then quit": the application id makes a
+        second instance hand its activation to the one already running, so the
+        copy would present the OLD window and then die with it. Replacing the
+        image keeps the pid, releases the bus name with the connection, and
+        the new program takes the same place in the shell.
+        """
+        prog = _tool_maybe("misc-de") or os.path.abspath(sys.argv[0])
+        try:
+            os.execv(prog, [prog])
+        except OSError as err:                 # then at least say so
+            self.toast("Could not restart: " + str(err))
+
+    def ask_restart(self):
+        """An update is on disk; this window is still the old program."""
+        dlg = Adw.AlertDialog(
+            heading="Updated",
+            body="The new version is installed. This window is still running "
+                 "the old one - restarting takes a second.")
+        dlg.add_response("now", "Restart now")
+        dlg.add_response("later", "Later")
+        dlg.set_default_response("now")
+        dlg.set_close_response("later")
+        dlg.connect("response", lambda _d, antwort:
+                    self.restart_self() if antwort == "now" else None)
+        dlg.present(self)
 
     def build_restore_group(self, description, handler):
         """The group and the button; the caller adds the group to its page.
@@ -1569,6 +1716,8 @@ class Window(Adw.ApplicationWindow):
                 # Same installer, so this only happens in the seconds after
                 # one that stopped half way. The row says so and closes.
                 self.on_dmnr_status(False, "")
+        if self.live.get("app"):
+            self.app_rows()
         if self.live.get("modem"):
             # Both read-only, and neither needs root - which is the whole
             # reason the page can show something before anybody touches it.
@@ -1940,6 +2089,4 @@ class App(Adw.Application):
 
 
 if __name__ == "__main__":
-    import sys
-
     sys.exit(App().run(sys.argv))

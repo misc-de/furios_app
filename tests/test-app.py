@@ -175,7 +175,7 @@ class ComponentTable(unittest.TestCase):
                 self.assertTrue(comp["url"].startswith("https://github.com/"))
                 self.assertGreater(len(comp["does"]), 30)
                 self.assertIn(comp["key"],
-                              ("audio", "modem", "gps", "switches"))
+                              ("audio", "modem", "gps", "switches", "app"))
                 self.assertTrue(comp["icon"].endswith("-symbolic"))
 
     def test_a_clone_is_found_by_its_origin_not_by_its_name(self):
@@ -1244,7 +1244,7 @@ class TheWindow(unittest.TestCase):
         win = self.ohne("modemctl", "gpsctl", "killswitch-indicator")
         seiten = [c[1] for c in recorder.calls
                   if c[0] == "Adw.ViewStack.add_titled_with_icon()" and c[1]]
-        self.assertEqual(["audio", "modem", "gps", "switches"],
+        self.assertEqual(["audio", "modem", "gps", "switches", "app"],
                          [args[1] for args in seiten])
         self.assertIsNotNone(win)
 
@@ -1473,6 +1473,121 @@ class TheWindow(unittest.TestCase):
                          [k.sensitive for k in knoepfe.values()])
         del protokoll
 
+    # --- the window updating itself ----------------------------------------
+
+    def klon_mit_programm(self, url, inhalt):
+        """A clone of `url` with a misc-de.py in it."""
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil_real.rmtree, d, True)
+        os.mkdir(os.path.join(d, ".git"))
+        with open(os.path.join(d, ".git", "config"), "w") as fh:
+            fh.write('[remote "origin"]\n\turl = %s\n' % url)
+        with open(os.path.join(d, "misc-de.py"), "wb") as fh:
+            fh.write(inhalt)
+        return d
+
+    def app_komp(self):
+        return self.komponente("misc-de")
+
+    def test_the_app_is_a_component_like_the_tools_it_drives(self):
+        """It was the only thing left that had to be updated in a terminal -
+        which is the sentence the components page exists to avoid."""
+        comp = self.app_komp()
+        self.assertEqual("furios_app", comp["dir"])
+        self.assertTrue(comp["url"].endswith("furios_app"))
+        self.assertTrue(comp["root"], "install.sh writes to /usr/local")
+
+    def test_its_page_says_where_it_runs_from_and_what_would_be_pulled(self):
+        self.win.live["app"] = "/usr/local/bin/misc-de"
+        for name in ("arow_program", "arow_source", "arow_clone"):
+            setattr(self.win, name, Recording())
+        self.win.app_rows()
+        self.assertEqual("/usr/local/bin/misc-de", self.win.arow_program.subtitle)
+        self.assertIn("furios_app", str(self.win.arow_source.subtitle))
+        self.assertTrue(self.win.arow_clone.subtitle)
+
+    def test_a_clone_newer_than_the_program_is_offered_as_a_reinstall(self):
+        """The git question is the wrong one for this component: the clone on
+        this phone is where the next version is written, so it is never behind
+        the server - it is regularly newer than what is installed."""
+        comp = self.app_komp()
+        klon = self.klon_mit_programm(comp["url"], b"neue fassung")
+        laufend = os.path.join(klon, "installiert")
+        with open(laufend, "wb") as fh:
+            fh.write(b"alte fassung")
+        self.win.live["app"] = laufend
+        self.win.comp_rows["misc-de"] = {"state": Recording(),
+                                         "group": Recording(),
+                                         "button": Recording()}
+        echt = switcher.clone_elsewhere
+        switcher.clone_elsewhere = lambda url, base=None: klon
+        try:
+            self.win.check_app_program(comp)
+        finally:
+            switcher.clone_elsewhere = echt
+        self.assertEqual("reinstall", self.win.comp_rows["misc-de"]["mode"])
+        self.assertEqual(True, self.win.comp_rows["misc-de"]["group"].visible)
+
+    def test_a_program_that_matches_its_clone_is_not_offered(self):
+        comp = self.app_komp()
+        klon = self.klon_mit_programm(comp["url"], b"dieselbe fassung")
+        laufend = os.path.join(klon, "installiert")
+        with open(laufend, "wb") as fh:
+            fh.write(b"dieselbe fassung")
+        self.win.live["app"] = laufend
+        self.win.comp_rows["misc-de"] = {"state": Recording(),
+                                         "group": Recording(),
+                                         "button": Recording()}
+        echt = switcher.clone_elsewhere
+        switcher.clone_elsewhere = lambda url, base=None: klon
+        try:
+            self.win.check_app_program(comp)
+        finally:
+            switcher.clone_elsewhere = echt
+        self.assertIsNone(self.win.comp_rows["misc-de"]["group"].visible,
+                          "an offer that is always there says nothing")
+
+    def test_a_reinstall_pulls_nothing_and_installs_what_is_there(self):
+        """A pull would be the wrong question - and with uncommitted work in
+        that clone its guard would refuse the install along with it."""
+        schritte = switcher.component_steps(self.app_komp(), "reinstall",
+                                            "geheim", "/home/furios/Projekte/x")
+        befehle = [" ".join(argv) for argv, _s, _c, _e in schritte]
+        self.assertEqual([], [b for b in befehle if b.startswith("git")])
+        self.assertTrue(any(b.endswith("install.sh") for b in befehle), befehle)
+        self.assertEqual("sudo -k", befehle[-1])
+
+    def test_an_updated_app_offers_the_restart_it_needs(self):
+        """The new program is on disk and this window is still the old one.
+        Every other tool takes effect where it stands; this one cannot."""
+        recorder.reset()
+        self.win.live["app"] = "/usr/local/bin/misc-de"
+        self.win.comp_rows["misc-de"] = {"state": Recording(),
+                                         "group": Recording()}
+        self.win.component_done(self.app_komp(), True, "")
+        koepfe = [str(c[2].get("heading", "")) for c in recorder.calls
+                  if c[0] == "Adw.AlertDialog"]
+        self.assertIn("Updated", koepfe)
+        antworten = [c[1] for c in recorder.calls
+                     if c[0].endswith("add_response()") and c[1]]
+        self.assertTrue(any("Restart now" in str(a) for a in antworten),
+                        antworten)
+
+    def test_the_restart_replaces_this_process_instead_of_starting_a_second(self):
+        """A second instance hands its activation to the one already running -
+        it would present the OLD window and then die with it."""
+        gerufen = []
+        echt = switcher.os.execv
+        switcher.os.execv = lambda prog, argv: gerufen.append((prog, argv))
+        try:
+            self.win.restart_self()
+        finally:
+            switcher.os.execv = echt
+        self.assertEqual(1, len(gerufen))
+        prog, argv = gerufen[0]
+        self.assertTrue(prog.endswith("misc-de"), prog)
+        self.assertEqual([prog], argv)
+
     def test_a_step_that_fails_stops_the_chain_and_shows_what_it_said(self):
         comp = self.komponente()
         self.ran.clear()
@@ -1526,9 +1641,11 @@ class TheWindow(unittest.TestCase):
         # arguments, so the calls are the ones that carry some.
         gebaut = [c[1][1] for c in recorder.calls
                   if c[0] == "Adw.ViewStack.add_titled_with_icon()" and c[1]]
-        self.assertEqual(["gps", "switches"], gebaut)
-        self.assertEqual(2, len([c for c in recorder.calls
-                                 if c[0] == "Adw.ViewStack.remove()" and c[1]]))
+        self.assertEqual(["gps", "switches", "app"], gebaut)
+        # One for the tab being swapped, one for each tab behind it.
+        self.assertEqual(len(gebaut), len([c for c in recorder.calls
+                                           if c[0] == "Adw.ViewStack.remove()"
+                                           and c[1]]))
         del win
 
     def test_the_tab_somebody_installed_from_is_the_one_they_end_up_on(self):
