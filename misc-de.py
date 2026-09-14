@@ -726,6 +726,22 @@ class Window(Adw.ApplicationWindow):
         self.stack.set_visible_child_name(comp["key"])
         return True
 
+    def pill_button(self, label):
+        """The one button shape this app has: a pill, centred, with a line of
+        air above it.
+
+        Install, Update and the way back are built here, because they used to
+        be the same four lines written out three times - and the Install
+        button sat six pixels under the last row of the page, close enough to
+        read as part of it rather than as the thing you press.
+        """
+        btn = Gtk.Button(label=label)
+        btn.add_css_class("pill")
+        btn.set_halign(Gtk.Align.CENTER)
+        btn.set_margin_top(18)
+        btn.set_margin_bottom(6)
+        return btn
+
     def build_missing_page(self, comp):
         """The page of a tool that is not here: what it would do, where it
         comes from, and one button.
@@ -753,11 +769,7 @@ class Window(Adw.ApplicationWindow):
         for zeile in zeilen.values():
             zeile.set_subtitle_selectable(True)
             grp.add(zeile)
-        btn = Gtk.Button(label="Install")
-        btn.add_css_class("pill")
-        btn.set_halign(Gtk.Align.CENTER)
-        btn.set_margin_top(6)
-        btn.set_margin_bottom(6)
+        btn = self.pill_button("Install")
         btn.connect("clicked", lambda _b, c=comp: self.ask_component(c, "install"))
         grp.add(btn)
         zeilen["button"] = btn
@@ -779,11 +791,7 @@ class Window(Adw.ApplicationWindow):
         zeile = Adw.ActionRow(title="What is new", subtitle="…")
         zeile.set_subtitle_selectable(True)
         grp.add(zeile)
-        btn = Gtk.Button(label="Update")
-        btn.add_css_class("pill")
-        btn.set_halign(Gtk.Align.CENTER)
-        btn.set_margin_top(6)
-        btn.set_margin_bottom(6)
+        btn = self.pill_button("Update")
         btn.connect("clicked", lambda _b, c=comp: self.ask_component(c, "update"))
         grp.add(btn)
         self.comp_rows[comp["tool"]] = {"group": grp, "state": zeile,
@@ -920,9 +928,6 @@ class Window(Adw.ApplicationWindow):
         zeile = self.comp_rows[comp["tool"]]["state"]
         zeile.set_subtitle("working …")
         self.set_busy(True)
-        for zeilen in self.comp_rows.values():
-            if zeilen.get("button") is not None:
-                zeilen["button"].set_sensitive(False)
 
         rest = list(schritte)
 
@@ -1005,11 +1010,7 @@ class Window(Adw.ApplicationWindow):
         """
         grp = Adw.PreferencesGroup(title=self.RESTORE_TITLE,
                                    description=description)
-        btn = Gtk.Button(label=self.RESTORE_LABEL)
-        btn.add_css_class("pill")
-        btn.set_halign(Gtk.Align.CENTER)
-        btn.set_margin_top(6)
-        btn.set_margin_bottom(6)
+        btn = self.pill_button(self.RESTORE_LABEL)
         btn.connect("clicked", lambda button:
                     self.confirm_restore(description, handler, button))
         grp.add(btn)
@@ -1771,6 +1772,14 @@ class Window(Adw.ApplicationWindow):
         # them.
         for row in self.sw_rows:
             row.set_sensitive(not busy)
+        # Install and Update belong here for the same reason everything else
+        # does: ONE hand on the sensitivity. run_component used to switch them
+        # off itself and nothing switched them on again, so a single install -
+        # the one that failed included - left every button on every tab dead
+        # until the app was restarted. Reported from the phone on 14.9.2026.
+        for zeilen in self.comp_rows.values():
+            if zeilen.get("button") is not None:
+                zeilen["button"].set_sensitive(not busy)
         if busy:
             self.switch_row.set_subtitle("Switching, this takes a moment …")
         elif not self.audio_ok:

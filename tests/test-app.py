@@ -1351,6 +1351,33 @@ class TheWindow(unittest.TestCase):
         self.assertEqual([], protokoll)
         self.assertIsNone(self.win.askpass)
 
+    def test_a_fetch_that_is_over_gives_the_buttons_back(self):
+        """Read off the phone on 14.9.2026: after one install - the one that
+        failed - no Install button on any tab could be pressed again, on any
+        page, until the app was restarted. run_component switched them off and
+        nobody switched them on."""
+        comp = self.komponente()
+        knoepfe = {c["tool"]: Recording() for c in switcher.COMPONENTS}
+        for tool, knopf in knoepfe.items():
+            self.win.comp_rows[tool] = {"state": Recording(), "button": knopf}
+        protokoll, attrappe = self.sockel()
+        echt = switcher.Askpass
+        switcher.Askpass = attrappe
+        try:
+            self.win.busy = False
+            self.ran.clear()
+            self.win.run_component(comp, "install", "geheim")
+            self.assertEqual([False] * len(knoepfe),
+                             [k.sensitive for k in knoepfe.values()],
+                             "nothing else may be started while one runs")
+            _argv, done, _on_line, _kw = self.ran.pop(0)
+            done(False, "fatal: could not read from remote")
+        finally:
+            switcher.Askpass = echt
+        self.assertEqual([True] * len(knoepfe),
+                         [k.sensitive for k in knoepfe.values()])
+        del protokoll
+
     def test_a_step_that_fails_stops_the_chain_and_shows_what_it_said(self):
         comp = self.komponente()
         self.ran.clear()
