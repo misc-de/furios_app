@@ -756,14 +756,7 @@ class Window(Adw.ApplicationWindow):
         """
         gpage = Adw.PreferencesPage()
 
-        grp = Adw.PreferencesGroup(
-            title="Location",
-            description="Off is FuriOS as it came: asked where it is with no "
-            "Wi-Fi it recognises, the service answers with the position of "
-            "this phone's IP address - on mobile data the carrier's exit node, "
-            "tens of kilometres away - and geoclue passes it on as a position "
-            "like any other.",
-        )
+        grp = Adw.PreferencesGroup(title="Location")
         self.gps_row = Adw.SwitchRow(
             title="Filter active",
             subtitle="reading …",
@@ -807,8 +800,8 @@ class Window(Adw.ApplicationWindow):
         back, self.gps_restore_btn = self.build_restore_group(
             "Switches the filter off and remembers it. Asked where it is with "
             "no Wi-Fi it recognises, the phone then publishes the position of "
-            "its own IP address again - on mobile data the carrier's exit "
-            "node, tens of kilometres away.",
+            "the carrier's IP address again - the exit node of their network, "
+            "tens of kilometres away.",
             self.on_gps_restore)
         gpage.add(back)
 
@@ -848,9 +841,9 @@ class Window(Adw.ApplicationWindow):
         self.gps_persist.set_active(recorded == actual)
         self._syncing = False
         self.gps_row.set_subtitle(
-            "On: a position that is really just this phone's IP address is refused"
+            "On: a position that is really just the carrier's IP address is refused"
             if actual == "fixed"
-            else "Off: the carrier's exit node is published as a position"
+            else "Off: the carrier's IP address is published as a position"
         )
 
     def on_gps_status(self, ok, out):
