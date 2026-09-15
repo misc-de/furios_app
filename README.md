@@ -13,7 +13,7 @@ says what a decision costs.
 | Modem | `modemctl` | [furios_modem_fixes](https://github.com/misc-de/furios_modem_fixes) |
 | GPS | `gpsctl` | [furios_gps](https://github.com/misc-de/furios_gps) |
 | Switches | `killswitch-indicator` | [furios_killswitch](https://github.com/misc-de/furios_killswitch) |
-| Battery | `battctl` | [furios_battery](https://github.com/misc-de/furios_battery) |
+| Battery | `battctl` | [furios_misc/battery](https://github.com/misc-de/furios_misc) |
 
 None of them has to be installed. A tab whose tool is missing is still there
 and offers to fetch and install it for you; once that finishes, the tab becomes

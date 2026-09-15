@@ -220,8 +220,13 @@ COMPONENTS = [
         "page": "Battery",
         "key": "battery",
         "icon": "battery-good-charging-symbolic",
-        "url": "https://github.com/misc-de/furios_battery",
-        "dir": "furios_battery",
+        "url": "https://github.com/misc-de/furios_misc",
+        "dir": "furios_misc",
+        # furios_misc is a collection of small things, so the installer is
+        # not at the root of the clone. The only component with this, and
+        # the reason it is a key rather than a rule: the next small thing
+        # will sit beside it in the same repository.
+        "sub": "battery",
         "root": False,
         "does": "the battery icon goes green, amber or red with the charging "
                 "power - a tired cable and a good one look the same otherwise",
@@ -258,6 +263,21 @@ SELF = {
 def clone_path(comp):
     """Where this app puts its own clone."""
     return os.path.join(CLONE_HOME, comp["dir"])
+
+
+def installer_dir(comp, pfad):
+    """The directory its install.sh is run from.
+
+    The clone itself for a repository that is one project, a subdirectory
+    for one that collects several.
+    """
+    return os.path.join(pfad, comp["sub"]) if comp.get("sub") else pfad
+
+
+def installer_said(comp):
+    """How the installer is named in front of somebody about to run it -
+    the path they would type themselves."""
+    return ("./%s/install.sh" % comp["sub"]) if comp.get("sub") else "./install.sh"
 
 
 def is_clone(path):
@@ -545,7 +565,8 @@ def component_steps(comp, zustand, wort, pfad=None, askpass=None):
         # chain HERE, before an installer is half-way through.
         schritte.append((["sudo", "-S", "-p", "", "-v"], (wort or "") + "\n",
                          None, None))
-    schritte.append((["./install.sh"], None, pfad, installer_env(askpass)))
+    schritte.append((["./install.sh"], None, installer_dir(comp, pfad),
+                     installer_env(askpass)))
     if comp["root"]:
         schritte.append((["sudo", "-k"], None, None, None))
     return schritte
@@ -953,7 +974,8 @@ class Window(Adw.ApplicationWindow):
         zeilen["from"] = Adw.ActionRow(title="Comes from", subtitle=comp["url"])
         zeilen["state"] = Adw.ActionRow(
             title="What will happen",
-            subtitle="fetched to " + clone_path(comp) + ", then ./install.sh"
+            subtitle=("fetched to " + clone_path(comp) + ", then "
+                      + installer_said(comp))
             + (" - that one needs root, so sudo will ask for your password"
                if comp["root"] else " - no root needed"))
         for zeile in zeilen.values():
@@ -1152,7 +1174,7 @@ class Window(Adw.ApplicationWindow):
             return
         pfad = self.comp_rows.get(comp["tool"], {}).get("path") or clone_path(comp)
         schritte = [source_steps(comp, zustand, pfad)[1],
-                    "run ./install.sh from that clone"]
+                    "run %s from that clone" % installer_said(comp)]
         text = "\n".join("%d. %s" % (n, t) for n, t in enumerate(schritte, 1))
         body = text + "\n\nThat is code from the internet, running on this "
         if comp["root"]:

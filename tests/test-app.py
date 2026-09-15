@@ -238,6 +238,44 @@ class ComponentTable(unittest.TestCase):
         self.assertEqual("sudo -k", befehle[-1],
                          "the ticket has to be dropped when the work is done")
 
+    def test_a_collection_is_installed_from_its_subdirectory(self):
+        """furios_misc holds several small things, so its install.sh is not
+        at the root of the clone. The installer runs where it lives, or its
+        own relative paths point at the wrong place."""
+        komp = self.komp("battctl")
+        pfad = self.nirgends()
+        schritte = switcher.component_steps(komp, "install", "", pfad)
+        cwd = self.wo_installiert_wird(schritte)
+        self.assertEqual(os.path.join(pfad, "battery"), cwd)
+        # And the clone itself is still the clone - cloning into the
+        # subdirectory would put a repository inside a directory of it.
+        self.assertIn("git clone", " ".join(schritte[0][0]))
+        self.assertEqual(pfad, schritte[0][0][-1])
+
+    def test_a_single_project_still_installs_from_the_clone(self):
+        komp = self.komp("gpsctl")
+        pfad = self.nirgends()
+        schritte = switcher.component_steps(komp, "install", "geheim", pfad)
+        self.assertEqual(pfad, self.wo_installiert_wird(schritte))
+
+    @staticmethod
+    def wo_installiert_wird(schritte):
+        """The working directory of the install.sh step - found by its
+        argv, not by position: for a component that needs root the last
+        step is "sudo -k"."""
+        for argv, _stdin, cwd, _env in schritte:
+            if argv == ["./install.sh"]:
+                return cwd
+        return None
+
+    def test_the_question_names_the_installer_it_will_run(self):
+        """What somebody agrees to has to be the path they would type
+        themselves."""
+        self.assertEqual("./battery/install.sh",
+                         switcher.installer_said(self.komp("battctl")))
+        self.assertEqual("./install.sh",
+                         switcher.installer_said(self.komp("gpsctl")))
+
     def klon(self, url):
         """A directory that git would recognise as a clone of `url`."""
         d = tempfile.mkdtemp()
