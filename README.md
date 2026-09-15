@@ -13,17 +13,31 @@ deren Zustand und sagt, was eine Entscheidung kostet:
 | Modem | `modemctl` | [furios_modem_fixes](https://github.com/misc-de/furios_modem_fixes) |
 | GPS | `gpsctl` | [furios_gps](https://github.com/misc-de/furios_gps) |
 | Switches | `killswitch-indicator` | [furios_killswitch](https://github.com/misc-de/furios_killswitch) |
-| App | `misc-de` | dieses Repo |
 
 Keines davon muss da sein. Fehlt eines, ist sein Reiter trotzdem da und bietet
-an, es zu holen - siehe unten. Der fuenfte Reiter ist die App selbst: sie war
-das Letzte, was nur im Terminal zu aktualisieren war.
+an, es zu holen - siehe unten.
 
-## Der Reiter "App"
+## Die App aktualisiert sich selbst - ohne Reiter
 
-Drei Zeilen - woher das Fenster laeuft, aus welchem Repo es kommt, aus welchem
-Klon ein Update kaeme - und ein Knopf, wenn es etwas zu tun gibt. Gefragt wird
-dabei etwas anderes als bei den vier Werkzeugen: nicht nur, ob auf dem Server
+Die App ist eine Komponente wie die vier Werkzeuge (`misc-de`, dieses Repo):
+derselbe Klon, derselbe Installer. Was sie nicht ist, ist etwas, das man auf
+einer Seite *bedient* - sie IST die Seite. Ein fuenfter Reiter dafuer kostete
+auf jeder anderen Seite ein Fuenftel der Reiterleiste, um zu sagen, aus welcher
+Datei das Fenster laeuft; und das Einzige, wofuer er da war - die naechste
+Fassung nehmen - muss nicht hinter einem Reiter warten, den niemand oeffnet.
+
+Deshalb sitzt es in der Kopfleiste: **links oben ein Icon, das nur erscheint,
+wenn es eine neuere Fassung gibt.** Was gefunden wurde und woher es kaeme,
+steht in seinem Tooltip. Ein Druck darauf startet noch nichts, sondern fragt
+zurueck - dieselbe Rueckfrage, die jede andere Komponente bekommt, mit den
+Schritten, die laufen wuerden, und dem Passwortfeld fuer `sudo`. Danach ist das
+Icon wieder weg; es war die Antwort auf eine Frage, die beantwortet ist.
+
+(Rechts oben sass frueher ein "Aktualisieren"-Knopf. Der stellte genau den
+Zustand her, der ohnehin schon auf dem Schirm stand - das Fenster fragt beim
+Oeffnen, nach jedem Umschalten und nach jeder Installation von selbst nach.)
+
+Gefragt wird dabei etwas anderes als bei den vier Werkzeugen: nicht nur, ob auf dem Server
 neue Commits liegen, sondern ob das **laufende Programm dasselbe ist wie die
 `misc-de.py` im Klon**. Auf diesem Telefon wird die naechste Fassung in genau
 diesem Klon geschrieben; er ist also nie hinter dem Server, wohl aber
@@ -95,7 +109,8 @@ zu warten ist auf nichts mehr.
 Beim Start sieht die App einmal nach, ob die installierten Werkzeuge noch dem
 Stand ihres Repos entsprechen. Gibt es Neues, erscheint am **Fuss der
 betreffenden Seite** eine Gruppe "Update available" mit dem, was dort wartet,
-und einem **Update**-Knopf. Gibt es nichts - oder war die Frage nicht zu
+und einem **Update**-Knopf - fuer die App selbst das Icon links oben in der
+Kopfleiste. Gibt es nichts - oder war die Frage nicht zu
 beantworten, weil das Telefon gerade kein Netz hat -, erscheint gar nichts.
 Ein Angebot, das immer da ist, sagt nichts.
 

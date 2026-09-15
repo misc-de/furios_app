@@ -175,7 +175,7 @@ class ComponentTable(unittest.TestCase):
                 self.assertTrue(comp["url"].startswith("https://github.com/"))
                 self.assertGreater(len(comp["does"]), 30)
                 self.assertIn(comp["key"],
-                              ("audio", "modem", "gps", "switches", "app"))
+                              ("audio", "modem", "gps", "switches"))
                 self.assertTrue(comp["icon"].endswith("-symbolic"))
 
     def test_a_clone_is_found_by_its_origin_not_by_its_name(self):
@@ -638,6 +638,7 @@ class Recording:
         self.text = None
         self.fraction = None
         self.revealed = None
+        self.tooltip = None
 
     def set_subtitle(self, text):
         self.subtitle = text
@@ -665,6 +666,9 @@ class Recording:
 
     def pulse(self):
         self.fraction = "pulsing"
+
+    def set_tooltip_text(self, text):
+        self.tooltip = text
 
     def set_reveal_child(self, value):
         self.revealed = value
@@ -746,7 +750,7 @@ class TheWindow(unittest.TestCase):
     def setUp(self):
         self.win = switcher.Window(switcher.Adw.Application())
         names = ["row_profile", "row_server", "row_sinks", "switch_row",
-                 "persist_row", "dmnr_row", "refresh_btn", "progress",
+                 "persist_row", "dmnr_row", "update_btn", "progress",
                  "progress_revealer", "toasts"]
         # The modem widgets only exist when the page was built, and the page is
         # only built when modemctl is installed - so they are swapped in the
@@ -1244,7 +1248,7 @@ class TheWindow(unittest.TestCase):
         win = self.ohne("modemctl", "gpsctl", "killswitch-indicator")
         seiten = [c[1] for c in recorder.calls
                   if c[0] == "Adw.ViewStack.add_titled_with_icon()" and c[1]]
-        self.assertEqual(["audio", "modem", "gps", "switches", "app"],
+        self.assertEqual(["audio", "modem", "gps", "switches"],
                          [args[1] for args in seiten])
         self.assertIsNotNone(win)
 
@@ -1487,24 +1491,66 @@ class TheWindow(unittest.TestCase):
         return d
 
     def app_komp(self):
-        return self.komponente("misc-de")
+        return switcher.SELF
 
-    def test_the_app_is_a_component_like_the_tools_it_drives(self):
-        """It was the only thing left that had to be updated in a terminal -
-        which is the sentence the components page exists to avoid."""
+    def test_the_app_is_a_component_but_not_one_of_the_tabs(self):
+        """It is fetched and installed like the four tools - same repository,
+        same clone, same installer - but it is not a thing on this phone
+        somebody opens a page to operate: it IS the page."""
         comp = self.app_komp()
         self.assertEqual("furios_app", comp["dir"])
         self.assertTrue(comp["url"].endswith("furios_app"))
         self.assertTrue(comp["root"], "install.sh writes to /usr/local")
+        self.assertEqual([], [c for c in switcher.COMPONENTS
+                              if c["tool"] == comp["tool"]],
+                         "the window must not have a tab of its own")
 
-    def test_its_page_says_where_it_runs_from_and_what_would_be_pulled(self):
-        self.win.live["app"] = "/usr/local/bin/misc-de"
-        for name in ("arow_program", "arow_source", "arow_clone"):
-            setattr(self.win, name, Recording())
-        self.win.app_rows()
-        self.assertEqual("/usr/local/bin/misc-de", self.win.arow_program.subtitle)
-        self.assertIn("furios_app", str(self.win.arow_source.subtitle))
-        self.assertTrue(self.win.arow_clone.subtitle)
+    def test_nothing_is_offered_until_something_was_found(self):
+        """An update icon that is always there says nothing - so the window
+        builds it hidden and only a finding brings it out."""
+        recorder.reset()
+        switcher.Window(switcher.Adw.Application())
+        versteckt = [c[1] for c in recorder.calls
+                     if c[0] == "Gtk.Button.set_visible()" and c[1]]
+        self.assertEqual([(False,)], versteckt)
+
+    def test_the_offer_is_the_icon_in_the_header_and_says_what_it_found(self):
+        self.win.update_btn = Recording()
+        self.win.offer_self_update("2 new commit(s)", "/home/furios/klon")
+        self.assertEqual(True, self.win.update_btn.visible)
+        self.assertIn("2 new commit(s)", str(self.win.update_btn.tooltip))
+        self.assertIn("/home/furios/klon", str(self.win.update_btn.tooltip))
+        self.assertEqual("/home/furios/klon",
+                         self.win.comp_rows["misc-de"]["path"])
+
+    def test_the_icon_asks_before_it_replaces_the_running_program(self):
+        """Pressing it must not start anything: this replaces the program
+        somebody is looking at."""
+        recorder.reset()
+        self.ran.clear()
+        self.win.busy = False
+        self.win.offer_self_update("something new", "/home/furios/klon")
+        self.win.ask_self_update()
+        self.assertEqual([], self.ran, "pressing the icon started something")
+        koepfe = [str(c[2].get("heading", "")) for c in recorder.calls
+                  if c[0] == "Adw.AlertDialog"]
+        self.assertIn("misc-de?", koepfe)
+        antworten = [str(c[1][1]) for c in recorder.calls
+                     if c[0].endswith("add_response()") and c[1]]
+        self.assertIn("Update", antworten)
+        self.assertIn("Cancel", antworten)
+
+    def test_the_question_carries_the_kind_of_update_that_was_found(self):
+        """A reinstall pulls nothing; an update that pulled would run into the
+        guard of a clone somebody keeps themselves."""
+        self.win.busy = False
+        self.win.offer_self_update("newer than what runs", "/home/furios/klon",
+                                   "reinstall")
+        self.win.ask_self_update()
+        comp, zustand, _eingabe, pfad = self.win._comp_pending
+        self.assertEqual("misc-de", comp["tool"])
+        self.assertEqual("reinstall", zustand)
+        self.assertEqual("/home/furios/klon", pfad)
 
     def test_a_clone_newer_than_the_program_is_offered_as_a_reinstall(self):
         """The git question is the wrong one for this component: the clone on
@@ -1516,9 +1562,7 @@ class TheWindow(unittest.TestCase):
         with open(laufend, "wb") as fh:
             fh.write(b"alte fassung")
         self.win.live["app"] = laufend
-        self.win.comp_rows["misc-de"] = {"state": Recording(),
-                                         "group": Recording(),
-                                         "button": Recording()}
+        self.win.update_btn = Recording()
         echt = switcher.clone_elsewhere
         switcher.clone_elsewhere = lambda url, base=None: klon
         try:
@@ -1526,7 +1570,7 @@ class TheWindow(unittest.TestCase):
         finally:
             switcher.clone_elsewhere = echt
         self.assertEqual("reinstall", self.win.comp_rows["misc-de"]["mode"])
-        self.assertEqual(True, self.win.comp_rows["misc-de"]["group"].visible)
+        self.assertEqual(True, self.win.update_btn.visible)
 
     def test_a_program_that_matches_its_clone_is_not_offered(self):
         comp = self.app_komp()
@@ -1535,16 +1579,14 @@ class TheWindow(unittest.TestCase):
         with open(laufend, "wb") as fh:
             fh.write(b"dieselbe fassung")
         self.win.live["app"] = laufend
-        self.win.comp_rows["misc-de"] = {"state": Recording(),
-                                         "group": Recording(),
-                                         "button": Recording()}
+        self.win.update_btn = Recording()
         echt = switcher.clone_elsewhere
         switcher.clone_elsewhere = lambda url, base=None: klon
         try:
             self.win.check_app_program(comp)
         finally:
             switcher.clone_elsewhere = echt
-        self.assertIsNone(self.win.comp_rows["misc-de"]["group"].visible,
+        self.assertIsNone(self.win.update_btn.visible,
                           "an offer that is always there says nothing")
 
     def test_a_reinstall_pulls_nothing_and_installs_what_is_there(self):
@@ -1562,12 +1604,14 @@ class TheWindow(unittest.TestCase):
         Every other tool takes effect where it stands; this one cannot."""
         recorder.reset()
         self.win.live["app"] = "/usr/local/bin/misc-de"
-        self.win.comp_rows["misc-de"] = {"state": Recording(),
-                                         "group": Recording()}
+        self.win.update_btn = Recording()
+        self.win.update_btn.visible = True
         self.win.component_done(self.app_komp(), True, "")
         koepfe = [str(c[2].get("heading", "")) for c in recorder.calls
                   if c[0] == "Adw.AlertDialog"]
         self.assertIn("Updated", koepfe)
+        self.assertEqual(False, self.win.update_btn.visible,
+                         "the icon outlived the offer it carried")
         antworten = [c[1] for c in recorder.calls
                      if c[0].endswith("add_response()") and c[1]]
         self.assertTrue(any("Restart now" in str(a) for a in antworten),
@@ -1641,7 +1685,7 @@ class TheWindow(unittest.TestCase):
         # arguments, so the calls are the ones that carry some.
         gebaut = [c[1][1] for c in recorder.calls
                   if c[0] == "Adw.ViewStack.add_titled_with_icon()" and c[1]]
-        self.assertEqual(["gps", "switches", "app"], gebaut)
+        self.assertEqual(["gps", "switches"], gebaut)
         # One for the tab being swapped, one for each tab behind it.
         self.assertEqual(len(gebaut), len([c for c in recorder.calls
                                            if c[0] == "Adw.ViewStack.remove()"
@@ -1832,9 +1876,11 @@ class TheWindow(unittest.TestCase):
         finally:
             switcher.is_clone, switcher.clone_elsewhere = real_is, real_else
         gefragt = [r[0] for r in self.ran]
-        self.assertEqual(len([c for c in switcher.COMPONENTS
-                              if switcher._tool_maybe(c["tool"])]),
-                         len(gefragt))
+        # The window itself is asked about too, and it is not one of the tabs.
+        erwartet = len([c for c in switcher.COMPONENTS
+                        if switcher._tool_maybe(c["tool"])])
+        erwartet += bool(self.win.live.get("app"))
+        self.assertEqual(erwartet, len(gefragt))
         for argv in gefragt:
             self.assertIn("ls-remote", argv)
 

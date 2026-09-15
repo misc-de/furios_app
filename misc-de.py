@@ -185,20 +185,29 @@ COMPONENTS = [
         "does": "an icon in the top bar while the camera or the network "
                 "switch is engaged - nothing else on the phone says so",
     },
-    {
-        # The window itself. It drives four tools from four repositories and
-        # was the only thing left that had to be updated in a terminal - which
-        # is exactly the sentence the components page exists to avoid.
-        "tool": "misc-de",
-        "page": "App",
-        "key": "app",
-        "icon": "view-refresh-symbolic",
-        "url": "https://github.com/misc-de/furios_app",
-        "dir": "furios_app",
-        "root": True,
-        "does": "this window - the tabs, the switches and this page",
-    },
 ]
+
+# The window itself - a component like the four above, and deliberately not a
+# tab.
+#
+# Same repository, same clone, same installer. What it is not is a thing on
+# this phone somebody opens a page to operate: it IS the page. As a fifth tab
+# it took a fifth of the switcher bar on every other page to say which file it
+# runs from, and the one thing it was there for - taking the next version -
+# has no reason to wait behind a tab nobody opens.
+#
+# So it lives in the header bar, and only when there is something to take: an
+# icon on the left that appears once a newer version has been found, and that
+# asks before it does anything. Nothing is offered until somebody has looked
+# and found something - an update button that is always there says nothing.
+SELF = {
+    "tool": "misc-de",
+    "key": "app",
+    "url": "https://github.com/misc-de/furios_app",
+    "dir": "furios_app",
+    "root": True,
+    "does": "this window - the tabs and the switches on them",
+}
 
 
 def clone_path(comp):
@@ -611,10 +620,21 @@ class Window(Adw.ApplicationWindow):
         header = Adw.HeaderBar()
         toolbar.add_top_bar(header)
 
-        self.refresh_btn = Gtk.Button(icon_name="view-refresh-symbolic")
-        self.refresh_btn.set_tooltip_text("Reload status")
-        self.refresh_btn.connect("clicked", lambda *_: self.refresh())
-        header.pack_end(self.refresh_btn)
+        # Left of the title, and hidden until there is something to say.
+        #
+        # There used to be a "reload" button on the right instead. It asked
+        # every tool the same question the window already asks itself - on
+        # opening, after every switch, after every install - so it was a
+        # button whose whole job was to produce the state that was already on
+        # screen. What belongs up here is the one thing the window cannot do
+        # by itself: take its own next version. It appears when there is one
+        # and is gone the rest of the time, which makes its presence the
+        # message.
+        self.update_btn = Gtk.Button(icon_name="software-update-available-symbolic")
+        self.update_btn.set_tooltip_text("A newer version of this app is available")
+        self.update_btn.set_visible(False)
+        self.update_btn.connect("clicked", lambda *_: self.ask_self_update())
+        header.pack_start(self.update_btn)
 
 
         page = Adw.PreferencesPage()
@@ -707,8 +727,7 @@ class Window(Adw.ApplicationWindow):
         self.bauer = {"audio": lambda: page,
                       "modem": self.build_modem_page,
                       "gps": self.build_gps_page,
-                      "switches": self.build_switches_page,
-                      "app": self.build_app_page}
+                      "switches": self.build_switches_page}
         # One source of truth for "is this tool here", written down while the
         # pages are built and read by refresh() and by every handler
         # afterwards. Asked twice - once here, once from a module constant -
@@ -716,6 +735,10 @@ class Window(Adw.ApplicationWindow):
         # a status, and the answer would arrive at rows that were never
         # created.
         self.live = {}
+        # The window itself is not among the tabs, so nothing below writes it
+        # down - and an update of it has to know whether it is installed at
+        # all before it offers to replace it.
+        self.live["app"] = _tool_maybe(SELF["tool"])
         # The page widget of each tab, so one of them can be replaced later
         # without the others being rebuilt underneath somebody.
         self.pages = {}
@@ -867,22 +890,35 @@ class Window(Adw.ApplicationWindow):
         for comp in COMPONENTS:
             if not _tool_maybe(comp["tool"]) or comp["tool"] not in self.comp_rows:
                 continue
-            # For the window itself there is a second question, and on this
-            # phone it is the only one that ever has an answer: the clone here
-            # IS where the next version is written, so it is never behind the
-            # server - and an offer that could only ever be about somebody
-            # else's commits would never appear at all.
-            sonst = ((lambda c=comp: self.check_app_program(c))
-                     if comp["key"] == "app" else None)
-            meiner = clone_path(comp) if is_clone(clone_path(comp)) else None
-            if meiner:
-                self.check_component(comp, meiner, sonst)
-            else:
-                fremder = clone_elsewhere(comp["url"])
-                if fremder:
-                    self.peek_upstream(comp, fremder, sonst)
-                elif sonst:
-                    sonst()
+            self.look_for_update(comp)
+        self.check_self_update()
+
+    def look_for_update(self, comp, sonst=None):
+        """Where an update for this component would come from, in the order
+        that leaves other people's work alone: our own clone first, somebody
+        else's only to read, and `sonst` when neither had anything to say."""
+        meiner = clone_path(comp) if is_clone(clone_path(comp)) else None
+        if meiner:
+            self.check_component(comp, meiner, sonst)
+            return
+        fremder = clone_elsewhere(comp["url"])
+        if fremder:
+            self.peek_upstream(comp, fremder, sonst)
+        elif sonst:
+            sonst()
+
+    def check_self_update(self):
+        """Is there a newer version of this window?
+
+        Two questions, and on this phone only the second one ever has an
+        answer: the clone here IS where the next version is written, so it is
+        never behind the server. Asked in that order anyway, because on a
+        phone that only ever installs what this app fetched, the first is the
+        only one that can be true.
+        """
+        if not self.live.get("app"):
+            return                             # not installed - nothing to replace
+        self.look_for_update(SELF, self.check_app_program)
 
     def check_component(self, comp, meiner, sonst=None):
         """Our own clone: fetch, then count what is waiting.
@@ -908,7 +944,7 @@ class Window(Adw.ApplicationWindow):
 
         run_async(["git", "-C", meiner, "fetch", "--quiet"], geholt, timeout=60)
 
-    def check_app_program(self, comp):
+    def check_app_program(self, comp=SELF):
         """Is the program that is running the one the clone has?
 
         The git comparison answers a different question, and for this one
@@ -945,12 +981,33 @@ class Window(Adw.ApplicationWindow):
         The kind is remembered with it: "update" pulls and installs,
         "reinstall" only installs what the clone already has.
         """
+        if comp["key"] == "app":
+            return self.offer_self_update(worte, pfad, zustand)
         zeilen = self.comp_rows[comp["tool"]]
         zeilen["path"] = pfad
         zeilen["mode"] = zustand
         zeilen["state"].set_subtitle(worte + " · " + pfad)
         zeilen["group"].set_visible(True)
         zeilen["button"].set_sensitive(not self.busy)
+
+    def offer_self_update(self, worte, pfad, zustand="update"):
+        """The window has no page of its own, so its offer is the icon in the
+        header bar: it appears, and what it found is in its tooltip.
+
+        Where it would pull from is remembered next to it, exactly as a page's
+        offer remembers it - it may be a clone somebody keeps themselves.
+        """
+        self.comp_rows[SELF["tool"]] = {"path": pfad, "mode": zustand}
+        self.update_btn.set_tooltip_text("Update this app: " + worte + " · " + pfad)
+        self.update_btn.set_visible(True)
+        self.update_btn.set_sensitive(not self.busy)
+
+    def ask_self_update(self):
+        """The icon was pressed. Nothing happens yet: this replaces the
+        program somebody is looking at, so it is asked first, in the same
+        words and the same dialog every other component gets."""
+        zeilen = self.comp_rows.get(SELF["tool"], {})
+        self.ask_component(SELF, zeilen.get("mode", "update"))
 
     def peek_upstream(self, comp, fremder, sonst=None):
         """Is there something new for a clone we must not touch?
@@ -986,7 +1043,7 @@ class Window(Adw.ApplicationWindow):
         """
         if self.busy:
             return
-        pfad = self.comp_rows[comp["tool"]].get("path") or clone_path(comp)
+        pfad = self.comp_rows.get(comp["tool"], {}).get("path") or clone_path(comp)
         schritte = [source_steps(comp, zustand, pfad)[1],
                     "run ./install.sh from that clone"]
         text = "\n".join("%d. %s" % (n, t) for n, t in enumerate(schritte, 1))
@@ -1037,8 +1094,7 @@ class Window(Adw.ApplicationWindow):
         helfer = self.askpass.start() if self.askpass else None
         schritte = component_steps(comp, zustand, wort, pfad, helfer)
 
-        zeile = self.comp_rows[comp["tool"]]["state"]
-        zeile.set_subtitle("working …")
+        self.component_says(comp, "working …")
         self.set_busy(True)
 
         rest = list(schritte)
@@ -1048,7 +1104,7 @@ class Window(Adw.ApplicationWindow):
                 self.component_done(comp, ok, out)
                 return
             argv, stdin, cwd, env = rest.pop(0)
-            zeile.set_subtitle(argv[0] + " …")
+            self.component_says(comp, argv[0] + " …")
             # The installer gets its own patience. A clone or a pull is over
             # in seconds, but an installer may have to fetch build packages
             # over a phone connection and compile something afterwards - the
@@ -1059,6 +1115,17 @@ class Window(Adw.ApplicationWindow):
                       env=env)
 
         schritt()
+
+    def component_says(self, comp, worte):
+        """Where a running fetch reports: the row on the tool's page, or - for
+        the window itself, which has no page - the tooltip of the icon that
+        offered the update. Something has to carry it, and a window that goes
+        busy for two minutes without a word reads as one that has hung."""
+        zeile = self.comp_rows.get(comp["tool"], {}).get("state")
+        if zeile is not None:
+            zeile.set_subtitle(worte)
+        else:
+            self.update_btn.set_tooltip_text(worte)
 
     def component_done(self, comp, ok, out):
         # First thing, before anything can return early: socket down, helper
@@ -1077,6 +1144,9 @@ class Window(Adw.ApplicationWindow):
             if gruppe is not None:
                 gruppe.set_visible(False)
             if comp["key"] == "app":
+                # The icon goes with the offer it carried; it comes back the
+                # next time somebody looks and finds something.
+                self.update_btn.set_visible(False)
                 # The one update that cannot take effect by itself: the new
                 # program is on disk and this window is the old one.
                 self.ask_restart()
@@ -1119,42 +1189,6 @@ class Window(Adw.ApplicationWindow):
 
     RESTORE_TITLE = "Back to how it shipped"
     RESTORE_LABEL = "Restore shipped state"
-
-    def build_app_page(self):
-        """The window itself: where it runs from, where it comes from, and
-        where an update would be pulled.
-
-        No switch and no way back. There is no shipped state to return to -
-        this is not a repair of somebody else's phone, it is the thing you are
-        looking at. What it needs is the one thing every other tab already
-        had: a way to take the next version without a terminal.
-        """
-        seite = Adw.PreferencesPage()
-        grp = Adw.PreferencesGroup(title="This window")
-        self.arow_program = Adw.ActionRow(title="Runs from", subtitle="…")
-        self.arow_source = Adw.ActionRow(title="Comes from", subtitle="…")
-        self.arow_clone = Adw.ActionRow(title="Updates from", subtitle="…")
-        for row in (self.arow_program, self.arow_source, self.arow_clone):
-            row.set_subtitle_selectable(True)
-            grp.add(row)
-        seite.add(grp)
-        return seite
-
-    def app_rows(self):
-        """Fill that page. Cheap enough for every refresh: three strings, no
-        program is started for them."""
-        comp = next(c for c in COMPONENTS if c["key"] == "app")
-        self.arow_program.set_subtitle(self.live.get("app") or "not installed")
-        self.arow_source.set_subtitle(comp["url"])
-        eigener = clone_path(comp)
-        if is_clone_of(eigener, comp["url"]):
-            self.arow_clone.set_subtitle(eigener)
-            return
-        fremder = clone_elsewhere(comp["url"])
-        self.arow_clone.set_subtitle(
-            fremder + " - your own clone, so anything uncommitted in it stops "
-            "an update" if fremder
-            else "nothing cloned yet - it would be fetched to " + eigener)
 
     def restart_self(self):
         """Replace this process with the program that was just installed.
@@ -1716,8 +1750,6 @@ class Window(Adw.ApplicationWindow):
                 # Same installer, so this only happens in the seconds after
                 # one that stopped half way. The row says so and closes.
                 self.on_dmnr_status(False, "")
-        if self.live.get("app"):
-            self.app_rows()
         if self.live.get("modem"):
             # Both read-only, and neither needs root - which is the whole
             # reason the page can show something before anybody touches it.
@@ -1956,7 +1988,7 @@ class Window(Adw.ApplicationWindow):
         self.switch_row.set_sensitive(not busy and self.audio_ok)
         self.persist_row.set_sensitive(not busy and self.audio_ok)
         self.dmnr_row.set_sensitive(not busy and self.dmnr_ok)
-        self.refresh_btn.set_sensitive(not busy)
+        self.update_btn.set_sensitive(not busy)
         self.rescue_btn.set_sensitive(not busy)
         # Empty when there is no modem page, which is the point: nothing here
         # may assume the second page exists.
