@@ -1626,7 +1626,7 @@ class Window(Adw.ApplicationWindow):
         # by some, noise to others.
         self.batt_drain = Adw.SwitchRow(
             title="On battery too",
-            subtitle="Green is then a phone that is drawing little")
+            subtitle="White until the drain is unusual, then amber, then red")
         self.batt_drain.connect("notify::active", self.on_battery_discharge)
         grp.add(self.batt_drain)
         self.batt_persist = Adw.SwitchRow(
@@ -1707,8 +1707,8 @@ class Window(Adw.ApplicationWindow):
                 "green from %.1f W, amber from %.1f W"
                 % (cfg.get("charge_green_w", 0.0), cfg.get("charge_amber_w", 0.0)))
             self.batt_drain.set_subtitle(
-                "Green is then under %.1f W, red over %.1f W"
-                % (cfg.get("drain_green_w", 0.0), cfg.get("drain_amber_w", 0.0)))
+                "White below %.1f W, then amber, red from %.1f W"
+                % (cfg.get("drain_amber_w", 0.0), cfg.get("drain_red_w", 0.0)))
 
     def on_battery_active(self, ok, out):
         aktiv = ok and out.strip() == "active"

@@ -1093,7 +1093,7 @@ class TheWindow(unittest.TestCase):
              "base_theme": "adw-gtk3", "can_theme": true,
              "config": {"charging": true, "discharging": false,
                         "charge_green_w": 7.0, "charge_amber_w": 3.0,
-                        "drain_green_w": 1.0, "drain_amber_w": 3.0}}"""
+                        "drain_amber_w": 3.0, "drain_red_w": 5.0}}"""
 
     def batt(self, **anders):
         """The tool's answer, with single fields overridden."""
@@ -1155,7 +1155,18 @@ class TheWindow(unittest.TestCase):
         self.win.on_battery_status(True, self.BATT)
         self.assertIn("7.0 W", self.win.batt_row.subtitle)
         self.assertIn("3.0 W", self.win.batt_row.subtitle)
-        self.assertIn("1.0 W", self.win.batt_drain.subtitle)
+        self.assertIn("3.0 W", self.win.batt_drain.subtitle)
+        self.assertIn("5.0 W", self.win.batt_drain.subtitle)
+
+    def test_on_battery_promises_white_not_green(self):
+        """The option says when something is unusual; a colour that is on all
+        day says nothing. Asked of the page, because this is the sentence
+        somebody reads before deciding."""
+        text = (self.win.batt_drain.subtitle or "").lower()
+        self.win.on_battery_status(True, self.BATT)
+        text = self.win.batt_drain.subtitle.lower()
+        self.assertIn("white", text)
+        self.assertNotIn("green", text)
 
     def test_the_second_option_follows_the_config_not_the_switch(self):
         self.win.on_battery_status(True, self.batt(
