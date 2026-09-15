@@ -292,6 +292,39 @@ class Askpass:
         self.verzeichnis = None
         self.dienst = None
         self.helfer = None
+        self.fehler = None
+        # Only processes descended from this one are answered. The uid check
+        # below rules out other accounts; it does not rule out anything else
+        # this account is running, and that is the gap that matters here: the
+        # socket sits under a predictable name in $XDG_RUNTIME_DIR, any
+        # process of this user can find it with a glob, and the window is as
+        # long as an install - up to half an hour. Measured on 15.9.2026: five
+        # reads in a row from an unrelated process, none of them sudo.
+        self.wurzel = os.getpid()
+
+    @staticmethod
+    def _stammt_ab(pid, wurzel, grenze=24):
+        """Does pid's parent chain reach wurzel?
+
+        Measured against real sudo on 15.9.2026: the helper it starts is a
+        direct descendant (helper -> sudo -> the installer's shell -> us), so
+        the chain holds. A count-based guard would not have worked - sudo asks
+        three times for three attempts, from three different helper processes.
+        """
+        gesehen = 0
+        while pid and pid > 1 and gesehen < grenze:
+            if pid == wurzel:
+                return True
+            try:
+                with open("/proc/%d/stat" % pid) as fh:
+                    roh = fh.read()
+                # comm sits in brackets and may contain spaces and brackets
+                # itself, so everything before the LAST one is skipped.
+                pid = int(roh[roh.rindex(")") + 2:].split()[1])
+            except (OSError, ValueError, IndexError):
+                return False
+            gesehen += 1
+        return False
 
     def start(self):
         """The helper's path, or None if it could not be set up.
@@ -318,7 +351,18 @@ class Askpass:
             self.dienst.connect("incoming", self.on_incoming)
             self.dienst.start()
             return self.helfer
-        except (OSError, GLib.Error):
+        except (OSError, GLib.Error) as fehler:
+            # Saying why matters more than it looks. The install then stops at
+            # its first sudo line with "a terminal is required to read the
+            # password" - the very thing this class exists to prevent - and
+            # without this line there is nothing anywhere that connects the
+            # two. The likeliest cause is length: a unix socket path stops at
+            # 108 characters, and $XDG_RUNTIME_DIR plus the directory and the
+            # name eat into that.
+            self.fehler = str(fehler) or fehler.__class__.__name__
+            if self.verzeichnis and len(self.verzeichnis) > 70:
+                self.fehler += " (the runtime directory is long - a unix" \
+                               " socket path stops at 108 characters)"
             self.stop()
             return None
 
@@ -330,6 +374,9 @@ class Askpass:
             creds = verbindung.get_socket().get_credentials()
             if creds.get_unix_user() != os.getuid():
                 return True                    # not ours, so not a word
+            # Same user is not enough: it has to be something we started.
+            if not self._stammt_ab(creds.get_unix_pid(), self.wurzel):
+                return True                    # not ours either
             verbindung.get_output_stream().write_all(
                 (self.wort + "\n").encode(), None)
             verbindung.close(None)
@@ -339,7 +386,8 @@ class Askpass:
 
     def stop(self):
         """Socket down, helper gone, password forgotten. Called on every way
-        out of an install, the ones that failed included."""
+        out of an install, the ones that failed included. self.fehler is left
+        alone - it is the one thing worth keeping after a failed start."""
         self.wort = ""
         if self.dienst is not None:
             try:
@@ -1094,6 +1142,12 @@ class Window(Adw.ApplicationWindow):
         helfer = self.askpass.start() if self.askpass else None
         schritte = component_steps(comp, zustand, wort, pfad, helfer)
 
+        # A helper that could not be set up is not fatal - the install falls
+        # back on sudo's ticket, which is where it was before this existed.
+        # But it is the reason an install can stop at its first sudo line, so
+        # it is said out loud rather than left to be guessed at.
+        if self.askpass is not None and helfer is None and self.askpass.fehler:
+            self.component_says(comp, "no password helper: " + self.askpass.fehler)
         self.component_says(comp, "working …")
         self.set_busy(True)
 

@@ -18,6 +18,7 @@ the ordinary run.
 import importlib.util
 import os
 import subprocess
+import tempfile
 import sys
 from pathlib import Path
 
@@ -81,10 +82,78 @@ def main():
     gut &= ok(ergebnis.get("out") == GEHEIM,
               "a separate process gets the password through the socket")
 
+    # The other half, and the one this was missing: same user is not enough.
+    # The socket sits under a predictable name in $XDG_RUNTIME_DIR and any
+    # process of this account can find it with a glob, so what keeps it shut
+    # is that the asker has to be something we started. Checked from a process
+    # that is a SIBLING, not a descendant - started by this test's own parent,
+    # which sudo's helper never is.
+    fremd = Path(__file__).parent / "_fremd_tmp.py"
+    fremd.write_text(
+        "import socket,sys\n"
+        "s=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM); s.settimeout(5)\n"
+        "try:\n"
+        "    s.connect(sys.argv[1]); t=[]\n"
+        "    while True:\n"
+        "        c=s.recv(4096)\n"
+        "        if not c: break\n"
+        "        t.append(c)\n"
+        "    open(sys.argv[2],'w').write(b''.join(t).decode())\n"
+        "except Exception: pass\n")
+    antwort = Path(__file__).parent / "_fremd_tmp.out"
+    try:
+        sock = os.path.join(verzeichnis, "ask.sock")
+        # "setsid --fork", not os.setsid: setsid alone changes the session and
+        # leaves the parent in place, so the process is still our child and
+        # would be answered - correctly. The --fork is what makes init adopt
+        # it, which is the case that has to be refused. (Getting this wrong
+        # once made this very check pass against a socket that was still
+        # wide open.)
+        subprocess.run(["setsid", "--fork", sys.executable, str(fremd),
+                        sock, str(antwort)], timeout=20)
+        erg2 = {}
+
+        def warten2():
+            erg2["out"] = antwort.read_text().strip() if antwort.exists() else ""
+            schleife2.quit()
+            return False
+
+        schleife2 = GLib.MainLoop()
+        GLib.timeout_add_seconds(6, warten2)
+        GLib.timeout_add_seconds(20, lambda: (schleife2.quit(), False)[1])
+        schleife2.run()
+        gut &= ok(erg2.get("out") != GEHEIM,
+                  "a process we did not start gets nothing")
+    finally:
+        fremd.unlink(missing_ok=True)
+        antwort.unlink(missing_ok=True)
+
     a.stop()
     gut &= ok(not os.path.exists(verzeichnis),
               "socket, helper and directory are gone afterwards")
     gut &= ok(a.wort == "", "and the password is not kept either")
+
+    # A helper that cannot be set up used to return None and say nothing, and
+    # the install then stopped at its first sudo line with "a terminal is
+    # required to read the password" - the exact failure this class exists to
+    # prevent, with nothing connecting the two. The likeliest cause is length:
+    # a unix socket path stops at 108 characters.
+    tief = Path(tempfile.mkdtemp()) / ("x" * 60) / ("y" * 40)
+    tief.mkdir(parents=True)
+    alt_runtime = os.environ.get("XDG_RUNTIME_DIR")
+    os.environ["XDG_RUNTIME_DIR"] = str(tief)
+    try:
+        b = sw.Askpass(GEHEIM)
+        gut &= ok(b.start() is None, "an impossible socket path fails, as it must")
+        gut &= ok(bool(b.fehler), "and says why, instead of failing silently")
+        gut &= ok("108" in (b.fehler or ""),
+                  "naming the limit that was hit")
+        b.stop()
+    finally:
+        if alt_runtime is None:
+            os.environ.pop("XDG_RUNTIME_DIR", None)
+        else:
+            os.environ["XDG_RUNTIME_DIR"] = alt_runtime
 
     if "--with-sudo" in sys.argv:
         gut &= sudo_frage(sw)
