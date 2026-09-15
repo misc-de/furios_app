@@ -59,6 +59,7 @@ switcher = load(ROOT / "misc-de.py", "switcher")
 # needs to know which widgets exist looks the same way.
 AUDIOCTL = switcher._tool_maybe("audioctl")
 DMNR = switcher._tool_maybe("furios-audio-dmnr")
+CONTRIB = switcher._tool_maybe("furios-gps-contribute")
 MODEMCTL = switcher._tool_maybe("modemctl")
 GPSCTL = switcher._tool_maybe("gpsctl")
 KILLSWITCH = switcher._tool_maybe("killswitch-indicator")
@@ -1033,8 +1034,17 @@ class TheWindow(unittest.TestCase):
         self.assertIn("nothing is collected", text)
         self.assertIn("_nomap", text)
 
+    def test_on_but_not_running_is_not_reported_as_on(self):
+        """The service exits when the marker is missing, so this state exists -
+        and saying "on" for it would be the row claiming something it cannot
+        see."""
+        self.win.on_gps_contrib_status(
+            True, "contributing=yes\nrunning=no\nqueued=0\nsubmitted=0\n")
+        self.assertIn("not running", self.win.gps_contrib.subtitle)
+
     def test_when_it_is_on_the_row_says_what_leaves_the_phone(self):
-        self.win.on_gps_contrib_status(True, "contributing=yes\nqueued=3\nsubmitted=7\n")
+        self.win.on_gps_contrib_status(
+            True, "contributing=yes\nrunning=yes\nqueued=3\nsubmitted=7\n")
         self.assertTrue(self.win.gps_contrib.active)
         self.assertIn("satellite", self.win.gps_contrib.subtitle.lower())
         # Both numbers: one says it is measuring, the other that anything
@@ -1092,7 +1102,10 @@ class TheWindow(unittest.TestCase):
         # nobody had built.
         expected = ((1 + bool(DMNR) if AUDIOCTL else 0)
                     + (2 if MODEMCTL else 0)
-                    + (2 if GPSCTL else 0)
+                    # profile and status, plus the contribution tool when it
+                    # is installed - same installer, but it can be absent in
+                    # the seconds after one that stopped half way.
+                    + ((2 + bool(CONTRIB)) if GPSCTL else 0)
                     # status --json, plus is-active and is-enabled for the unit
                     + (3 if KILLSWITCH else 0))
         self.assertEqual(expected, len(self.ran))

@@ -1827,11 +1827,21 @@ class Window(Adw.ApplicationWindow):
         self.gps_contrib.set_active(an)
         self._syncing = False
         self.gps_contrib.set_sensitive(True)
-        self.gps_contrib.set_subtitle(
-            "Networks in range with the satellite position, over Wi-Fi only"
-            if an else
-            "Off - nothing is collected or sent. On: networks in range, "
-            "never hidden or _nomap ones")
+        # Asked for and actually happening are two facts, and the row must not
+        # pass the first off as the second: the service exits when the marker
+        # is missing, so "on" with nothing running is a state that exists.
+        laeuft = werte.get("running") == "yes"
+        if an and not laeuft:
+            self.gps_contrib.set_subtitle(
+                "Switched on, but the service is not running - "
+                "nothing is being collected")
+        elif an:
+            self.gps_contrib.set_subtitle(
+                "Networks in range with the satellite position, over Wi-Fi only")
+        else:
+            self.gps_contrib.set_subtitle(
+                "Off - nothing is collected or sent. On: networks in range, "
+                "never hidden or _nomap ones")
         # Both numbers, because they answer different questions: whether it is
         # measuring at all, and whether any of it has reached beaconDB.
         self.gps_contrib_stats.set_subtitle(
