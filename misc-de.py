@@ -1720,15 +1720,25 @@ class Window(Adw.ApplicationWindow):
                 wort += " - would be %s" % ("plain" if waere == "none" else waere)
             return "%s · %s" % (wort, regel)
 
+        # Two states that would otherwise look like the colouring simply
+        # not working, and both are things the phone is doing, not faults.
+        regel = ("green from %.1f W, amber from %.1f W while charging"
+                 % (cfg.get("charge_green_w", 0.0),
+                    cfg.get("charge_amber_w", 0.0)))
+        if not data.get("sources_agree", True):
+            regel = ("the kernel and UPower disagree about the direction, "
+                     "so the shell stays plain")
         self.brow_colour.set_subtitle(farbzeile(
-            data.get("showing", "none"), data.get("bucket", "none"),
-            "green from %.1f W, amber from %.1f W while charging"
-            % (cfg.get("charge_green_w", 0.0), cfg.get("charge_amber_w", 0.0))))
+            data.get("showing", "none"), data.get("bucket", "none"), regel))
+        stand_regel = ("amber below %d %%, red below %d %%"
+                       % (int(cfg.get("level_amber_pct", 0)),
+                          int(cfg.get("level_red_pct", 0))))
+        if not data.get("split_icon", True):
+            stand_regel += (" · this icon is one shape, so both halves take "
+                            "the more urgent colour")
         self.brow_fill.set_subtitle(farbzeile(
             data.get("level_showing", "none"), data.get("level_bucket", "none"),
-            "amber below %d %%, red below %d %%"
-            % (int(cfg.get("level_amber_pct", 0)),
-               int(cfg.get("level_red_pct", 0)))))
+            stand_regel))
         self.brow_theme.set_subtitle(
             "%s (on top of %s)" % (data.get("theme", "?"),
                                    data.get("base_theme", "?")))

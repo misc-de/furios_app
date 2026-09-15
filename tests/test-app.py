@@ -1130,6 +1130,8 @@ class TheWindow(unittest.TestCase):
              "readable": true, "plausible": true, "bucket": "amber",
              "showing": "amber", "level_bucket": "none",
              "level_showing": "none", "theme": "adw-gtk3-batt-amber",
+             "icon": "battery-level-80-charging-symbolic",
+             "split_icon": true, "sources_agree": true,
              "base_theme": "adw-gtk3", "can_theme": true,
              "config": {"charging": true, "discharging": false,
                         "charge_green_w": 7.0, "charge_amber_w": 3.0,
@@ -1193,6 +1195,22 @@ class TheWindow(unittest.TestCase):
         self.assertIn("green", self.win.brow_colour.subtitle)
         self.assertIn("red", self.win.brow_fill.subtitle)
         self.assertIn("15 %", self.win.brow_fill.subtitle)
+
+    def test_a_single_shape_icon_is_said_out_loud(self):
+        """Adwaita draws the ordinary discharge battery as ONE path, so the
+        two halves cannot differ. Without the sentence that reads as the
+        colouring being broken."""
+        self.win.on_battery_status(True, self.batt(split_icon=False))
+        self.assertIn("one shape", self.win.brow_fill.subtitle)
+
+    def test_and_so_is_a_disagreement_between_the_two_sources(self):
+        """Seen on the phone: sysfs "Charging" at 1.8 W, UPower
+        "discharging" at 0 W. The shell stays plain, and the row says why
+        rather than looking like nothing is happening."""
+        self.win.on_battery_status(True, self.batt(sources_agree=False,
+                                                   showing="none",
+                                                   bucket="none"))
+        self.assertIn("disagree", self.win.brow_colour.subtitle)
 
     def test_the_reading_says_how_full_as_well_as_how_fast(self):
         self.win.on_battery_status(True, self.BATT)
