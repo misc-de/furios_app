@@ -91,8 +91,8 @@ def phone_has_switches():
     the test. A phone with only that one would be missed here, and there is
     no way to tell it apart from a phone with none.
     """
-    basis = os.environ.get("FURIOS_KILLSWITCH_BASE", KILLSWITCH_SYSFS)
-    return any(os.path.exists(os.path.join(basis, name))
+    base = os.environ.get("FURIOS_KILLSWITCH_BASE", KILLSWITCH_SYSFS)
+    return any(os.path.exists(os.path.join(base, name))
                for name in ("cam_switch", "nwk_switch"))
 # modemctl, gpsctl and killswitch-indicator have NO constant here on purpose.
 # They ship in other packages, may simply not be on the phone, and - since the
@@ -139,7 +139,7 @@ def profile_in_words(p):
     return PROFILE_WORDS.get(p, p)
 
 
-# ------------------------------------------------------------- Komponenten
+# ------------------------------------------------------------ components
 #
 # What this window drives lives in four repositories, and none of them is this
 # app. A phone with only audioctl installed shows one page and looks like an
@@ -265,13 +265,13 @@ def clone_path(comp):
     return os.path.join(CLONE_HOME, comp["dir"])
 
 
-def installer_dir(comp, pfad):
+def installer_dir(comp, path):
     """The directory its install.sh is run from.
 
     The clone itself for a repository that is one project, a subdirectory
     for one that collects several.
     """
-    return os.path.join(pfad, comp["sub"]) if comp.get("sub") else pfad
+    return os.path.join(path, comp["sub"]) if comp.get("sub") else path
 
 
 def installer_said(comp):
@@ -301,13 +301,13 @@ def clone_elsewhere(url, base=None):
     """A clone of `url` the user keeps themselves, or None."""
     base = OWN_CLONES if base is None else base
     try:
-        namen = sorted(os.listdir(base))
+        names = sorted(os.listdir(base))
     except OSError:
         return None
-    for name in namen:
-        pfad = os.path.join(base, name)
-        if is_clone_of(pfad, url):
-            return pfad
+    for name in names:
+        path = os.path.join(base, name)
+        if is_clone_of(path, url):
+            return path
     return None
 
 
@@ -320,13 +320,13 @@ ASKPASS_HELPER = """#!/usr/bin/env python3
 import socket, sys
 s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 s.connect(%r)
-teile = []
+parts = []
 while True:
-    stueck = s.recv(4096)
-    if not stueck:
+    piece = s.recv(4096)
+    if not piece:
         break
-    teile.append(stueck)
-sys.stdout.write(b"".join(teile).decode())
+    parts.append(piece)
+sys.stdout.write(b"".join(parts).decode())
 """
 
 
@@ -352,12 +352,12 @@ class Askpass:
     "ps" reads along; never in a file; never in a log line.
     """
 
-    def __init__(self, wort):
-        self.wort = wort or ""
+    def __init__(self, secret):
+        self.secret = secret or ""
         self.verzeichnis = None
         self.dienst = None
         self.helfer = None
-        self.fehler = None
+        self.error = None
         # Only processes descended from this one are answered. The uid check
         # below rules out other accounts; it does not rule out anything else
         # this account is running, and that is the gap that matters here: the
@@ -365,11 +365,11 @@ class Askpass:
         # process of this user can find it with a glob, and the window is as
         # long as an install - up to half an hour. Measured on 15.9.2026: five
         # reads in a row from an unrelated process, none of them sudo.
-        self.wurzel = os.getpid()
+        self.root_dir = os.getpid()
 
     @staticmethod
-    def _stammt_ab(pid, wurzel, grenze=24):
-        """Does pid's parent chain reach wurzel?
+    def _stammt_ab(pid, root_dir, grenze=24):
+        """Does pid's parent chain reach root_dir?
 
         Measured against real sudo on 15.9.2026: the helper it starts is a
         direct descendant (helper -> sudo -> the installer's shell -> us), so
@@ -378,7 +378,7 @@ class Askpass:
         """
         gesehen = 0
         while pid and pid > 1 and gesehen < grenze:
-            if pid == wurzel:
+            if pid == root_dir:
                 return True
             try:
                 with open("/proc/%d/stat" % pid) as fh:
@@ -403,20 +403,20 @@ class Askpass:
             # for everybody else no matter what its own mode says.
             self.verzeichnis = tempfile.mkdtemp(
                 prefix="misc-de-", dir=os.environ.get("XDG_RUNTIME_DIR") or None)
-            pfad = os.path.join(self.verzeichnis, "ask.sock")
+            path = os.path.join(self.verzeichnis, "ask.sock")
             self.helfer = os.path.join(self.verzeichnis, "askpass")
             with open(self.helfer, "w") as fh:
-                fh.write(ASKPASS_HELPER % pfad)
+                fh.write(ASKPASS_HELPER % path)
             os.chmod(self.helfer, 0o700)
             self.dienst = Gio.SocketService.new()
-            self.dienst.add_address(Gio.UnixSocketAddress.new(pfad),
+            self.dienst.add_address(Gio.UnixSocketAddress.new(path),
                                     Gio.SocketType.STREAM,
                                     Gio.SocketProtocol.DEFAULT, None)
-            os.chmod(pfad, 0o600)
+            os.chmod(path, 0o600)
             self.dienst.connect("incoming", self.on_incoming)
             self.dienst.start()
             return self.helfer
-        except (OSError, GLib.Error) as fehler:
+        except (OSError, GLib.Error) as error:
             # Saying why matters more than it looks. The install then stops at
             # its first sudo line with "a terminal is required to read the
             # password" - the very thing this class exists to prevent - and
@@ -424,26 +424,26 @@ class Askpass:
             # two. The likeliest cause is length: a unix socket path stops at
             # 108 characters, and $XDG_RUNTIME_DIR plus the directory and the
             # name eat into that.
-            self.fehler = str(fehler) or fehler.__class__.__name__
+            self.error = str(error) or error.__class__.__name__
             if self.verzeichnis and len(self.verzeichnis) > 70:
-                self.fehler += " (the runtime directory is long - a unix" \
+                self.error += " (the runtime directory is long - a unix" \
                                " socket path stops at 108 characters)"
             self.stop()
             return None
 
-    def on_incoming(self, _dienst, verbindung, _quelle):
+    def on_incoming(self, _dienst, verbindung, _source):
         """Answer one question from sudo - after asking who is asking."""
         try:
-            if not self.wort:
+            if not self.secret:
                 return True
             creds = verbindung.get_socket().get_credentials()
             if creds.get_unix_user() != os.getuid():
                 return True                    # not ours, so not a word
             # Same user is not enough: it has to be something we started.
-            if not self._stammt_ab(creds.get_unix_pid(), self.wurzel):
+            if not self._stammt_ab(creds.get_unix_pid(), self.root_dir):
                 return True                    # not ours either
             verbindung.get_output_stream().write_all(
-                (self.wort + "\n").encode(), None)
+                (self.secret + "\n").encode(), None)
             verbindung.close(None)
         except (GLib.Error, OSError):
             pass
@@ -451,9 +451,9 @@ class Askpass:
 
     def stop(self):
         """Socket down, helper gone, password forgotten. Called on every way
-        out of an install, the ones that failed included. self.fehler is left
+        out of an install, the ones that failed included. self.error is left
         alone - it is the one thing worth keeping after a failed start."""
-        self.wort = ""
+        self.secret = ""
         if self.dienst is not None:
             try:
                 self.dienst.stop()
@@ -467,7 +467,7 @@ class Askpass:
         self.helfer = None
 
 
-def source_steps(comp, zustand, pfad):
+def source_steps(comp, state, path):
     """Getting the code here: the commands, and the sentence somebody is asked
     to agree to. Both from one place, because the question in front of a
     person and what actually runs must not be able to drift apart.
@@ -479,41 +479,41 @@ def source_steps(comp, zustand, pfad):
     Seen on the phone on 14.9.2026, after an install that had failed further
     down for another reason.
     """
-    if zustand == "reinstall":
+    if state == "reinstall":
         # Nothing to fetch: what is wanted is what is already in the clone.
         # A pull here would be the wrong question, and with uncommitted work
         # in that clone its guard would refuse the install as well.
-        return ([], "nothing is fetched - the clone in " + pfad
+        return ([], "nothing is fetched - the clone in " + path
                 + " is used exactly as it is")
-    if zustand == "update":
-        wache = (["bash", "-c",
+    if state == "update":
+        guard = (["bash", "-c",
                   'test -z "$(git -C "$1" status --porcelain)" || '
                   '{ echo "This clone has uncommitted changes. Nothing was '
                   'touched - finish or stash them first, then update '
-                  'again."; exit 1; }', "guard", pfad], None, None, None)
-        return ([wache,
-                 (["git", "-C", pfad, "pull", "--ff-only"], None, None, None)],
-                "git pull --ff-only in " + pfad)
-    if is_clone_of(pfad, comp["url"]):
+                  'again."; exit 1; }', "guard", path], None, None, None)
+        return ([guard,
+                 (["git", "-C", path, "pull", "--ff-only"], None, None, None)],
+                "git pull --ff-only in " + path)
+    if is_clone_of(path, comp["url"]):
         # Ours, from an earlier press. Bring it up to date if that works and
         # install from it either way: no network is a reason to install what
         # is here, not a reason to refuse.
         return ([(["bash", "-c",
                    'git -C "$1" pull --ff-only || echo "Could not update the '
                    'clone - installing what is already in it."',
-                   "retry", pfad], None, None, None)],
-                "the clone in " + pfad + " is already here - update it if "
+                   "retry", path], None, None, None)],
+                "the clone in " + path + " is already here - update it if "
                 "possible, install from it either way")
-    if os.path.exists(pfad):
+    if os.path.exists(path):
         # Not a clone of this repository, and not ours to delete.
         return ([(["bash", "-c",
                    'echo "$1 is in the way: it exists and is not a clone of '
                    '$2. Nothing was touched - move it aside, then try '
-                   'again."; exit 1', "weg", pfad, comp["url"]],
+                   'again."; exit 1', "in_the_way", path, comp["url"]],
                   None, None, None)],
-                pfad + " is in the way - it is not a clone of " + comp["url"])
-    return ([(["git", "clone", comp["url"], pfad], None, None, None)],
-            "git clone " + comp["url"] + " to " + pfad)
+                path + " is in the way - it is not a clone of " + comp["url"])
+    return ([(["git", "clone", comp["url"], path], None, None, None)],
+            "git clone " + comp["url"] + " to " + path)
 
 
 def installer_env(askpass):
@@ -534,7 +534,7 @@ def installer_env(askpass):
     return umgebung
 
 
-def component_steps(comp, zustand, wort, pfad=None, askpass=None):
+def component_steps(comp, state, secret, path=None, askpass=None):
     """The commands one fetch consists of, as (argv, stdin, cwd, env).
 
     A list, not a method: what runs as root, in which directory, where the
@@ -556,20 +556,20 @@ def component_steps(comp, zustand, wort, pfad=None, askpass=None):
     the installer's own sudo lines can ask again if the phone's sudoers does
     not let them use that ticket. Which it may not: see Askpass.
     """
-    pfad = pfad or clone_path(comp)
-    schritte = list(source_steps(comp, zustand, pfad)[0])
+    path = path or clone_path(comp)
+    steps = list(source_steps(comp, state, path)[0])
     if comp["root"]:
         # -S reads the password from the pipe; -p "" keeps sudo's prompt out
         # of the output this window shows. It stays even though the helper
         # below could answer this one too: a wrong password has to stop the
         # chain HERE, before an installer is half-way through.
-        schritte.append((["sudo", "-S", "-p", "", "-v"], (wort or "") + "\n",
+        steps.append((["sudo", "-S", "-p", "", "-v"], (secret or "") + "\n",
                          None, None))
-    schritte.append((["./install.sh"], None, installer_dir(comp, pfad),
+    steps.append((["./install.sh"], None, installer_dir(comp, path),
                      installer_env(askpass)))
     if comp["root"]:
-        schritte.append((["sudo", "-k"], None, None, None))
-    return schritte
+        steps.append((["sudo", "-k"], None, None, None))
+    return steps
 
 
 def behind_count(out):
@@ -622,8 +622,8 @@ def run_async(argv, on_done, on_line=None, timeout=CALL_TIMEOUT, cwd=None,
             launcher = Gio.SubprocessLauncher.new(flags)
             if cwd is not None:
                 launcher.set_cwd(cwd)
-            for name, wert in (env or {}).items():
-                launcher.setenv(name, wert, True)
+            for name, value in (env or {}).items():
+                launcher.setenv(name, value, True)
             proc = launcher.spawnv(argv)
     except GLib.Error as err:
         on_done(False, str(err))
@@ -754,7 +754,7 @@ class Window(Adw.ApplicationWindow):
 
         page = Adw.PreferencesPage()
 
-        # --- Der eigentliche Schalter ---
+        # --- the switch itself ---
         grp = Adw.PreferencesGroup(title="Audio stack")
         self.switch_row = Adw.SwitchRow(
             title="PipeWire owns the HAL",
@@ -805,7 +805,7 @@ class Window(Adw.ApplicationWindow):
         page.add(grp)
         self._pulse_id = 0
 
-        # --- Was gerade wirklich laeuft ---
+        # --- Was gerade wirklich runs ---
         info = Adw.PreferencesGroup(title="Status")
         self.row_profile = Adw.ActionRow(title="Owns the Android HAL", subtitle="reading …")
         self.row_server = Adw.ActionRow(title="Sound server", subtitle="…")
@@ -816,7 +816,7 @@ class Window(Adw.ApplicationWindow):
         page.add(info)
 
 
-        # --- Notnagel ---
+        # --- last resort ---
         rescue, self.rescue_btn = self.build_restore_group(
             "Returns to the shipped state and sends sound to the speaker - "
             "audible volume, unmuted. This is also the one to press when you "
@@ -824,7 +824,7 @@ class Window(Adw.ApplicationWindow):
             self.on_rescue)
         page.add(rescue)
 
-        # --- die Seiten ---
+        # --- the pages ---
         #
         # One page is the app that existed before this. The second only comes
         # into being if modemctl is installed, and with a single page the
@@ -845,7 +845,7 @@ class Window(Adw.ApplicationWindow):
         self.comp_rows = {}
         # Kept, not local: a tool fetched from the components page gets its
         # real page built right there, and that needs the same builder.
-        self.bauer = {"audio": lambda: page,
+        self.builders = {"audio": lambda: page,
                       "modem": self.build_modem_page,
                       "gps": self.build_gps_page,
                       "switches": self.build_switches_page,
@@ -889,19 +889,19 @@ class Window(Adw.ApplicationWindow):
         self.check_updates()
 
 
-    # ------------------------------------------------------------ Komponenten
+    # ------------------------------------------------------------ components
 
     def build_component_page(self, comp):
         """Build one tab and put it in the stack: the real page if its tool is
         there, otherwise the one that offers to fetch it."""
-        werkzeug = _tool_maybe(comp["tool"])
-        self.live[comp["key"]] = werkzeug
-        seite = (self.build_page_with_update(comp, self.bauer[comp["key"]])
-                 if werkzeug else self.build_missing_page(comp))
-        self.pages[comp["key"]] = seite
+        tool = _tool_maybe(comp["tool"])
+        self.live[comp["key"]] = tool
+        page = (self.build_page_with_update(comp, self.builders[comp["key"]])
+                 if tool else self.build_missing_page(comp))
+        self.pages[comp["key"]] = page
         self.stack.add_titled_with_icon(
-            seite, comp["key"], comp["page"], comp["icon"])
-        return seite
+            page, comp["key"], comp["page"], comp["icon"])
+        return page
 
     def swap_in_page(self, comp):
         """Turn the "not installed" tab into the real one, without a restart.
@@ -920,12 +920,12 @@ class Window(Adw.ApplicationWindow):
         if self.live.get(comp["key"]) or not _tool_maybe(comp["tool"]):
             return False                       # already real, or still absent
         keys = [c["key"] for c in COMPONENTS]
-        danach = COMPONENTS[keys.index(comp["key"]):]
-        for c in danach:
+        after = COMPONENTS[keys.index(comp["key"]):]
+        for c in after:
             if self.pages.get(c["key"]) is not None:
                 self.stack.remove(self.pages[c["key"]])
         self.build_component_page(comp)
-        for c in danach[1:]:
+        for c in after[1:]:
             # A tab that was never built has nothing to put back - the
             # Switches one is absent on a phone without the hardware.
             if self.pages.get(c["key"]) is None:
@@ -961,35 +961,35 @@ class Window(Adw.ApplicationWindow):
         furniture with nothing behind it - and a page full of greyed-out
         controls reads like a broken phone rather than a missing package.
         """
-        seite = Adw.PreferencesPage()
+        page = Adw.PreferencesPage()
         grp = Adw.PreferencesGroup(
             title=comp["page"] + " · not installed",
             description="This tab drives " + comp["tool"] + ", and that is not "
             "on this phone. It can be fetched and installed from here; until "
             "then there is nothing to show.",
         )
-        zeilen = {}
-        zeilen["does"] = Adw.ActionRow(title="What it would do",
+        rows = {}
+        rows["does"] = Adw.ActionRow(title="What it would do",
                                        subtitle=comp["does"])
-        zeilen["from"] = Adw.ActionRow(title="Comes from", subtitle=comp["url"])
-        zeilen["state"] = Adw.ActionRow(
+        rows["from"] = Adw.ActionRow(title="Comes from", subtitle=comp["url"])
+        rows["state"] = Adw.ActionRow(
             title="What will happen",
             subtitle=("fetched to " + clone_path(comp) + ", then "
                       + installer_said(comp))
             + (" - that one needs root, so sudo will ask for your password"
                if comp["root"] else " - no root needed"))
-        for zeile in zeilen.values():
-            zeile.set_subtitle_selectable(True)
-            grp.add(zeile)
+        for row in rows.values():
+            row.set_subtitle_selectable(True)
+            grp.add(row)
         btn = self.pill_button("Install")
         btn.connect("clicked", lambda _b, c=comp: self.ask_component(c, "install"))
         grp.add(btn)
-        zeilen["button"] = btn
-        self.comp_rows[comp["tool"]] = zeilen
-        seite.add(grp)
-        return seite
+        rows["button"] = btn
+        self.comp_rows[comp["tool"]] = rows
+        page.add(grp)
+        return page
 
-    def build_page_with_update(self, comp, bauen):
+    def build_page_with_update(self, comp, build):
         """The real page, with a way to update what is behind it.
 
         The group is built hidden and only appears once someone has looked and
@@ -997,20 +997,20 @@ class Window(Adw.ApplicationWindow):
         app that keeps offering an update it never checked for is worse than
         one that offers none.
         """
-        seite = bauen()
+        page = build()
         grp = Adw.PreferencesGroup(title="Update available")
         grp.set_visible(False)
-        zeile = Adw.ActionRow(title="What is new", subtitle="…")
-        zeile.set_subtitle_selectable(True)
-        grp.add(zeile)
+        row = Adw.ActionRow(title="What is new", subtitle="…")
+        row.set_subtitle_selectable(True)
+        grp.add(row)
         btn = self.pill_button("Update")
         btn.connect("clicked", lambda _b, c=comp: self.ask_component(
             c, self.comp_rows[c["tool"]].get("mode", "update")))
         grp.add(btn)
-        self.comp_rows[comp["tool"]] = {"group": grp, "state": zeile,
+        self.comp_rows[comp["tool"]] = {"group": grp, "state": row,
                                         "button": btn}
-        seite.add(grp)
-        return seite
+        page.add(grp)
+        return page
 
     def check_updates(self):
         """Ask, once per window, whether any of the installed tools has moved
@@ -1022,19 +1022,19 @@ class Window(Adw.ApplicationWindow):
             self.look_for_update(comp)
         self.check_self_update()
 
-    def look_for_update(self, comp, sonst=None):
+    def look_for_update(self, comp, other=None):
         """Where an update for this component would come from, in the order
         that leaves other people's work alone: our own clone first, somebody
-        else's only to read, and `sonst` when neither had anything to say."""
-        meiner = clone_path(comp) if is_clone(clone_path(comp)) else None
-        if meiner:
-            self.check_component(comp, meiner, sonst)
+        else's only to read, and `other` when neither had anything to say."""
+        mine = clone_path(comp) if is_clone(clone_path(comp)) else None
+        if mine:
+            self.check_component(comp, mine, other)
             return
-        fremder = clone_elsewhere(comp["url"])
-        if fremder:
-            self.peek_upstream(comp, fremder, sonst)
-        elif sonst:
-            sonst()
+        foreign_path = clone_elsewhere(comp["url"])
+        if foreign_path:
+            self.peek_upstream(comp, foreign_path, other)
+        elif other:
+            other()
 
     def check_self_update(self):
         """Is there a newer version of this window?
@@ -1049,29 +1049,29 @@ class Window(Adw.ApplicationWindow):
             return                             # not installed - nothing to replace
         self.look_for_update(SELF, self.check_app_program)
 
-    def check_component(self, comp, meiner, sonst=None):
+    def check_component(self, comp, mine, other=None):
         """Our own clone: fetch, then count what is waiting.
 
-        `sonst` is asked when this found nothing - the second question some
+        `other` is asked when this found nothing - the second question some
         components have, and the place where "nothing new on the server" and
         "nothing to say at all" stop being the same sentence.
         """
-        def gezaehlt(ok, out):
+        def counted(ok, out):
             behind = behind_count(out) if ok else None
             if behind:
                 self.offer_update(comp, "%d new commit(s) in %s"
-                                  % (behind, comp["url"]), meiner)
-            elif sonst:
-                sonst()
+                                  % (behind, comp["url"]), mine)
+            elif other:
+                other()
 
         def geholt(ok, _out):
             if ok:
-                run_async(["git", "-C", meiner, "rev-list", "--count",
-                           "HEAD..@{u}"], gezaehlt, timeout=30)
-            elif sonst:
-                sonst()
+                run_async(["git", "-C", mine, "rev-list", "--count",
+                           "HEAD..@{u}"], counted, timeout=30)
+            elif other:
+                other()
 
-        run_async(["git", "-C", meiner, "fetch", "--quiet"], geholt, timeout=60)
+        run_async(["git", "-C", mine, "fetch", "--quiet"], geholt, timeout=60)
 
     def check_app_program(self, comp=SELF):
         """Is the program that is running the one the clone has?
@@ -1086,13 +1086,13 @@ class Window(Adw.ApplicationWindow):
         Answered by comparing the two files, not by asking git: whether the
         clone is committed, pushed or dirty is a different matter entirely.
         """
-        quelle = (clone_path(comp) if is_clone_of(clone_path(comp), comp["url"])
+        source = (clone_path(comp) if is_clone_of(clone_path(comp), comp["url"])
                   else clone_elsewhere(comp["url"]))
         laufend = self.live.get("app")
-        if not quelle or not laufend:
+        if not source or not laufend:
             return
         try:
-            with open(os.path.join(quelle, "misc-de.py"), "rb") as fh:
+            with open(os.path.join(source, "misc-de.py"), "rb") as fh:
                 im_klon = fh.read()
             with open(laufend, "rb") as fh:
                 installiert = fh.read()
@@ -1101,9 +1101,9 @@ class Window(Adw.ApplicationWindow):
         if im_klon != installiert:
             self.offer_update(
                 comp, "the misc-de.py in this clone is not the program that "
-                "is running", quelle, "reinstall")
+                "is running", source, "reinstall")
 
-    def offer_update(self, comp, worte, pfad, zustand="update"):
+    def offer_update(self, comp, words, path, state="update"):
         """Show the group at the foot of the page, and say where it would
         pull. The path matters: it may be a clone somebody keeps themselves.
 
@@ -1111,23 +1111,23 @@ class Window(Adw.ApplicationWindow):
         "reinstall" only installs what the clone already has.
         """
         if comp["key"] == "app":
-            return self.offer_self_update(worte, pfad, zustand)
-        zeilen = self.comp_rows[comp["tool"]]
-        zeilen["path"] = pfad
-        zeilen["mode"] = zustand
-        zeilen["state"].set_subtitle(worte + " · " + pfad)
-        zeilen["group"].set_visible(True)
-        zeilen["button"].set_sensitive(not self.busy)
+            return self.offer_self_update(words, path, state)
+        rows = self.comp_rows[comp["tool"]]
+        rows["path"] = path
+        rows["mode"] = state
+        rows["state"].set_subtitle(words + " · " + path)
+        rows["group"].set_visible(True)
+        rows["button"].set_sensitive(not self.busy)
 
-    def offer_self_update(self, worte, pfad, zustand="update"):
+    def offer_self_update(self, words, path, state="update"):
         """The window has no page of its own, so its offer is the icon in the
         header bar: it appears, and what it found is in its tooltip.
 
         Where it would pull from is remembered next to it, exactly as a page's
         offer remembers it - it may be a clone somebody keeps themselves.
         """
-        self.comp_rows[SELF["tool"]] = {"path": pfad, "mode": zustand}
-        self.update_btn.set_tooltip_text("Update this app: " + worte + " · " + pfad)
+        self.comp_rows[SELF["tool"]] = {"path": path, "mode": state}
+        self.update_btn.set_tooltip_text("Update this app: " + words + " · " + path)
         self.update_btn.set_visible(True)
         self.update_btn.set_sensitive(not self.busy)
 
@@ -1135,10 +1135,10 @@ class Window(Adw.ApplicationWindow):
         """The icon was pressed. Nothing happens yet: this replaces the
         program somebody is looking at, so it is asked first, in the same
         words and the same dialog every other component gets."""
-        zeilen = self.comp_rows.get(SELF["tool"], {})
-        self.ask_component(SELF, zeilen.get("mode", "update"))
+        rows = self.comp_rows.get(SELF["tool"], {})
+        self.ask_component(SELF, rows.get("mode", "update"))
 
-    def peek_upstream(self, comp, fremder, sonst=None):
+    def peek_upstream(self, comp, foreign_path, other=None):
         """Is there something new for a clone we must not touch?
 
         Answered by asking the server what its HEAD is and comparing it with
@@ -1150,21 +1150,21 @@ class Window(Adw.ApplicationWindow):
         def verglichen(ok, out, oben):
             hier = (out or "").strip().split()
             if not ok or not oben or not hier or hier[0] == oben:
-                if sonst:
-                    sonst()
+                if other:
+                    other()
                 return                         # nothing to say, so nothing said
-            self.offer_update(comp, "something new in " + comp["url"], fremder)
+            self.offer_update(comp, "something new in " + comp["url"], foreign_path)
 
         def oben_gelesen(ok, out):
-            kopf = (out or "").split()
-            oben = kopf[0] if ok and kopf else None
-            run_async(["git", "-C", fremder, "rev-parse", "HEAD"],
+            head = (out or "").split()
+            oben = head[0] if ok and head else None
+            run_async(["git", "-C", foreign_path, "rev-parse", "HEAD"],
                       lambda ok2, out2: verglichen(ok2, out2, oben), timeout=30)
 
         run_async(["git", "ls-remote", comp["url"], "HEAD"], oben_gelesen,
                   timeout=60)
 
-    def ask_component(self, comp, zustand):
+    def ask_component(self, comp, state):
         """Ask before fetching anything, and say exactly what will happen.
 
         Including the part that is easy to gloss over: this runs a script from
@@ -1172,10 +1172,10 @@ class Window(Adw.ApplicationWindow):
         """
         if self.busy:
             return
-        pfad = self.comp_rows.get(comp["tool"], {}).get("path") or clone_path(comp)
-        schritte = [source_steps(comp, zustand, pfad)[1],
+        path = self.comp_rows.get(comp["tool"], {}).get("path") or clone_path(comp)
+        steps = [source_steps(comp, state, path)[1],
                     "run %s from that clone" % installer_said(comp)]
-        text = "\n".join("%d. %s" % (n, t) for n, t in enumerate(schritte, 1))
+        text = "\n".join("%d. %s" % (n, t) for n, t in enumerate(steps, 1))
         body = text + "\n\nThat is code from the internet, running on this "
         if comp["root"]:
             body += ("phone. The installer writes to /usr/local, so sudo will "
@@ -1184,57 +1184,57 @@ class Window(Adw.ApplicationWindow):
                      "done.")
         else:
             body += "phone. Nothing here needs root."
-        if zustand == "update" and not pfad.startswith(CLONE_HOME):
+        if state == "update" and not path.startswith(CLONE_HOME):
             body += ("\n\nThis is your own clone. With anything uncommitted "
                      "in it, nothing is touched at all.")
 
         dlg = Adw.AlertDialog(heading=comp["tool"] + "?", body=body)
-        eingabe = None
+        entry = None
         if comp["root"]:
-            eingabe = Adw.PasswordEntryRow(title="Your password (for sudo)")
+            entry = Adw.PasswordEntryRow(title="Your password (for sudo)")
             grp = Adw.PreferencesGroup()
-            grp.add(eingabe)
+            grp.add(entry)
             dlg.set_extra_child(grp)
-        dlg.add_response("go", "Fetch and install" if zustand == "install"
+        dlg.add_response("go", "Fetch and install" if state == "install"
                          else "Update")
         dlg.add_response("cancel", "Cancel")
         dlg.set_default_response("cancel")
         dlg.set_close_response("cancel")
-        self._comp_pending = (comp, zustand, eingabe, pfad)
+        self._comp_pending = (comp, state, entry, path)
         dlg.connect("response", self.on_component_response)
         dlg.present(self)
 
     def on_component_response(self, _dlg, response):
-        comp, zustand, eingabe, pfad = self._comp_pending
+        comp, state, entry, path = self._comp_pending
         self._comp_pending = (None, None, None, None)
         if response != "go" or comp is None:
             return
-        wort = eingabe.get_text() if eingabe is not None else None
-        if eingabe is not None:
-            eingabe.set_text("")               # not kept a moment longer
-        self.run_component(comp, zustand, wort, pfad)
+        secret = entry.get_text() if entry is not None else None
+        if entry is not None:
+            entry.set_text("")               # not kept a moment longer
+        self.run_component(comp, state, secret, path)
 
-    def run_component(self, comp, zustand, wort, pfad=None):
+    def run_component(self, comp, state, secret, path=None):
         os.makedirs(CLONE_HOME, exist_ok=True)
         # Only where root is involved, and only for as long as this one chain
         # runs. Set up before the steps are built: the installer's step needs
         # the helper's path in it.
-        self.askpass = Askpass(wort) if comp["root"] else None
+        self.askpass = Askpass(secret) if comp["root"] else None
         helfer = self.askpass.start() if self.askpass else None
-        schritte = component_steps(comp, zustand, wort, pfad, helfer)
+        steps = component_steps(comp, state, secret, path, helfer)
 
         # A helper that could not be set up is not fatal - the install falls
         # back on sudo's ticket, which is where it was before this existed.
         # But it is the reason an install can stop at its first sudo line, so
         # it is said out loud rather than left to be guessed at.
-        if self.askpass is not None and helfer is None and self.askpass.fehler:
-            self.component_says(comp, "no password helper: " + self.askpass.fehler)
+        if self.askpass is not None and helfer is None and self.askpass.error:
+            self.component_says(comp, "no password helper: " + self.askpass.error)
         self.component_says(comp, "working …")
         self.set_busy(True)
 
-        rest = list(schritte)
+        rest = list(steps)
 
-        def schritt(ok=True, out=""):
+        def step(ok=True, out=""):
             if not ok or not rest:
                 self.component_done(comp, ok, out)
                 return
@@ -1245,22 +1245,22 @@ class Window(Adw.ApplicationWindow):
             # over a phone connection and compile something afterwards - the
             # audio one builds an SPA plugin - and a wait that runs out mid
             # apt-get leaves a half-installed system behind.
-            frist = 1800 if argv[0].endswith("install.sh") else 600
-            run_async(argv, schritt, timeout=frist, cwd=cwd, stdin=stdin,
+            deadline = 1800 if argv[0].endswith("install.sh") else 600
+            run_async(argv, step, timeout=deadline, cwd=cwd, stdin=stdin,
                       env=env)
 
-        schritt()
+        step()
 
-    def component_says(self, comp, worte):
+    def component_says(self, comp, words):
         """Where a running fetch reports: the row on the tool's page, or - for
         the window itself, which has no page - the tooltip of the icon that
         offered the update. Something has to carry it, and a window that goes
         busy for two minutes without a word reads as one that has hung."""
-        zeile = self.comp_rows.get(comp["tool"], {}).get("state")
-        if zeile is not None:
-            zeile.set_subtitle(worte)
+        row = self.comp_rows.get(comp["tool"], {}).get("state")
+        if row is not None:
+            row.set_subtitle(words)
         else:
-            self.update_btn.set_tooltip_text(worte)
+            self.update_btn.set_tooltip_text(words)
 
     def component_done(self, comp, ok, out):
         # First thing, before anything can return early: socket down, helper
@@ -1275,9 +1275,9 @@ class Window(Adw.ApplicationWindow):
             # An update: the page was already the real one, so nothing is
             # swapped - what changes is the offer, which has just been taken
             # and would otherwise go on offering the same commits.
-            gruppe = self.comp_rows.get(comp["tool"], {}).get("group")
-            if gruppe is not None:
-                gruppe.set_visible(False)
+            group = self.comp_rows.get(comp["tool"], {}).get("group")
+            if group is not None:
+                group.set_visible(False)
             if comp["key"] == "app":
                 # The icon goes with the offer it carried; it comes back the
                 # next time somebody looks and finds something.
@@ -1350,8 +1350,8 @@ class Window(Adw.ApplicationWindow):
         dlg.add_response("later", "Later")
         dlg.set_default_response("now")
         dlg.set_close_response("later")
-        dlg.connect("response", lambda _d, antwort:
-                    self.restart_self() if antwort == "now" else None)
+        dlg.connect("response", lambda _d, answer:
+                    self.restart_self() if answer == "now" else None)
         dlg.present(self)
 
     def build_restore_group(self, description, handler):
@@ -1528,8 +1528,8 @@ class Window(Adw.ApplicationWindow):
 
         cams = data.get("cameras")
         if cams:
-            seiten = ", ".join(c.lower() for c in cams)
-            self.srow_cams.set_subtitle(f"all {len(cams)} ({seiten}) - never one alone")
+            sides = ", ".join(c.lower() for c in cams)
+            self.srow_cams.set_subtitle(f"all {len(cams)} ({sides}) - never one alone")
         else:
             self.srow_cams.set_subtitle(
                 "all of them - list not fetched yet "
@@ -1542,9 +1542,9 @@ class Window(Adw.ApplicationWindow):
         self.sw_bt.set_active(bool(extras.get("bluetooth")))
         self._loading = False
         for row, key in ((self.sw_wifi, "wifi"), (self.sw_bt, "bluetooth")):
-            zustand = radios.get(key)
-            row.set_subtitle("currently on" if zustand else
-                             "currently off" if zustand is False else "not reachable")
+            state = radios.get(key)
+            row.set_subtitle("currently on" if state else
+                             "currently off" if state is False else "not reachable")
 
     def on_indicator_active(self, ok, out):
         aktiv = ok and out.strip() == "active"
@@ -1586,16 +1586,16 @@ class Window(Adw.ApplicationWindow):
     def set_extra(self, radio, row):
         if getattr(self, "_loading", False):
             return
-        wert = "on" if row.get_active() else "off"
-        run_async([self.live["switches"], "config", radio, wert],
-                  lambda ok, out: self.after_extra(ok, radio, wert))
+        value = "on" if row.get_active() else "off"
+        run_async([self.live["switches"], "config", radio, value],
+                  lambda ok, out: self.after_extra(ok, radio, value))
 
-    def after_extra(self, ok, radio, wert):
+    def after_extra(self, ok, radio, value):
         if not ok:
             self.toasts.add_toast(Adw.Toast(title=f"Could not change {radio}"))
             self.refresh()
             return
-        if wert == "on":
+        if value == "on":
             self.toasts.add_toast(Adw.Toast(
                 title=f"{radio} will go off with the network switch"))
 
@@ -1698,10 +1698,10 @@ class Window(Adw.ApplicationWindow):
         prozent = data.get("percent")
         stand = "" if prozent is None else ", %d %%" % prozent
         if data.get("readable") and data.get("plausible"):
-            richtung = {"Charging": "going in", "Discharging": "coming out"}
-            wohin = richtung.get(data.get("state"), data.get("state", "?"))
+            direction = {"Charging": "going in", "Discharging": "coming out"}
+            whither = direction.get(data.get("state"), data.get("state", "?"))
             self.brow_now.set_subtitle("%.1f W %s%s"
-                                       % (data.get("watt", 0.0), wohin, stand))
+                                       % (data.get("watt", 0.0), whither, stand))
         elif data.get("readable"):
             # The one failure that looks like a working phone: a driver
             # reporting the wrong unit would put the icon permanently green.
@@ -1711,32 +1711,32 @@ class Window(Adw.ApplicationWindow):
 
         cfg = data.get("config", {})
 
-        def farbzeile(zeigt, waere, regel):
+        def colour_line(shows, would_be, rule):
             """What is showing, and - when they differ - what the reading
             says it would be. The two differ while a colour is waiting out
             its dwell time, and while the service is off entirely."""
-            wort = "plain" if zeigt == "none" else zeigt
-            if zeigt != waere:
-                wort += " - would be %s" % ("plain" if waere == "none" else waere)
-            return "%s · %s" % (wort, regel)
+            secret = "plain" if shows == "none" else shows
+            if shows != would_be:
+                secret += " - would be %s" % ("plain" if would_be == "none" else would_be)
+            return "%s · %s" % (secret, rule)
 
         # Two states that would otherwise look like the colouring simply
         # not working, and both are things the phone is doing, not faults.
-        regel = ("green from %.1f W, amber from %.1f W while charging"
+        rule = ("green from %.1f W, amber from %.1f W while charging"
                  % (cfg.get("charge_green_w", 0.0),
                     cfg.get("charge_amber_w", 0.0)))
         if not data.get("sources_agree", True):
-            regel = ("the kernel and UPower disagree about the direction, "
+            rule = ("the kernel and UPower disagree about the direction, "
                      "so the shell stays plain")
-        self.brow_colour.set_subtitle(farbzeile(
-            data.get("showing", "none"), data.get("bucket", "none"), regel))
+        self.brow_colour.set_subtitle(colour_line(
+            data.get("showing", "none"), data.get("bucket", "none"), rule))
         stand_regel = ("amber below %d %%, red below %d %%"
                        % (int(cfg.get("level_amber_pct", 0)),
                           int(cfg.get("level_red_pct", 0))))
         if not data.get("split_icon", True):
             stand_regel += (" · this icon is one shape, so both halves take "
                             "the more urgent colour")
-        self.brow_fill.set_subtitle(farbzeile(
+        self.brow_fill.set_subtitle(colour_line(
             data.get("level_showing", "none"), data.get("level_bucket", "none"),
             stand_regel))
         self.brow_theme.set_subtitle(
@@ -1795,8 +1795,8 @@ class Window(Adw.ApplicationWindow):
         switch can sit here and not next to a "restart to apply"."""
         if getattr(self, "_loading", False):
             return
-        wert = "on" if row.get_active() else "off"
-        run_async([self.live["battery"], "config", "discharging", wert],
+        value = "on" if row.get_active() else "off"
+        run_async([self.live["battery"], "config", "discharging", value],
                   lambda ok, out: self.after_battery(ok, out, "change"))
 
     def after_battery(self, ok, out, verb):
@@ -1927,18 +1927,18 @@ class Window(Adw.ApplicationWindow):
         # No description on the group: one paragraph here lifts the heading
         # above every other tab's, which was measured on the phone. What has
         # to be said sits in the row it is about.
-        beitrag = Adw.PreferencesGroup(title="Contribute to beaconDB")
+        contribution = Adw.PreferencesGroup(title="Contribute to beaconDB")
         self.gps_contrib = Adw.SwitchRow(
             title="Send my observations",
             subtitle="reading …",
         )
         self.gps_contrib.connect("notify::active", self.on_gps_contrib)
-        beitrag.add(self.gps_contrib)
+        contribution.add(self.gps_contrib)
         self.gps_contrib_stats = Adw.ActionRow(
             title="Sent so far", subtitle="—",
         )
-        beitrag.add(self.gps_contrib_stats)
-        gpage.add(beitrag)
+        contribution.add(self.gps_contrib_stats)
+        gpage.add(contribution)
 
         self.gps_progress = Gtk.ProgressBar(show_text=True, text="")
         for m in ("top", "bottom"):
@@ -2069,11 +2069,11 @@ class Window(Adw.ApplicationWindow):
         """On or off, and nothing in between - the tool keeps the marker."""
         if self._syncing or self.busy:
             return
-        werkzeug = _tool_maybe(CONTRIB)
-        if not werkzeug:
+        tool = _tool_maybe(CONTRIB)
+        if not tool:
             return
         self.set_busy(True)
-        run_async([werkzeug, "on" if row.get_active() else "off"],
+        run_async([tool, "on" if row.get_active() else "off"],
                   self.on_gps_contrib_done)
 
     def on_gps_contrib_done(self, ok, out):
@@ -2084,8 +2084,8 @@ class Window(Adw.ApplicationWindow):
         self.refresh_gps_contrib()
 
     def refresh_gps_contrib(self):
-        werkzeug = _tool_maybe(CONTRIB)
-        if not werkzeug:
+        tool = _tool_maybe(CONTRIB)
+        if not tool:
             # Not installed is not "off": saying "off" would claim we looked.
             self._syncing = True
             self.gps_contrib.set_active(False)
@@ -2094,14 +2094,14 @@ class Window(Adw.ApplicationWindow):
             self.gps_contrib.set_subtitle("not installed")
             self.gps_contrib_stats.set_subtitle("—")
             return
-        run_async([werkzeug, "status"], self.on_gps_contrib_status)
+        run_async([tool, "status"], self.on_gps_contrib_status)
 
     def on_gps_contrib_status(self, ok, out):
         if not ok:
             self.gps_contrib.set_subtitle("did not answer")
             return
-        werte = dict(z.split("=", 1) for z in out.splitlines() if "=" in z)
-        an = werte.get("contributing") == "yes"
+        values = dict(z.split("=", 1) for z in out.splitlines() if "=" in z)
+        an = values.get("contributing") == "yes"
         self._syncing = True
         self.gps_contrib.set_active(an)
         self._syncing = False
@@ -2109,8 +2109,8 @@ class Window(Adw.ApplicationWindow):
         # Asked for and actually happening are two facts, and the row must not
         # pass the first off as the second: the service exits when the marker
         # is missing, so "on" with nothing running is a state that exists.
-        laeuft = werte.get("running") == "yes"
-        if an and not laeuft:
+        runs = values.get("running") == "yes"
+        if an and not runs:
             self.gps_contrib.set_subtitle(
                 "Switched on, but the service is not running - "
                 "nothing is being collected")
@@ -2124,8 +2124,8 @@ class Window(Adw.ApplicationWindow):
         # Both numbers, because they answer different questions: whether it is
         # measuring at all, and whether any of it has reached beaconDB.
         self.gps_contrib_stats.set_subtitle(
-            "%s sent, %s waiting" % (werte.get("submitted", "0"),
-                                     werte.get("queued", "0")))
+            "%s sent, %s waiting" % (values.get("submitted", "0"),
+                                     values.get("queued", "0")))
 
     def on_gps_restore(self, _btn):
         if self.busy:
@@ -2386,7 +2386,7 @@ class Window(Adw.ApplicationWindow):
         self.row_server.set_subtitle(server_in_words(server))
         self.row_sinks.set_subtitle(sinks.replace(",", ", ") or "none")
 
-        # Schalter nachfuehren, ohne dabei ein Umschalten auszuloesen.
+        # Follow the switch without triggering a toggle while doing it.
         self._syncing = True
         self.switch_row.set_active(profile == "pw-hal")
         # This one is both a report and a choice: it says whether what is
@@ -2448,9 +2448,9 @@ class Window(Adw.ApplicationWindow):
         # off itself and nothing switched them on again, so a single install -
         # the one that failed included - left every button on every tab dead
         # until the app was restarted. Reported from the phone on 14.9.2026.
-        for zeilen in self.comp_rows.values():
-            if zeilen.get("button") is not None:
-                zeilen["button"].set_sensitive(not busy)
+        for rows in self.comp_rows.values():
+            if rows.get("button") is not None:
+                rows["button"].set_sensitive(not busy)
         if busy:
             self.switch_row.set_subtitle("Switching, this takes a moment …")
         elif not self.audio_ok:
@@ -2460,7 +2460,7 @@ class Window(Adw.ApplicationWindow):
         else:
             self.switch_row.set_subtitle("Off: PulseAudio, exactly as shipped")
 
-    # ------------------------------------------------------------ Aktionen
+    # ------------------------------------------------------------ actions
 
     def on_switch(self, row, _param):
         if self._syncing or self.busy:
@@ -2496,9 +2496,9 @@ class Window(Adw.ApplicationWindow):
         self.pulse_start("Switching echo suppression …")
         # The same reading of the persist switch as the stack switch above:
         # "set" is now and after the next reboot, the bare word is now only.
-        wort = "on" if row.get_active() else "off"
+        secret = "on" if row.get_active() else "off"
         argv = [_tool_maybe(DMNR) or DMNR]
-        argv += ["set", wort] if self.persist_row.get_active() else [wort]
+        argv += ["set", secret] if self.persist_row.get_active() else [secret]
         run_async(argv, self.on_dmnr_done, on_line=self.on_progress_line)
 
     def on_dmnr_done(self, ok, out):

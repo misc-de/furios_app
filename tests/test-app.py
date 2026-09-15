@@ -170,7 +170,7 @@ class ComponentTable(unittest.TestCase):
     anything at all.
     """
 
-    def komp(self, tool="gpsctl"):
+    def comp(self, tool="gpsctl"):
         return next(c for c in switcher.COMPONENTS if c["tool"] == tool)
 
     def test_every_component_names_a_repository_a_tab_and_what_it_does(self):
@@ -206,17 +206,17 @@ class ComponentTable(unittest.TestCase):
         try:
             os.makedirs(os.path.join(base, "nur_ein_ordner"))
             self.assertIsNone(switcher.clone_elsewhere("https://x/y", base))
-            self.assertIsNone(switcher.clone_elsewhere("https://x/y", base + "/weg"))
+            self.assertIsNone(switcher.clone_elsewhere("https://x/y", base + "/removed"))
             self.assertFalse(switcher.is_clone(None))
             self.assertFalse(switcher.is_clone(base))
         finally:
             shutil_real.rmtree(base, ignore_errors=True)
 
-    def nirgends(self):
+    def nowhere(self):
         """A path that does not exist, and will not while the test runs."""
         d = tempfile.mkdtemp()
         self.addCleanup(shutil_real.rmtree, d, True)
-        return os.path.join(d, "noch-nicht-da")
+        return os.path.join(d, "not-there-yet")
 
     def test_what_git_answers_is_read_as_a_number_or_as_nothing(self):
         self.assertEqual(0, switcher.behind_count("0\n"))
@@ -229,9 +229,9 @@ class ComponentTable(unittest.TestCase):
         # this phone, and once it exists this test measures the retry instead
         # of the clone - which is how it first went green on a machine where
         # the clone was already there.
-        schritte = switcher.component_steps(self.komp(), "install", "geheim",
-                                            self.nirgends())
-        befehle = [" ".join(argv) for argv, _s, _c, _e in schritte]
+        steps = switcher.component_steps(self.comp(), "install", "secret_word",
+                                            self.nowhere())
+        befehle = [" ".join(argv) for argv, _s, _c, _e in steps]
         self.assertIn("git clone", befehle[0])
         self.assertEqual(1, len([b for b in befehle if b.startswith("sudo -S")]))
         self.assertTrue(any(b.endswith("install.sh") for b in befehle), befehle)
@@ -242,28 +242,28 @@ class ComponentTable(unittest.TestCase):
         """furios_misc holds several small things, so its install.sh is not
         at the root of the clone. The installer runs where it lives, or its
         own relative paths point at the wrong place."""
-        komp = self.komp("battctl")
-        pfad = self.nirgends()
-        schritte = switcher.component_steps(komp, "install", "", pfad)
-        cwd = self.wo_installiert_wird(schritte)
-        self.assertEqual(os.path.join(pfad, "battery"), cwd)
+        comp = self.comp("battctl")
+        path = self.nowhere()
+        steps = switcher.component_steps(comp, "install", "", path)
+        cwd = self.wo_installiert_wird(steps)
+        self.assertEqual(os.path.join(path, "battery"), cwd)
         # And the clone itself is still the clone - cloning into the
         # subdirectory would put a repository inside a directory of it.
-        self.assertIn("git clone", " ".join(schritte[0][0]))
-        self.assertEqual(pfad, schritte[0][0][-1])
+        self.assertIn("git clone", " ".join(steps[0][0]))
+        self.assertEqual(path, steps[0][0][-1])
 
     def test_a_single_project_still_installs_from_the_clone(self):
-        komp = self.komp("gpsctl")
-        pfad = self.nirgends()
-        schritte = switcher.component_steps(komp, "install", "geheim", pfad)
-        self.assertEqual(pfad, self.wo_installiert_wird(schritte))
+        comp = self.comp("gpsctl")
+        path = self.nowhere()
+        steps = switcher.component_steps(comp, "install", "secret_word", path)
+        self.assertEqual(path, self.wo_installiert_wird(steps))
 
     @staticmethod
-    def wo_installiert_wird(schritte):
+    def wo_installiert_wird(steps):
         """The working directory of the install.sh step - found by its
         argv, not by position: for a component that needs root the last
         step is "sudo -k"."""
-        for argv, _stdin, cwd, _env in schritte:
+        for argv, _stdin, cwd, _env in steps:
             if argv == ["./install.sh"]:
                 return cwd
         return None
@@ -272,9 +272,9 @@ class ComponentTable(unittest.TestCase):
         """What somebody agrees to has to be the path they would type
         themselves."""
         self.assertEqual("./battery/install.sh",
-                         switcher.installer_said(self.komp("battctl")))
+                         switcher.installer_said(self.comp("battctl")))
         self.assertEqual("./install.sh",
-                         switcher.installer_said(self.komp("gpsctl")))
+                         switcher.installer_said(self.comp("gpsctl")))
 
     def klon(self, url):
         """A directory that git would recognise as a clone of `url`."""
@@ -290,10 +290,10 @@ class ComponentTable(unittest.TestCase):
         failed further down, and every press after that ran "git clone" into
         that same clone - "destination path already exists and is not an empty
         directory", for ever, with no way out from inside the app."""
-        komp = self.komp()
-        schritte = switcher.component_steps(komp, "install", "geheim",
-                                            self.klon(komp["url"]))
-        befehle = [" ".join(argv) for argv, _s, _c, _e in schritte]
+        comp = self.comp()
+        steps = switcher.component_steps(comp, "install", "secret_word",
+                                            self.klon(comp["url"]))
+        befehle = [" ".join(argv) for argv, _s, _c, _e in steps]
         self.assertEqual([], [b for b in befehle if "git clone" in b])
         self.assertTrue(any("pull --ff-only" in b for b in befehle), befehle)
         self.assertTrue(any(b.endswith("install.sh") for b in befehle))
@@ -302,10 +302,10 @@ class ComponentTable(unittest.TestCase):
         """No network is a reason to install what is already here, not a
         reason to refuse. Run for real: the chain stops at the first non-zero
         exit, so this step has to end in one that is zero."""
-        komp = self.komp()
-        pfad = self.klon(komp["url"])
-        schritt = switcher.component_steps(komp, "install", "x", pfad)[0]
-        fertig = subprocess_real.run(schritt[0], capture_output=True)
+        comp = self.comp()
+        path = self.klon(comp["url"])
+        step = switcher.component_steps(comp, "install", "x", path)[0]
+        fertig = subprocess_real.run(step[0], capture_output=True)
         self.assertEqual(0, fertig.returncode, fertig.stderr)
         self.assertIn("installing what is already in it",
                       fertig.stdout.decode())
@@ -313,61 +313,61 @@ class ComponentTable(unittest.TestCase):
     def test_something_else_in_the_way_is_left_alone_and_said_so(self):
         """A directory that is not a clone of this repository. Deleting it is
         not this app's decision - saying which one it is, is."""
-        komp = self.komp()
-        fremd = tempfile.mkdtemp()
-        self.addCleanup(shutil_real.rmtree, fremd, True)
-        with open(os.path.join(fremd, "meins.txt"), "w") as fh:
-            fh.write("nicht von uns")
-        schritte = switcher.component_steps(komp, "install", "x", fremd)
-        self.assertEqual([], [a for a, _s, _c, _e in schritte
+        comp = self.comp()
+        foreign = tempfile.mkdtemp()
+        self.addCleanup(shutil_real.rmtree, foreign, True)
+        with open(os.path.join(foreign, "meins.txt"), "w") as fh:
+            fh.write("not ours")
+        steps = switcher.component_steps(comp, "install", "x", foreign)
+        self.assertEqual([], [a for a, _s, _c, _e in steps
                               if a[0] == "git" and "clone" in a])
-        fertig = subprocess_real.run(schritte[0][0], capture_output=True)
+        fertig = subprocess_real.run(steps[0][0], capture_output=True)
         self.assertNotEqual(0, fertig.returncode)
         self.assertIn("in the way", fertig.stdout.decode())
-        self.assertIn(fremd, fertig.stdout.decode())
-        self.assertTrue(os.path.exists(os.path.join(fremd, "meins.txt")))
+        self.assertIn(foreign, fertig.stdout.decode())
+        self.assertTrue(os.path.exists(os.path.join(foreign, "meins.txt")))
 
     def test_the_password_never_reaches_a_command_line(self):
         """It goes to sudo through the pipe. In argv every "ps" on the phone
         would read it, and so would anything that logs a command."""
-        schritte = switcher.component_steps(self.komp(), "install", "geheim")
-        for argv, _stdin, _cwd, _env in schritte:
+        steps = switcher.component_steps(self.comp(), "install", "secret_word")
+        for argv, _stdin, _cwd, _env in steps:
             with self.subTest(argv=argv):
-                self.assertNotIn("geheim", " ".join(argv))
-        durch_die_pipe = [stdin for _a, stdin, _c, _e in schritte if stdin]
-        self.assertEqual(["geheim\n"], durch_die_pipe)
+                self.assertNotIn("secret_word", " ".join(argv))
+        durch_die_pipe = [stdin for _a, stdin, _c, _e in steps if stdin]
+        self.assertEqual(["secret_word\n"], durch_die_pipe)
 
     def test_the_installer_is_told_where_sudo_can_ask(self):
         """The ticket from "sudo -v" is not ours to rely on: with no terminal
         sudo ties it to the parent process, and the installer's bash is a
         different parent. On 14.9.2026 a sudoers rule that had been sharing it
         went away and the GPS install stopped at its first sudo line."""
-        schritte = switcher.component_steps(self.komp(), "install", "geheim",
+        steps = switcher.component_steps(self.comp(), "install", "secret_word",
                                             askpass="/run/user/1/x/askpass")
-        env = [e for argv, _s, _c, e in schritte
+        env = [e for argv, _s, _c, e in steps
                if argv[0].endswith("install.sh")][0]
         self.assertEqual("/run/user/1/x/askpass", env["SUDO_ASKPASS"])
 
     def test_the_password_is_in_no_environment_either(self):
         """argv is read by every "ps"; the environment of a child is read by
         anything that can read /proc, which is the same audience."""
-        schritte = switcher.component_steps(self.komp(), "install", "geheim",
+        steps = switcher.component_steps(self.comp(), "install", "secret_word",
                                             askpass="/run/user/1/x/askpass")
-        for argv, _stdin, _cwd, env in schritte:
+        for argv, _stdin, _cwd, env in steps:
             with self.subTest(argv=argv):
-                self.assertNotIn("geheim", " ".join((env or {}).values()))
-                self.assertNotIn("geheim", " ".join((env or {}).keys()))
+                self.assertNotIn("secret_word", " ".join((env or {}).values()))
+                self.assertNotIn("secret_word", " ".join((env or {}).keys()))
 
     def test_without_a_helper_the_environment_stays_as_it_was(self):
-        schritte = switcher.component_steps(self.komp(), "install", "geheim")
-        self.assertEqual([], [e for *_rest, e in schritte if e])
+        steps = switcher.component_steps(self.comp(), "install", "secret_word")
+        self.assertEqual([], [e for *_rest, e in steps if e])
 
     def test_a_display_is_only_added_where_there_is_none(self):
         """sudo reaches for SUDO_ASKPASS only if it thinks a prompt could be
         seen, and it decides that by DISPLAY alone - it never opens it. Under
         phosh it is set; measured 14.9.2026: without it sudo says "a terminal
         is required" with a working helper standing by."""
-        vorher = os.environ.get("DISPLAY")
+        before = os.environ.get("DISPLAY")
         try:
             os.environ["DISPLAY"] = ":9"
             self.assertNotIn("DISPLAY", switcher.installer_env("/x/askpass"))
@@ -376,46 +376,46 @@ class ComponentTable(unittest.TestCase):
                              switcher.installer_env("/x/askpass")["DISPLAY"])
             self.assertIsNone(switcher.installer_env(None))
         finally:
-            if vorher is None:
+            if before is None:
                 os.environ.pop("DISPLAY", None)
             else:
-                os.environ["DISPLAY"] = vorher
+                os.environ["DISPLAY"] = before
 
     def test_the_installer_runs_in_the_clone_as_the_user(self):
         """Not as root: killswitch-indicator's installer refuses to be root,
         and an installer run as root writes its user files into /root."""
-        schritte = switcher.component_steps(self.komp(), "install", "geheim")
-        installer = [(argv, cwd) for argv, _s, cwd, _e in schritte
+        steps = switcher.component_steps(self.comp(), "install", "secret_word")
+        installer = [(argv, cwd) for argv, _s, cwd, _e in steps
                      if argv[0].endswith("install.sh")]
         self.assertEqual(1, len(installer))
         argv, cwd = installer[0]
         self.assertNotIn("sudo", argv)
-        self.assertEqual(switcher.clone_path(self.komp()), cwd)
+        self.assertEqual(switcher.clone_path(self.comp()), cwd)
 
     def test_a_component_without_root_never_calls_sudo(self):
-        schritte = switcher.component_steps(
-            self.komp("killswitch-indicator"), "install", None)
-        self.assertEqual([], [argv for argv, _s, _c, _e in schritte
+        steps = switcher.component_steps(
+            self.comp("killswitch-indicator"), "install", None)
+        self.assertEqual([], [argv for argv, _s, _c, _e in steps
                               if argv[0] == "sudo"])
 
     def test_an_update_guards_the_clone_before_it_pulls(self):
         """A clone with uncommitted work in it is left exactly as it is - and
         told so in a sentence, because a bare exit code explains nothing."""
-        schritte = switcher.component_steps(self.komp(), "update", "geheim",
+        steps = switcher.component_steps(self.comp(), "update", "secret_word",
                                             "/home/furios/Projekte/eigen")
-        wache = " ".join(schritte[0][0])
-        self.assertIn("status --porcelain", wache)
-        self.assertIn("uncommitted", wache)
-        self.assertIn("/home/furios/Projekte/eigen", schritte[0][0])
-        self.assertIn("pull", schritte[1][0])
-        self.assertIn("--ff-only", schritte[1][0],
+        guard = " ".join(steps[0][0])
+        self.assertIn("status --porcelain", guard)
+        self.assertIn("uncommitted", guard)
+        self.assertIn("/home/furios/Projekte/eigen", steps[0][0])
+        self.assertIn("pull", steps[1][0])
+        self.assertIn("--ff-only", steps[1][0],
                       "a merge is not this app's decision to make")
 
     def test_an_update_works_in_the_clone_it_was_given(self):
         """Not always our own directory: the clone may be the one somebody
         keeps in ~/Projekte, and that is where the pull has to happen."""
-        schritte = switcher.component_steps(self.komp(), "update", None, "/woanders")
-        for argv, _s, cwd, _e in schritte:
+        steps = switcher.component_steps(self.comp(), "update", None, "/woanders")
+        for argv, _s, cwd, _e in steps:
             with self.subTest(argv=argv):
                 if argv[0] == "git":
                     self.assertIn("/woanders", argv)
@@ -626,14 +626,14 @@ class RunsAudioctl(unittest.TestCase):
         """The two things the components page needs from run_async: a working
         directory, and a way in that is not the command line."""
         process = self.arrange(lines=["done"])
-        gebaut = {}
+        built = {}
 
         class FakeLauncher:
             def set_cwd(self, path):
-                gebaut["cwd"] = path
+                built["cwd"] = path
 
             def spawnv(self, argv):
-                gebaut["argv"] = argv
+                built["argv"] = argv
                 return process
 
         real = switcher.Gio.SubprocessLauncher.new
@@ -641,12 +641,12 @@ class RunsAudioctl(unittest.TestCase):
         try:
             seen = []
             switcher.run_async(["./install.sh"], lambda ok, out: seen.append(ok),
-                               cwd="/tmp/klon", stdin="wort\n")
+                               cwd="/tmp/klon", stdin="secret\n")
         finally:
             switcher.Gio.SubprocessLauncher.new = real
-        self.assertEqual("/tmp/klon", gebaut.get("cwd"))
-        self.assertEqual(["./install.sh"], gebaut.get("argv"))
-        self.assertEqual("wort\n", process.stdin)
+        self.assertEqual("/tmp/klon", built.get("cwd"))
+        self.assertEqual(["./install.sh"], built.get("argv"))
+        self.assertEqual("secret\n", process.stdin)
         self.assertEqual([True], seen)
 
     def test_without_a_directory_or_a_pipe_nothing_is_launched_the_long_way(self):
@@ -1236,7 +1236,7 @@ class TheWindow(unittest.TestCase):
         self.assertIn("60 %", self.win.brow_fill.subtitle)
         self.assertIn("15 %", self.win.brow_fill.subtitle)
         self.assertNotIn("7.0 W", self.win.batt_row.subtitle)
-        # Die Entlade-Schwellen bleiben am Schalter, der sie einschaltet.
+        # The drain thresholds stay with the switch that turns them on.
         self.assertIn("3.0 W", self.win.batt_drain.subtitle)
         self.assertIn("5.0 W", self.win.batt_drain.subtitle)
 
@@ -1313,13 +1313,13 @@ class TheWindow(unittest.TestCase):
         self.ran.clear()
         self.win.busy = False
         self.win.on_battery_restore(None)
-        gelaufen = []
+        ran = []
         for _ in range(2):
             argv, done, _on_line, _kw = self.ran.pop(0)
-            gelaufen.append(" ".join(argv))
+            ran.append(" ".join(argv))
             done(True, "")
-        self.assertIn("disable --now", gelaufen[0])
-        self.assertTrue(gelaufen[1].endswith("restore"), gelaufen)
+        self.assertIn("disable --now", ran[0])
+        self.assertTrue(ran[1].endswith("restore"), ran)
 
     def test_the_way_back_reports_a_failure(self):
         self.win.on_battery_restored(False, "")
@@ -1330,8 +1330,8 @@ class TheWindow(unittest.TestCase):
         hardware the tab could only offer to fetch a tool that would never
         have anything to show: an offer to repair a fault the device does not
         have."""
-        leer = tempfile.mkdtemp()
-        with mock.patch.dict(os.environ, {"FURIOS_KILLSWITCH_BASE": leer}):
+        empty_dir = tempfile.mkdtemp()
+        with mock.patch.dict(os.environ, {"FURIOS_KILLSWITCH_BASE": empty_dir}):
             self.assertFalse(switcher.phone_has_switches())
             recorder.reset()
             switcher.Window(switcher.Adw.Application())
@@ -1340,9 +1340,9 @@ class TheWindow(unittest.TestCase):
         self.assertNotIn("Switches", titel, titel)
 
     def test_a_phone_with_them_still_gets_it(self):
-        basis = tempfile.mkdtemp()
-        open(os.path.join(basis, "cam_switch"), "w").write("1\n")
-        with mock.patch.dict(os.environ, {"FURIOS_KILLSWITCH_BASE": basis}):
+        base = tempfile.mkdtemp()
+        open(os.path.join(base, "cam_switch"), "w").write("1\n")
+        with mock.patch.dict(os.environ, {"FURIOS_KILLSWITCH_BASE": base}):
             self.assertTrue(switcher.phone_has_switches())
             recorder.reset()
             switcher.Window(switcher.Adw.Application())
@@ -1352,9 +1352,9 @@ class TheWindow(unittest.TestCase):
 
     def test_one_switch_attribute_is_enough(self):
         """The two are read separately and a phone could have one of them."""
-        basis = tempfile.mkdtemp()
-        open(os.path.join(basis, "nwk_switch"), "w").write("1\n")
-        with mock.patch.dict(os.environ, {"FURIOS_KILLSWITCH_BASE": basis}):
+        base = tempfile.mkdtemp()
+        open(os.path.join(base, "nwk_switch"), "w").write("1\n")
+        with mock.patch.dict(os.environ, {"FURIOS_KILLSWITCH_BASE": base}):
             self.assertTrue(switcher.phone_has_switches())
 
     def test_restore_sound_runs_the_same_rescue_as_the_command_line(self):
@@ -1464,13 +1464,13 @@ class TheWindow(unittest.TestCase):
         the row is shown switched on and cannot be touched. Checked against
         what the page actually built, not against a stand-in a test wrote."""
         self.switches_win()
-        gebaut = switcher.Window(switcher.Adw.Application())
+        built = switcher.Window(switcher.Adw.Application())
         angelegt = [c for c in recorder.calls if c[0] == "Adw.SwitchRow"]
         modem = [c for c in angelegt
                  if "mobile network" in str(c[2].get("title", "")).lower()]
         self.assertTrue(modem, "no row for the mobile network")
         self.assertIs(True, modem[-1][2].get("active"))
-        self.assertIsNotNone(gebaut)
+        self.assertIsNotNone(built)
         # And it must not read as "mobile data cannot be turned off at all",
         # which is how the first wording landed: Settings switches it off
         # through NetworkManager any time, a path this switch never touches.
@@ -1560,8 +1560,8 @@ class TheWindow(unittest.TestCase):
         the page actually built, not against a stand-in a test wrote."""
         self.switches_win()
         switcher.Window(switcher.Adw.Application())
-        zeilen = [c for c in recorder.calls if c[0] == "Adw.ActionRow"]
-        mic = [c for c in zeilen
+        rows = [c for c in recorder.calls if c[0] == "Adw.ActionRow"]
+        mic = [c for c in rows
                if "not readable" in str(c[2].get("subtitle", ""))]
         self.assertTrue(mic, "no row saying the microphone is not read")
 
@@ -1582,9 +1582,9 @@ class TheWindow(unittest.TestCase):
         win.on_switches_status(True, self.JSON)
         self.assertEqual([], [r for r in self.ran if "mic-check" in r[0]])
         switcher.Window(switcher.Adw.Application())
-        knoepfe = [str(c[2].get("label", "")).lower()
+        buttons = [str(c[2].get("label", "")).lower()
                    for c in recorder.calls if c[0] == "Gtk.Button"]
-        self.assertEqual([], [b for b in knoepfe if "listen" in b], knoepfe)
+        self.assertEqual([], [b for b in buttons if "listen" in b], buttons)
 
     # --- what a tab does without its tool ----------------------------------
     #
@@ -1598,52 +1598,52 @@ class TheWindow(unittest.TestCase):
     def komponente(self, tool="gpsctl"):
         return next(c for c in switcher.COMPONENTS if c["tool"] == tool)
 
-    def ohne(self, *fehlend):
+    def without_tool(self, *missing):
         """A window built as though those tools were not installed."""
-        echt = switcher._tool_maybe
-        switcher._tool_maybe = lambda name: (None if name in fehlend
-                                             else echt(name))
+        real = switcher._tool_maybe
+        switcher._tool_maybe = lambda name: (None if name in missing
+                                             else real(name))
         try:
             recorder.reset()
             return switcher.Window(switcher.Adw.Application())
         finally:
-            switcher._tool_maybe = echt
+            switcher._tool_maybe = real
 
     def test_a_tool_whose_page_was_not_built_is_never_asked(self):
         """Found on the phone, not here: the page was built from _tool_maybe
         while refresh asked the module constants, so gpsctl was asked for a
         status that arrived at rows which had never been created - an
         AttributeError inside a callback, where nobody sees it."""
-        win = self.ohne("gpsctl")
-        gefragt = []
-        echt = switcher.run_async
-        switcher.run_async = lambda argv, done, on_line=None, **kw: gefragt.append(argv)
+        win = self.without_tool("gpsctl")
+        asked = []
+        real = switcher.run_async
+        switcher.run_async = lambda argv, done, on_line=None, **kw: asked.append(argv)
         try:
             win.refresh()
         finally:
-            switcher.run_async = echt
-        self.assertEqual([], [a for a in gefragt if "gpsctl" in a[0]])
+            switcher.run_async = real
+        self.assertEqual([], [a for a in asked if "gpsctl" in a[0]])
         # And one that IS here is asked - whichever of them this machine has.
         # Naming audioctl would only measure whether this phone happens to
         # have it installed.
         da = [c["tool"] for c in switcher.COMPONENTS
               if c["tool"] != "gpsctl" and switcher._tool_maybe(c["tool"])]
         if da:
-            self.assertTrue([a for a in gefragt
-                             if any(t in a[0] for t in da)], gefragt)
+            self.assertTrue([a for a in asked
+                             if any(t in a[0] for t in da)], asked)
 
     def test_a_missing_tool_still_gets_its_tab(self):
-        win = self.ohne("modemctl", "gpsctl", "killswitch-indicator")
-        seiten = [c[1] for c in recorder.calls
+        win = self.without_tool("modemctl", "gpsctl", "killswitch-indicator")
+        pages = [c[1] for c in recorder.calls
                   if c[0] == "Adw.ViewStack.add_titled_with_icon()" and c[1]]
         self.assertEqual(["audio", "modem", "gps", "switches", "battery"],
-                         [args[1] for args in seiten])
+                         [args[1] for args in pages])
         self.assertIsNotNone(win)
 
     def test_a_tab_without_its_tool_shows_the_offer_and_nothing_else(self):
-        self.ohne("gpsctl")
-        gruppen = [c[2] for c in recorder.calls if c[0] == "Adw.PreferencesGroup"]
-        angebot = [g for g in gruppen
+        self.without_tool("gpsctl")
+        groups = [c[2] for c in recorder.calls if c[0] == "Adw.PreferencesGroup"]
+        angebot = [g for g in groups
                    if "not installed" in str(g.get("title", ""))
                    and "gpsctl" in str(g.get("description", ""))]
         self.assertTrue(angebot, "no offer on the page of a missing tool")
@@ -1653,22 +1653,22 @@ class TheWindow(unittest.TestCase):
         self.assertEqual([], [t for t in titel if "Filter active" in t])
 
     def test_the_offer_says_where_it_comes_from_and_what_it_would_do(self):
-        self.ohne("gpsctl")
+        self.without_tool("gpsctl")
         comp = self.komponente()
-        zeilen = [str(c[2].get("subtitle", "")) for c in recorder.calls
+        rows = [str(c[2].get("subtitle", "")) for c in recorder.calls
                   if c[0] == "Adw.ActionRow"]
-        self.assertIn(comp["url"], zeilen)
-        self.assertTrue(any(comp["does"] in z for z in zeilen))
-        self.assertTrue(any(switcher.clone_path(comp) in z for z in zeilen),
+        self.assertIn(comp["url"], rows)
+        self.assertTrue(any(comp["does"] in z for z in rows))
+        self.assertTrue(any(switcher.clone_path(comp) in z for z in rows),
                         "the offer has to say where it would put it")
-        self.assertTrue(any("sudo" in z for z in zeilen),
+        self.assertTrue(any("sudo" in z for z in rows),
                         "and that this one needs root")
 
     def test_a_tool_without_root_says_so_in_its_offer(self):
-        self.ohne("killswitch-indicator")
-        zeilen = [str(c[2].get("subtitle", "")) for c in recorder.calls
+        self.without_tool("killswitch-indicator")
+        rows = [str(c[2].get("subtitle", "")) for c in recorder.calls
                   if c[0] == "Adw.ActionRow"]
-        self.assertTrue(any("no root needed" in z for z in zeilen), zeilen)
+        self.assertTrue(any("no root needed" in z for z in rows), rows)
 
     def test_installing_asks_first_and_runs_nothing_on_the_tap(self):
         self.win.comp_rows[self.komponente()["tool"]] = {}
@@ -1678,10 +1678,10 @@ class TheWindow(unittest.TestCase):
 
     def test_the_question_says_the_commands_it_will_run(self):
         recorder.reset()
-        leer = tempfile.mkdtemp()
-        self.addCleanup(shutil_real.rmtree, leer, True)
+        empty_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil_real.rmtree, empty_dir, True)
         self.win.comp_rows[self.komponente()["tool"]] = {
-            "path": os.path.join(leer, "noch-nicht-da")}
+            "path": os.path.join(empty_dir, "not-there-yet")}
         self.win.ask_component(self.komponente(), "install")
         body = str([c for c in recorder.calls
                     if c[0] == "Adw.AlertDialog"][-1][2].get("body", ""))
@@ -1726,17 +1726,17 @@ class TheWindow(unittest.TestCase):
         comp = self.komponente()
         self.win.comp_rows[comp["tool"]] = {"state": Recording()}
         self.win.ask_component(comp, "install")
-        _c, zustand, eingabe, pfad = self.win._comp_pending
-        self.assertIsNotNone(eingabe)
+        _c, state, entry, path = self.win._comp_pending
+        self.assertIsNotNone(entry)
         feld = Recording()
-        feld.set_text("geheim")
-        self.win._comp_pending = (comp, zustand, feld, pfad)
+        feld.set_text("secret_word")
+        self.win._comp_pending = (comp, state, feld, path)
         self.ran.clear()
         self.win.busy = False
         self.win.on_component_response(None, "go")
         argv, _done, _on_line, _kw = self.ran[0]
         self.assertIn("clone", " ".join(argv))
-        self.assertEqual([], [a for a in self.ran if "geheim" in " ".join(a[0])])
+        self.assertEqual([], [a for a in self.ran if "secret_word" in " ".join(a[0])])
         self.assertEqual("", feld.text, "the password is wiped from the entry")
 
     def test_the_chain_hands_each_step_what_the_list_says(self):
@@ -1744,9 +1744,9 @@ class TheWindow(unittest.TestCase):
         self.ran.clear()
         self.win.busy = False
         self.win.comp_rows[comp["tool"]] = {"state": Recording()}
-        self.win.run_component(comp, "install", "geheim")
+        self.win.run_component(comp, "install", "secret_word")
         for argv, stdin, cwd, _env in switcher.component_steps(
-                comp, "install", "geheim"):
+                comp, "install", "secret_word"):
             lauf, done, _on_line, kw = self.ran.pop(0)
             self.assertEqual(argv, lauf)
             self.assertEqual(stdin, kw.get("stdin"))
@@ -1760,8 +1760,8 @@ class TheWindow(unittest.TestCase):
         protokoll = []
 
         class Attrappe:
-            def __init__(self, wort):
-                protokoll.append(("new", wort))
+            def __init__(self, secret):
+                protokoll.append(("new", secret))
 
             def start(self):
                 protokoll.append(("start", None))
@@ -1772,23 +1772,23 @@ class TheWindow(unittest.TestCase):
 
         return protokoll, Attrappe
 
-    def mit_sockel(self, comp, zustand="install", wort="geheim"):
+    def mit_sockel(self, comp, state="install", secret="secret_word"):
         protokoll, attrappe = self.sockel()
-        echt = switcher.Askpass
+        real = switcher.Askpass
         switcher.Askpass = attrappe
         self.win.comp_rows[comp["tool"]] = {"state": Recording()}
         self.win.busy = False
         self.ran.clear()
         try:
-            self.win.run_component(comp, zustand, wort)
+            self.win.run_component(comp, state, secret)
         finally:
-            switcher.Askpass = echt
+            switcher.Askpass = real
         return protokoll
 
     def test_the_socket_stands_while_the_installer_runs(self):
         comp = self.komponente()
         protokoll = self.mit_sockel(comp)
-        self.assertEqual([("new", "geheim"), ("start", None)], protokoll)
+        self.assertEqual([("new", "secret_word"), ("start", None)], protokoll)
         # The chain hands out one step at a time, so walk it to the installer.
         env = None
         for _ in range(len(switcher.component_steps(comp, "install", "x"))):
@@ -1817,7 +1817,7 @@ class TheWindow(unittest.TestCase):
         """killswitch-indicator installs into $HOME. Nothing there ever asks
         for a password, so nothing hands one out."""
         protokoll = self.mit_sockel(self.komponente("killswitch-indicator"),
-                                    wort=None)
+                                    secret=None)
         self.assertEqual([], protokoll)
         self.assertIsNone(self.win.askpass)
 
@@ -1844,30 +1844,30 @@ class TheWindow(unittest.TestCase):
         page, until the app was restarted. run_component switched them off and
         nobody switched them on."""
         comp = self.komponente()
-        knoepfe = {c["tool"]: Recording() for c in switcher.COMPONENTS}
-        for tool, knopf in knoepfe.items():
-            self.win.comp_rows[tool] = {"state": Recording(), "button": knopf}
+        buttons = {c["tool"]: Recording() for c in switcher.COMPONENTS}
+        for tool, button in buttons.items():
+            self.win.comp_rows[tool] = {"state": Recording(), "button": button}
         protokoll, attrappe = self.sockel()
-        echt = switcher.Askpass
+        real = switcher.Askpass
         switcher.Askpass = attrappe
         try:
             self.win.busy = False
             self.ran.clear()
-            self.win.run_component(comp, "install", "geheim")
-            self.assertEqual([False] * len(knoepfe),
-                             [k.sensitive for k in knoepfe.values()],
+            self.win.run_component(comp, "install", "secret_word")
+            self.assertEqual([False] * len(buttons),
+                             [k.sensitive for k in buttons.values()],
                              "nothing else may be started while one runs")
             _argv, done, _on_line, _kw = self.ran.pop(0)
             done(False, "fatal: could not read from remote")
         finally:
-            switcher.Askpass = echt
-        self.assertEqual([True] * len(knoepfe),
-                         [k.sensitive for k in knoepfe.values()])
+            switcher.Askpass = real
+        self.assertEqual([True] * len(buttons),
+                         [k.sensitive for k in buttons.values()])
         del protokoll
 
     # --- the window updating itself ----------------------------------------
 
-    def klon_mit_programm(self, url, inhalt):
+    def klon_mit_programm(self, url, content):
         """A clone of `url` with a misc-de.py in it."""
         d = tempfile.mkdtemp()
         self.addCleanup(shutil_real.rmtree, d, True)
@@ -1875,7 +1875,7 @@ class TheWindow(unittest.TestCase):
         with open(os.path.join(d, ".git", "config"), "w") as fh:
             fh.write('[remote "origin"]\n\turl = %s\n' % url)
         with open(os.path.join(d, "misc-de.py"), "wb") as fh:
-            fh.write(inhalt)
+            fh.write(content)
         return d
 
     def app_komp(self):
@@ -1920,9 +1920,9 @@ class TheWindow(unittest.TestCase):
         self.win.offer_self_update("something new", "/home/furios/klon")
         self.win.ask_self_update()
         self.assertEqual([], self.ran, "pressing the icon started something")
-        koepfe = [str(c[2].get("heading", "")) for c in recorder.calls
+        heads = [str(c[2].get("heading", "")) for c in recorder.calls
                   if c[0] == "Adw.AlertDialog"]
-        self.assertIn("misc-de?", koepfe)
+        self.assertIn("misc-de?", heads)
         antworten = [str(c[1][1]) for c in recorder.calls
                      if c[0].endswith("add_response()") and c[1]]
         self.assertIn("Update", antworten)
@@ -1935,54 +1935,54 @@ class TheWindow(unittest.TestCase):
         self.win.offer_self_update("newer than what runs", "/home/furios/klon",
                                    "reinstall")
         self.win.ask_self_update()
-        comp, zustand, _eingabe, pfad = self.win._comp_pending
+        comp, state, _entry, path = self.win._comp_pending
         self.assertEqual("misc-de", comp["tool"])
-        self.assertEqual("reinstall", zustand)
-        self.assertEqual("/home/furios/klon", pfad)
+        self.assertEqual("reinstall", state)
+        self.assertEqual("/home/furios/klon", path)
 
     def test_a_clone_newer_than_the_program_is_offered_as_a_reinstall(self):
         """The git question is the wrong one for this component: the clone on
         this phone is where the next version is written, so it is never behind
         the server - it is regularly newer than what is installed."""
         comp = self.app_komp()
-        klon = self.klon_mit_programm(comp["url"], b"neue fassung")
+        klon = self.klon_mit_programm(comp["url"], b"neue version")
         laufend = os.path.join(klon, "installiert")
         with open(laufend, "wb") as fh:
-            fh.write(b"alte fassung")
+            fh.write(b"old version")
         self.win.live["app"] = laufend
         self.win.update_btn = Recording()
-        echt = switcher.clone_elsewhere
+        real = switcher.clone_elsewhere
         switcher.clone_elsewhere = lambda url, base=None: klon
         try:
             self.win.check_app_program(comp)
         finally:
-            switcher.clone_elsewhere = echt
+            switcher.clone_elsewhere = real
         self.assertEqual("reinstall", self.win.comp_rows["misc-de"]["mode"])
         self.assertEqual(True, self.win.update_btn.visible)
 
     def test_a_program_that_matches_its_clone_is_not_offered(self):
         comp = self.app_komp()
-        klon = self.klon_mit_programm(comp["url"], b"dieselbe fassung")
+        klon = self.klon_mit_programm(comp["url"], b"dieselbe version")
         laufend = os.path.join(klon, "installiert")
         with open(laufend, "wb") as fh:
-            fh.write(b"dieselbe fassung")
+            fh.write(b"dieselbe version")
         self.win.live["app"] = laufend
         self.win.update_btn = Recording()
-        echt = switcher.clone_elsewhere
+        real = switcher.clone_elsewhere
         switcher.clone_elsewhere = lambda url, base=None: klon
         try:
             self.win.check_app_program(comp)
         finally:
-            switcher.clone_elsewhere = echt
+            switcher.clone_elsewhere = real
         self.assertIsNone(self.win.update_btn.visible,
                           "an offer that is always there says nothing")
 
     def test_a_reinstall_pulls_nothing_and_installs_what_is_there(self):
         """A pull would be the wrong question - and with uncommitted work in
         that clone its guard would refuse the install along with it."""
-        schritte = switcher.component_steps(self.app_komp(), "reinstall",
-                                            "geheim", "/home/furios/Projekte/x")
-        befehle = [" ".join(argv) for argv, _s, _c, _e in schritte]
+        steps = switcher.component_steps(self.app_komp(), "reinstall",
+                                            "secret_word", "/home/furios/Projekte/x")
+        befehle = [" ".join(argv) for argv, _s, _c, _e in steps]
         self.assertEqual([], [b for b in befehle if b.startswith("git")])
         self.assertTrue(any(b.endswith("install.sh") for b in befehle), befehle)
         self.assertEqual("sudo -k", befehle[-1])
@@ -1995,9 +1995,9 @@ class TheWindow(unittest.TestCase):
         self.win.update_btn = Recording()
         self.win.update_btn.visible = True
         self.win.component_done(self.app_komp(), True, "")
-        koepfe = [str(c[2].get("heading", "")) for c in recorder.calls
+        heads = [str(c[2].get("heading", "")) for c in recorder.calls
                   if c[0] == "Adw.AlertDialog"]
-        self.assertIn("Updated", koepfe)
+        self.assertIn("Updated", heads)
         self.assertEqual(False, self.win.update_btn.visible,
                          "the icon outlived the offer it carried")
         antworten = [c[1] for c in recorder.calls
@@ -2009,12 +2009,12 @@ class TheWindow(unittest.TestCase):
         """A second instance hands its activation to the one already running -
         it would present the OLD window and then die with it."""
         gerufen = []
-        echt = switcher.os.execv
+        real = switcher.os.execv
         switcher.os.execv = lambda prog, argv: gerufen.append((prog, argv))
         try:
             self.win.restart_self()
         finally:
-            switcher.os.execv = echt
+            switcher.os.execv = real
         self.assertEqual(1, len(gerufen))
         prog, argv = gerufen[0]
         self.assertTrue(prog.endswith("misc-de"), prog)
@@ -2025,40 +2025,40 @@ class TheWindow(unittest.TestCase):
         self.ran.clear()
         self.win.busy = False
         self.win.comp_rows[comp["tool"]] = {"state": Recording()}
-        self.win.run_component(comp, "install", "falsch")
+        self.win.run_component(comp, "install", "wrong")
         _argv, done, _on_line, _kw = self.ran.pop(0)
         done(False, "fatal: could not read from remote")
         self.assertEqual([], [r for r in self.ran if "install.sh" in " ".join(r[0])])
         self.assertIn("Could not set up", str(self.win.toasts.text))
 
-    def mit(self, name, pfad="/usr/local/bin/gpsctl"):
+    def with_tool(self, name, path="/usr/local/bin/gpsctl"):
         """_tool_maybe answering as though `name` had just been installed."""
-        echt = switcher._tool_maybe
-        switcher._tool_maybe = lambda n: pfad if n == name else echt(n)
-        return echt
+        real = switcher._tool_maybe
+        switcher._tool_maybe = lambda n: path if n == name else real(n)
+        return real
 
     def toast_texte(self):
         return [str(c[2].get("title", "")) for c in recorder.calls
                 if c[0] == "Adw.Toast"]
 
-    def frisch_installiert(self, tool="gpsctl", pfad="/usr/local/bin/gpsctl"):
+    def freshly_installed(self, tool="gpsctl", path="/usr/local/bin/gpsctl"):
         """A window whose tool was missing when it opened and is there now -
         the state the phone is in the moment an install finishes."""
-        win = self.ohne(tool)
+        win = self.without_tool(tool)
         comp = self.komponente(tool)
         recorder.reset()
-        echt = self.mit(tool, pfad)
+        real = self.with_tool(tool, path)
         try:
             win.component_done(comp, True, "")
         finally:
-            switcher._tool_maybe = echt
+            switcher._tool_maybe = real
         return win
 
     def test_a_finished_install_turns_the_tab_into_the_real_one(self):
         """This used to end in "restart the app to get its tab", which is the
         one thing left to do after watching a clone, a build and an install go
         by - and it reads like nothing happened."""
-        win = self.frisch_installiert()
+        win = self.freshly_installed()
         self.assertEqual("/usr/local/bin/gpsctl", win.live["gps"])
         self.assertTrue(any("live" in t for t in self.toast_texte()),
                         "nothing said the tab is usable now")
@@ -2068,30 +2068,30 @@ class TheWindow(unittest.TestCase):
         """Adw.ViewStack can only append, so the tabs after the swapped one
         are taken out and put back. Left to append, GPS would land behind
         Switches and the row would reorder itself under somebody's thumb."""
-        win = self.frisch_installiert()
+        win = self.freshly_installed()
         # Its own return value is recorded under the same name with no
         # arguments, so the calls are the ones that carry some.
-        gebaut = [c[1][1] for c in recorder.calls
+        built = [c[1][1] for c in recorder.calls
                   if c[0] == "Adw.ViewStack.add_titled_with_icon()" and c[1]]
-        self.assertEqual(["gps", "switches", "battery"], gebaut)
+        self.assertEqual(["gps", "switches", "battery"], built)
         # One for the tab being swapped, one for each tab behind it.
-        self.assertEqual(len(gebaut), len([c for c in recorder.calls
+        self.assertEqual(len(built), len([c for c in recorder.calls
                                            if c[0] == "Adw.ViewStack.remove()"
                                            and c[1]]))
         del win
 
     def test_the_tab_somebody_installed_from_is_the_one_they_end_up_on(self):
         """The page they were standing on went out with the swap."""
-        self.frisch_installiert()
-        gewaehlt = [c[1][0] for c in recorder.calls
+        self.freshly_installed()
+        chosen = [c[1][0] for c in recorder.calls
                     if c[0] == "Adw.ViewStack.set_visible_child_name()" and c[1]]
-        self.assertEqual(["gps"], gewaehlt)
+        self.assertEqual(["gps"], chosen)
 
     def test_the_new_page_runs_the_tool_that_was_just_installed(self):
         """The window used to keep the answer to "was it there when the app
         started" in a module constant. A page built after that would have sent
         None to pkexec."""
-        win = self.frisch_installiert()
+        win = self.freshly_installed()
         if not switcher.PKEXEC:
             self.skipTest("no pkexec here, so the switch runs nothing")
         self.ran.clear()
@@ -2107,33 +2107,33 @@ class TheWindow(unittest.TestCase):
         comp = self.komponente("modemctl") if MODEMCTL else None
         if comp is None:
             self.skipTest("no modemctl here, so no page with an update offer")
-        gruppe = Recording()
-        self.win.comp_rows[comp["tool"]] = {"group": gruppe,
+        group = Recording()
+        self.win.comp_rows[comp["tool"]] = {"group": group,
                                             "state": Recording()}
         recorder.reset()
         self.win.component_done(comp, True, "")
-        self.assertEqual(False, gruppe.visible)
+        self.assertEqual(False, group.visible)
         self.assertTrue(any("up to date" in t for t in self.toast_texte()))
 
     def test_an_install_that_leaves_nothing_behind_says_so(self):
         """Every step returned 0 and the tool is still not findable. The
         installer's own output is the only thing that can explain that."""
-        win = self.ohne("gpsctl")
+        win = self.without_tool("gpsctl")
         recorder.reset()
         # Absent during the window AND during the answer: this machine may
         # well have gpsctl installed, and then the swap would succeed and the
         # test would measure the opposite of what it says.
-        echt = switcher._tool_maybe
-        switcher._tool_maybe = lambda n: None if n == "gpsctl" else echt(n)
+        real = switcher._tool_maybe
+        switcher._tool_maybe = lambda n: None if n == "gpsctl" else real(n)
         try:
             win.component_done(self.komponente(), True, "ln: Permission denied")
         finally:
-            switcher._tool_maybe = echt
+            switcher._tool_maybe = real
         self.assertTrue(any("not on the phone" in t
                             for t in self.toast_texte()))
-        koerper = [str(c[2].get("body", "")) for c in recorder.calls
+        body = [str(c[2].get("body", "")) for c in recorder.calls
                    if c[0] == "Adw.AlertDialog"]
-        self.assertTrue(any("Permission denied" in b for b in koerper))
+        self.assertTrue(any("Permission denied" in b for b in body))
 
     def test_nothing_is_offered_while_something_else_runs(self):
         self.win.comp_rows[self.komponente()["tool"]] = {}
@@ -2148,17 +2148,17 @@ class TheWindow(unittest.TestCase):
     # --- the update offer at the foot of a page ----------------------------
 
     def zeilen_fuer(self, comp):
-        zeilen = {"group": Recording(), "state": Recording(),
+        rows = {"group": Recording(), "state": Recording(),
                   "button": Recording()}
-        self.win.comp_rows[comp["tool"]] = zeilen
-        return zeilen
+        self.win.comp_rows[comp["tool"]] = rows
+        return rows
 
     def test_an_update_is_offered_only_once_somebody_has_looked(self):
         """A group that is always there says nothing, and an app that offers
         an update it never checked for is worse than one that offers none."""
         comp = self.komponente()
-        zeilen = self.zeilen_fuer(comp)
-        self.assertIsNone(zeilen["group"].revealed)
+        rows = self.zeilen_fuer(comp)
+        self.assertIsNone(rows["group"].revealed)
         self.ran.clear()
         self.win.check_component(comp, "/tmp/klon")
         argv, done, _on_line, _kw = self.ran.pop(0)
@@ -2167,38 +2167,38 @@ class TheWindow(unittest.TestCase):
         argv, done, _on_line, _kw = self.ran.pop(0)
         self.assertIn("rev-list", argv)
         done(True, "4\n")
-        self.assertTrue(zeilen["group"].visible)
-        self.assertIn("4 new commit", zeilen["state"].subtitle)
-        self.assertIn("/tmp/klon", zeilen["state"].subtitle)
+        self.assertTrue(rows["group"].visible)
+        self.assertIn("4 new commit", rows["state"].subtitle)
+        self.assertIn("/tmp/klon", rows["state"].subtitle)
 
     def test_a_clone_that_is_current_offers_nothing(self):
         comp = self.komponente()
-        zeilen = self.zeilen_fuer(comp)
+        rows = self.zeilen_fuer(comp)
         self.ran.clear()
         self.win.check_component(comp, "/tmp/klon")
         _argv, done, _on_line, _kw = self.ran.pop(0)
         done(True, "")
         _argv, done, _on_line, _kw = self.ran.pop(0)
         done(True, "0\n")
-        self.assertIsNone(zeilen["group"].visible)
+        self.assertIsNone(rows["group"].visible)
 
     def test_a_check_that_fails_offers_nothing_either(self):
         """No network is not "there is an update", and it is not "up to
         date" - it is nothing to say."""
         comp = self.komponente()
-        zeilen = self.zeilen_fuer(comp)
+        rows = self.zeilen_fuer(comp)
         self.ran.clear()
         self.win.check_component(comp, "/tmp/klon")
         _argv, done, _on_line, _kw = self.ran.pop(0)
         done(False, "could not resolve host")
         self.assertEqual([], self.ran)
-        self.assertIsNone(zeilen["group"].visible)
+        self.assertIsNone(rows["group"].visible)
 
     def test_a_clone_somebody_else_keeps_is_read_and_never_written(self):
         """ls-remote asks the server, rev-parse reads the clone. A fetch would
         already write into their .git, a pull into their working tree."""
         comp = self.komponente()
-        zeilen = self.zeilen_fuer(comp)
+        rows = self.zeilen_fuer(comp)
         self.ran.clear()
         self.win.peek_upstream(comp, "/home/furios/Projekte/eigen")
         argv, done, _on_line, _kw = self.ran.pop(0)
@@ -2207,30 +2207,30 @@ class TheWindow(unittest.TestCase):
         argv, done, _on_line, _kw = self.ran.pop(0)
         self.assertIn("rev-parse", argv)
         done(True, "def456")
-        self.assertTrue(zeilen["group"].visible)
-        self.assertIn("/home/furios/Projekte/eigen", zeilen["state"].subtitle)
+        self.assertTrue(rows["group"].visible)
+        self.assertIn("/home/furios/Projekte/eigen", rows["state"].subtitle)
 
     def test_a_foreign_clone_that_matches_the_server_is_left_in_peace(self):
         comp = self.komponente()
-        zeilen = self.zeilen_fuer(comp)
+        rows = self.zeilen_fuer(comp)
         self.ran.clear()
         self.win.peek_upstream(comp, "/eigen")
         _argv, done, _on_line, _kw = self.ran.pop(0)
         done(True, "abc123\tHEAD")
         _argv, done, _on_line, _kw = self.ran.pop(0)
         done(True, "abc123\n")
-        self.assertIsNone(zeilen["group"].visible)
+        self.assertIsNone(rows["group"].visible)
 
     def test_no_answer_from_the_server_is_not_an_update(self):
         comp = self.komponente()
-        zeilen = self.zeilen_fuer(comp)
+        rows = self.zeilen_fuer(comp)
         self.ran.clear()
         self.win.peek_upstream(comp, "/eigen")
         _argv, done, _on_line, _kw = self.ran.pop(0)
         done(False, "could not resolve host")
         _argv, done, _on_line, _kw = self.ran.pop(0)
         done(True, "abc123")
-        self.assertIsNone(zeilen["group"].visible)
+        self.assertIsNone(rows["group"].visible)
 
     def test_our_own_clone_is_the_one_that_gets_fetched(self):
         """Where we cloned ourselves, a fetch is ours to run - and counting
@@ -2263,13 +2263,13 @@ class TheWindow(unittest.TestCase):
             self.win.check_updates()
         finally:
             switcher.is_clone, switcher.clone_elsewhere = real_is, real_else
-        gefragt = [r[0] for r in self.ran]
+        asked = [r[0] for r in self.ran]
         # The window itself is asked about too, and it is not one of the tabs.
-        erwartet = len([c for c in switcher.COMPONENTS
+        expected = len([c for c in switcher.COMPONENTS
                         if switcher._tool_maybe(c["tool"])])
-        erwartet += bool(self.win.live.get("app"))
-        self.assertEqual(erwartet, len(gefragt))
-        for argv in gefragt:
+        expected += bool(self.win.live.get("app"))
+        self.assertEqual(expected, len(asked))
+        for argv in asked:
             self.assertIn("ls-remote", argv)
 
     # --- the way back, on every page ---------------------------------------
@@ -2285,14 +2285,14 @@ class TheWindow(unittest.TestCase):
         shape of this."""
         recorder.reset()
         switcher.Window(switcher.Adw.Application())
-        erwartet = (1 + bool(MODEMCTL) + bool(GPSCTL)
+        expected = (1 + bool(MODEMCTL) + bool(GPSCTL)
                     + bool(KILLSWITCH) + bool(BATTCTL))
-        knoepfe = [c for c in recorder.calls if c[0] == "Gtk.Button"
+        buttons = [c for c in recorder.calls if c[0] == "Gtk.Button"
                    and c[2].get("label") == switcher.Window.RESTORE_LABEL]
-        gruppen = [c for c in recorder.calls if c[0] == "Adw.PreferencesGroup"
+        groups = [c for c in recorder.calls if c[0] == "Adw.PreferencesGroup"
                    and c[2].get("title") == switcher.Window.RESTORE_TITLE]
-        self.assertEqual(erwartet, len(knoepfe))
-        self.assertEqual(erwartet, len(gruppen))
+        self.assertEqual(expected, len(buttons))
+        self.assertEqual(expected, len(groups))
 
     def test_no_way_back_is_painted_louder_than_another(self):
         recorder.reset()
@@ -2307,12 +2307,12 @@ class TheWindow(unittest.TestCase):
         it is not the same every time."""
         recorder.reset()
         switcher.Window(switcher.Adw.Application())
-        texte = {str(c[2].get("description", ""))
+        texts = {str(c[2].get("description", ""))
                  for c in recorder.calls if c[0] == "Adw.PreferencesGroup"
                  and c[2].get("title") == switcher.Window.RESTORE_TITLE}
-        erwartet = (1 + bool(MODEMCTL) + bool(GPSCTL)
+        expected = (1 + bool(MODEMCTL) + bool(GPSCTL)
                     + bool(KILLSWITCH) + bool(BATTCTL))
-        self.assertEqual(erwartet, len(texte))
+        self.assertEqual(expected, len(texts))
 
     def test_a_way_back_asks_before_it_acts(self):
         """Nothing here is a tap to take back, so none of them acts on the tap
@@ -2377,15 +2377,15 @@ class TheWindow(unittest.TestCase):
         self.ran.clear()
         win.busy = False
         win.on_switches_restore(None)
-        gelaufen = []
+        ran = []
         for _ in range(3):
             argv, done, _on_line, _kw = self.ran.pop(0)
-            gelaufen.append(" ".join(argv))
+            ran.append(" ".join(argv))
             done(True, "")
-        self.assertTrue(any("config wifi off" in c for c in gelaufen), gelaufen)
-        self.assertTrue(any("config bluetooth off" in c for c in gelaufen), gelaufen)
+        self.assertTrue(any("config wifi off" in c for c in ran), ran)
+        self.assertTrue(any("config bluetooth off" in c for c in ran), ran)
         self.assertTrue(any("disable --now killswitch-indicator" in c
-                            for c in gelaufen), gelaufen)
+                            for c in ran), ran)
 
     def test_a_step_that_fails_stops_the_rest(self):
         """Half done is reported, never passed off as success."""
@@ -2405,10 +2405,10 @@ class TheWindow(unittest.TestCase):
         gerufen = []
         recorder.reset()
         _grp, btn = self.win.build_restore_group("what it costs", gerufen.append)
-        klick = [c[1][1] for c in recorder.calls
+        click = [c[1][1] for c in recorder.calls
                  if c[0] == "Gtk.Button.connect()" and c[1] and c[1][0] == "clicked"]
-        self.assertEqual(1, len(klick))
-        klick[0](btn)
+        self.assertEqual(1, len(click))
+        click[0](btn)
         self.assertEqual([], gerufen)
         self.win.on_restore_response(None, "restore")
         self.assertEqual([btn], gerufen)
@@ -2537,7 +2537,7 @@ class TheWindow(unittest.TestCase):
     def test_without_modemctl_the_page_has_no_controls(self):
         """The tab is there and offers to fetch modemctl; what is not there is
         a switch with nothing behind it."""
-        win = self.ohne("modemctl")
+        win = self.without_tool("modemctl")
         self.assertEqual([], win.modem_rows)
 
     def test_the_two_words_the_profile_is_read_by(self):
@@ -2604,7 +2604,7 @@ class TheWindow(unittest.TestCase):
     # on this page is checked for saying so.
 
     def test_without_gpsctl_the_page_has_no_controls(self):
-        win = self.ohne("gpsctl")
+        win = self.without_tool("gpsctl")
         self.assertEqual([], win.gps_rows)
 
     def gps_win(self):

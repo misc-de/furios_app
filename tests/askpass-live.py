@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-GEHEIM = "nicht-das-echte-passwort"
+SECRET = "not-the-real-password"
 
 
 def load():
@@ -43,20 +43,20 @@ def main():
     sw = load()
     from gi.repository import GLib
 
-    gut = True
-    a = sw.Askpass(GEHEIM)
-    helfer = a.start()
-    gut &= ok(helfer, "the helper is set up at all")
-    if not helfer:
+    good = True
+    a = sw.Askpass(SECRET)
+    helper = a.start()
+    good &= ok(helper, "the helper is set up at all")
+    if not helper:
         return 1
-    verzeichnis = os.path.dirname(helfer)
-    text = open(helfer).read()
+    verzeichnis = os.path.dirname(helper)
+    text = open(helper).read()
 
-    gut &= ok(GEHEIM not in text, "the helper script carries no password")
-    gut &= ok(os.stat(verzeichnis).st_mode & 0o777 == 0o700,
+    good &= ok(SECRET not in text, "the helper script carries no password")
+    good &= ok(os.stat(verzeichnis).st_mode & 0o777 == 0o700,
               "its directory is closed to everybody else (0700)")
-    gut &= ok(os.stat(helfer).st_mode & 0o777 == 0o700, "the helper is 0700")
-    gut &= ok(str(verzeichnis).startswith(
+    good &= ok(os.stat(helper).st_mode & 0o777 == 0o700, "the helper is 0700")
+    good &= ok(str(verzeichnis).startswith(
         os.environ.get("XDG_RUNTIME_DIR", "/run/user")),
         "it lives in the runtime directory, which is tmpfs")
 
@@ -64,7 +64,7 @@ def main():
     # The main loop has to run for that, so the helper is started first and
     # read while GLib serves - exactly the order sudo produces.
     ergebnis = {}
-    proc = subprocess.Popen([helfer], stdout=subprocess.PIPE)
+    proc = subprocess.Popen([helper], stdout=subprocess.PIPE)
 
     def warten():
         try:
@@ -79,7 +79,7 @@ def main():
     GLib.timeout_add(200, warten)
     GLib.timeout_add_seconds(15, lambda: (schleife.quit(), False)[1])
     schleife.run()
-    gut &= ok(ergebnis.get("out") == GEHEIM,
+    good &= ok(ergebnis.get("out") == SECRET,
               "a separate process gets the password through the socket")
 
     # The other half, and the one this was missing: same user is not enough.
@@ -100,7 +100,7 @@ def main():
         "        t.append(c)\n"
         "    open(sys.argv[2],'w').write(b''.join(t).decode())\n"
         "except Exception: pass\n")
-    antwort = Path(__file__).parent / "_fremd_tmp.out"
+    answer = Path(__file__).parent / "_fremd_tmp.out"
     try:
         sock = os.path.join(verzeichnis, "ask.sock")
         # "setsid --fork", not os.setsid: setsid alone changes the session and
@@ -110,11 +110,11 @@ def main():
         # once made this very check pass against a socket that was still
         # wide open.)
         subprocess.run(["setsid", "--fork", sys.executable, str(fremd),
-                        sock, str(antwort)], timeout=20)
+                        sock, str(answer)], timeout=20)
         erg2 = {}
 
         def warten2():
-            erg2["out"] = antwort.read_text().strip() if antwort.exists() else ""
+            erg2["out"] = answer.read_text().strip() if answer.exists() else ""
             schleife2.quit()
             return False
 
@@ -122,16 +122,16 @@ def main():
         GLib.timeout_add_seconds(6, warten2)
         GLib.timeout_add_seconds(20, lambda: (schleife2.quit(), False)[1])
         schleife2.run()
-        gut &= ok(erg2.get("out") != GEHEIM,
+        good &= ok(erg2.get("out") != SECRET,
                   "a process we did not start gets nothing")
     finally:
         fremd.unlink(missing_ok=True)
-        antwort.unlink(missing_ok=True)
+        answer.unlink(missing_ok=True)
 
     a.stop()
-    gut &= ok(not os.path.exists(verzeichnis),
+    good &= ok(not os.path.exists(verzeichnis),
               "socket, helper and directory are gone afterwards")
-    gut &= ok(a.wort == "", "and the password is not kept either")
+    good &= ok(a.secret == "", "and the password is not kept either")
 
     # A helper that cannot be set up used to return None and say nothing, and
     # the install then stopped at its first sudo line with "a terminal is
@@ -143,10 +143,10 @@ def main():
     alt_runtime = os.environ.get("XDG_RUNTIME_DIR")
     os.environ["XDG_RUNTIME_DIR"] = str(tief)
     try:
-        b = sw.Askpass(GEHEIM)
-        gut &= ok(b.start() is None, "an impossible socket path fails, as it must")
-        gut &= ok(bool(b.fehler), "and says why, instead of failing silently")
-        gut &= ok("108" in (b.fehler or ""),
+        b = sw.Askpass(SECRET)
+        good &= ok(b.start() is None, "an impossible socket path fails, as it must")
+        good &= ok(bool(b.error), "and says why, instead of failing silently")
+        good &= ok("108" in (b.error or ""),
                   "naming the limit that was hit")
         b.stop()
     finally:
@@ -156,8 +156,8 @@ def main():
             os.environ["XDG_RUNTIME_DIR"] = alt_runtime
 
     if "--with-sudo" in sys.argv:
-        gut &= sudo_frage(sw)
-    return 0 if gut else 1
+        good &= sudo_frage(sw)
+    return 0 if good else 1
 
 
 def sudo_frage(sw):
@@ -172,9 +172,9 @@ def sudo_frage(sw):
     would fail against a sudo that is behaving exactly as it does on the
     phone.
     """
-    a = sw.Askpass("auch-nicht-das-echte")
-    helfer = a.start()
-    umgebung = dict(os.environ, SUDO_ASKPASS=helfer)
+    a = sw.Askpass("not-the-real-one-either")
+    helper = a.start()
+    umgebung = dict(os.environ, SUDO_ASKPASS=helper)
     umgebung.setdefault("DISPLAY", ":0")
     try:
         p = subprocess.run(["setsid", "sudo", "-k", "-v"], env=umgebung,

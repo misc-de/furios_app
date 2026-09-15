@@ -1,167 +1,163 @@
-# Was dabei herauskam
+# What came out of it
 
-Das README sagt, was die App ist und wie man sie benutzt. Diese Datei sagt
-*warum* sie so gebaut ist: die Entscheidungen hinter der Oberflaeche, die
-Mechanik des Installierens und die Stellen, die Zeit gekostet haben.
+The README says what the app is and how to use it. This file says *why* it is
+built the way it is: the decisions behind the interface, the mechanics of
+installing, and the places that cost time.
 
-Geraet: FuriPhone FLX1 (radon), FuriOS mit phosh.
+Device: FuriPhone FLX1 (radon), FuriOS with phosh.
 
-Die App lag bis zum 14.9.2026 in
-[furios_pipewire](https://github.com/misc-de/furios_pipewire) unter `gui/`.
-Sie ist mit ihrer Geschichte hierher umgezogen, weil sie inzwischen vier
-Werkzeuge aus vier Repos bedient und keines davon ihr Zuhause ist.
+## From the README
 
+The README was cut down to what is needed to use the thing. What follows stood
+there until then: the reasons, the measurements and the trade-offs behind the
+decisions.
 
-## Aus dem README
+## The app updates itself - without a tab
 
-Das README wurde auf das gekuerzt, was man zum Benutzen braucht. Was hier folgt, stand bis dahin dort: die Begruendungen, die Messwerte und die Abwaegungen hinter den Entscheidungen.
+The app is a component like the tools (`misc-de`, this repo): the same clone,
+the same installer. What it is not is something you *operate* on a page - it
+IS the page. A fifth tab for it cost a fifth of the switcher bar on every
+other page, to say which file the window runs from; and the one thing it was
+there for - taking the next version - does not have to wait behind a tab
+nobody opens.
 
-## Die App aktualisiert sich selbst - ohne Reiter
+So it sits in the header bar: **an icon at the top left that only appears when
+there is a newer version.** What was found and where it would come from is in
+its tooltip. Pressing it starts nothing yet, it asks back - the same question
+every other component gets, with the steps that would run and the password
+field for `sudo`. Afterwards the icon is gone again; it was the answer to a
+question that has been answered.
 
-Die App ist eine Komponente wie die vier Werkzeuge (`misc-de`, dieses Repo):
-derselbe Klon, derselbe Installer. Was sie nicht ist, ist etwas, das man auf
-einer Seite *bedient* - sie IST die Seite. Ein fuenfter Reiter dafuer kostete
-auf jeder anderen Seite ein Fuenftel der Reiterleiste, um zu sagen, aus welcher
-Datei das Fenster laeuft; und das Einzige, wofuer er da war - die naechste
-Fassung nehmen - muss nicht hinter einem Reiter warten, den niemand oeffnet.
+(There used to be a "reload" button at the top right. It produced exactly the
+state that was already on screen - the window asks by itself when it opens,
+after every switch and after every install.)
 
-Deshalb sitzt es in der Kopfleiste: **links oben ein Icon, das nur erscheint,
-wenn es eine neuere Fassung gibt.** Was gefunden wurde und woher es kaeme,
-steht in seinem Tooltip. Ein Druck darauf startet noch nichts, sondern fragt
-zurueck - dieselbe Rueckfrage, die jede andere Komponente bekommt, mit den
-Schritten, die laufen wuerden, und dem Passwortfeld fuer `sudo`. Danach ist das
-Icon wieder weg; es war die Antwort auf eine Frage, die beantwortet ist.
+What is asked is different from the tools: not only whether there are new
+commits on the server, but whether the **running program is the same as the
+`misc-de.py` in the clone**. On this phone the next version is written in
+exactly that clone; so it is never behind the server, but regularly ahead of
+what is installed. Then the offer reads "reinstall": nothing is fetched, only
+`./install.sh` is run in that clone - a `git pull` would be the wrong
+question, and its guard would refuse the install along with it if anything
+were uncommitted.
 
-(Rechts oben sass frueher ein "Aktualisieren"-Knopf. Der stellte genau den
-Zustand her, der ohnehin schon auf dem Schirm stand - das Fenster fragt beim
-Oeffnen, nach jedem Umschalten und nach jeder Installation von selbst nach.)
+Afterwards the old version is still running in this window, so it asks whether
+it should restart itself. Restarting means `execv`: the same process is
+replaced by the new program. A second instance would not be one - the
+application ID makes it hand its activation to the running one, and that one
+then presents the OLD window.
 
-Gefragt wird dabei etwas anderes als bei den vier Werkzeugen: nicht nur, ob auf dem Server
-neue Commits liegen, sondern ob das **laufende Programm dasselbe ist wie die
-`misc-de.py` im Klon**. Auf diesem Telefon wird die naechste Fassung in genau
-diesem Klon geschrieben; er ist also nie hinter dem Server, wohl aber
-regelmaessig vor dem, was installiert ist. Dann heisst das Angebot
-"reinstall": es wird nichts geholt, nur `./install.sh` in diesem Klon
-ausgefuehrt - ein `git pull` waere die falsche Frage, und seine Wache wuerde
-bei uncommitteten Aenderungen die Installation gleich mit verweigern.
+## When a tool is missing
 
-Danach laeuft in diesem Fenster noch die alte Fassung, also fragt es, ob es
-sich neu starten soll. Neu starten heisst `execv`: derselbe Prozess wird durch
-das neue Programm ersetzt. Eine zweite Instanz waere keine - die Application-ID
-laesst sie ihre Aktivierung an die laufende abgeben, und die praesentiert dann
-das ALTE Fenster.
+Every tab is there, even when its tool is not. It then shows exactly three
+things - what it would do, which repository that comes from, and what
+installing will do - and an **Install** button. Nothing else: switches and
+status rows with nothing behind them would be props, and a page full of greyed
+out controls looks like a broken phone rather than a missing package.
 
-## Wenn ein Werkzeug fehlt
+It is fetched to `~/.local/share/misc-de/<repo>` and installed from there.
+Three of the installers write to `/usr/local` and need root; this phone has no
+polkit agent (`pkexec` answers "No authentication agent found"), so it is done
+the way it is done in a terminal: `sudo` asks for the password once, the
+script runs as you, and only its own sudo lines become root. Afterwards
+`sudo -k` throws the ticket away.
 
-Jeder Reiter ist da, auch wenn sein Werkzeug es nicht ist. Dann zeigt er genau
-drei Dinge - was er tun wuerde, aus welchem Repo das kommt, und was beim
-Installieren passieren wird - und einen **Install**-Knopf. Sonst nichts:
-Schalter und Statuszeilen ohne etwas dahinter waeren Attrappen, und eine Seite
-voller ausgegrauter Bedienelemente sieht aus wie ein kaputtes Telefon statt
-nach einem fehlenden Paket.
+The ticket alone cannot be relied on, and that is not theory: on 14.9.2026 a
+sudoers rule fell away on this phone, and the GPS install stopped at its first
+sudo line - cloned, nothing installed, `sudo: a terminal is required to read
+the password`. Without a terminal sudo hangs its timestamp not on a TTY but on
+the parent process, and the installer's bash is not the parent process that
+`sudo -v` had. So the installer additionally gets `SUDO_ASKPASS`: a five-line
+helper with no secret in it, which fetches the password over a socket in
+`$XDG_RUNTIME_DIR` - directory 0700, and the other end checks the uid of the
+caller. That way every sudo line of every installer may ask, as often as it
+likes. (Plus `DISPLAY` if it is missing: sudo only reaches for `SUDO_ASKPASS`
+when it believes somebody could see a graphical question - it is never
+opened.)
 
-Geholt wird nach `~/.local/share/misc-de/<repo>`, installiert wird daraus.
-Drei der vier Installer schreiben nach `/usr/local` und brauchen root; dieses
-Telefon hat keinen polkit-Agenten (`pkexec` antwortet "No authentication agent
-found"), also wird es gemacht wie im Terminal: `sudo` fragt einmal nach dem
-Passwort, das Skript laeuft als du, und nur seine eigenen sudo-Zeilen werden
-root. Danach wirft `sudo -k` das Ticket weg.
+The password goes through the pipe to `sudo` and through that socket and
+nowhere else - not into `argv`, where every `ps` reads along, not into a file,
+not into the environment, not into a log line - and it is gone from the entry
+field as soon as the question has been answered. A wrong password is reported
+by `sudo` in its own words; the chain stops there rather than starting an
+installer that cannot finish. If everything goes through, the offer turns into
+the real page immediately - in the same place in the switcher bar, and the app
+stands on it afterwards. No restart: the tool is on the phone at that moment,
+there is nothing left to wait for.
 
-Auf das Ticket allein ist kein Verlass, und das ist keine Theorie: am
-14.9.2026 fiel auf diesem Telefon eine sudoers-Regel weg, und der
-GPS-Install blieb bei seiner ersten sudo-Zeile stehen - geklont, nichts
-installiert, `sudo: a terminal is required to read the password`. Ohne
-Terminal haengt sudo den Zeitstempel naemlich nicht an ein TTY, sondern an
-den Elternprozess, und die bash des Installers ist nicht der Elternprozess,
-den `sudo -v` hatte. Also bekommt der Installer zusaetzlich `SUDO_ASKPASS`:
-einen fuenfzeiligen Helfer ohne Geheimnis darin, der sich das Passwort ueber
-einen Socket in `$XDG_RUNTIME_DIR` holt - Verzeichnis 0700, und die
-Gegenstelle prueft die uid des Fragenden. So darf jede sudo-Zeile jedes
-Installers fragen, so oft sie will. (Dazu `DISPLAY`, falls es fehlt: sudo
-greift nur dann zu `SUDO_ASKPASS`, wenn es glaubt, dass jemand eine
-grafische Frage sehen koennte - geoeffnet wird es nie.)
+## When there is something new in the repo
 
-Das Passwort geht durch die Pipe an `sudo` und durch diesen Socket, sonst
-nirgendwohin - nicht in `argv`, wo jedes `ps` es mitliest, nicht in eine
-Datei, nicht in die Umgebung, nicht in eine Logzeile -, und aus dem
-Eingabefeld ist es weg, sobald die Frage beantwortet ist. Ein falsches Passwort meldet `sudo` mit seinen eigenen
-Worten; die Kette bricht dort ab, statt einen Installer zu starten, der nicht
-fertig werden kann. Laeuft alles durch, wird aus dem Angebot sofort die
-richtige Seite - an derselben Stelle in der Reiterleiste, und die App steht
-danach darauf. Kein Neustart: das Werkzeug ist in dem Moment auf dem Telefon,
-zu warten ist auf nichts mehr.
+At start the app looks once whether the installed tools still match the state
+of their repository. If there is something new, a group "Update available"
+appears at the **foot of the page concerned** with what is waiting there and
+an **Update** button - for the app itself the icon at the top left of the
+header bar. If there is nothing - or the question could not be answered
+because the phone has no network at the moment - nothing appears at all. An
+offer that is always there says nothing.
 
-## Wenn es im Repo etwas Neues gibt
+How it looks depends on who owns the clone:
 
-Beim Start sieht die App einmal nach, ob die installierten Werkzeuge noch dem
-Stand ihres Repos entsprechen. Gibt es Neues, erscheint am **Fuss der
-betreffenden Seite** eine Gruppe "Update available" mit dem, was dort wartet,
-und einem **Update**-Knopf - fuer die App selbst das Icon links oben in der
-Kopfleiste. Gibt es nichts - oder war die Frage nicht zu
-beantworten, weil das Telefon gerade kein Netz hat -, erscheint gar nichts.
-Ein Angebot, das immer da ist, sagt nichts.
+- **Ours** (in `~/.local/share/misc-de`): `git fetch`, then count how many
+  commits are waiting.
+- **Yours** (found by the origin URL, not by the directory name - the same
+  repository is called `furios_gps_fix` here and `furios_gps` upstream):
+  `git ls-remote` asks the server for its HEAD, `git rev-parse` reads the
+  clone's. **No fetch, no pull** - that would write into somebody else's
+  `.git`.
 
-Wie nachgesehen wird, haengt davon ab, wem der Klon gehoert:
+An update in a clone that belongs to you says so in the question, and it
+begins with a guard: if anything uncommitted is there, **nothing** is touched
+and the reason stands there as a sentence. It pulls `--ff-only` - a merge is
+not a decision an app makes for somebody else's working tree.
 
-- **Unser eigener** (in `~/.local/share/misc-de`): `git fetch`, dann zaehlen,
-  wie viele Commits warten.
-- **Deiner** (gefunden an der origin-URL, nicht am Verzeichnisnamen - dasselbe
-  Repo heisst hier `furios_gps_fix` und oben `furios_gps`): `git ls-remote`
-  fragt den Server nach seinem HEAD, `git rev-parse` liest den des Klons.
-  **Kein fetch, kein pull** - das schriebe in ein fremdes `.git`.
+Once the update is through, the offer disappears: it was the answer to commits
+that are here now.
 
-Ein Update in einem Klon, der dir gehoert, sagt das in der Rueckfrage, und es
-beginnt mit einer Wache: liegt dort irgendetwas Uncommittetes, wird **nichts**
-angefasst und der Grund steht als Satz da. Gezogen wird `--ff-only` - ein
-Merge ist keine Entscheidung, die eine App fuer einen fremden Arbeitsbaum
-trifft.
+## What each page does
 
-Ist das Update durch, verschwindet das Angebot: es war die Antwort auf
-Commits, die jetzt hier liegen.
+**Audio** - who owns the Android HAL (PipeWire directly or PulseAudio as
+shipped), whether that survives a reboot, and MediaTek's dual-microphone echo
+cancellation for calls. Below it stands what is actually running.
 
-## Was jede Seite tut
+**Modem** - the repairs to ofono2mm/ModemManager on or off, remembered or only
+until the next boot, what the checks say and how good the signal is.
 
-**Audio** - wem der Android-HAL gehoert (PipeWire direkt oder PulseAudio wie
-ausgeliefert), ob das einen Neustart ueberlebt, und MediaTeks Doppelmikrofon-
-Echounterdrueckung fuer Gespraeche. Darunter steht, was tatsaechlich laeuft.
+**GPS** - the filter that refuses geoclue a position derived from the IP
+address. "Off" here does not mean "no position", it means: the position of the
+carrier's exit node is published as though the phone had been seen there. That
+is why every row of that page says what "off" means.
 
-**Modem** - die Reparaturen an ofono2mm/ModemManager an oder aus, gemerkt oder
-nur bis zum naechsten Boot, was die Pruefungen sagen und wie gut das Signal
-ist.
+**Switches** - the three sliders on the case. Camera and network are software
+shutdowns (Android stops the service), the microphone switch really cuts the
+line - and is invisible to software for exactly that reason. The page does not
+listen after it: that would mean opening the microphone, and the answer would
+hold only for the seconds of the measurement. It says so.
 
-**GPS** - der Filter, der geoclue eine aus der IP-Adresse abgeleitete Position
-verweigert. "Aus" heisst hier nicht "keine Position", sondern: die Position
-des Netzanbieter-Ausgangs wird veroeffentlicht, als waere das Telefon dort
-gesehen worden. Deshalb sagt jede Zeile dieser Seite, was "aus" bedeutet.
+**Battery** - the battery icon coloured by what the battery is doing: the
+frame by the charging power or by an unusual drain, the filling by how full it
+is. The page says the wattage whether the colouring is on or not.
 
-**Switches** - die drei Schieber am Gehaeuse. Kamera und Netz sind
-Software-Abschaltungen (Android stoppt den Dienst), der Mikrofon-Schalter
-trennt wirklich die Leitung - und ist genau deshalb softwareseitig unsichtbar.
-Die Seite misst ihm nicht hinterher: das hiesse, das Mikrofon zu oeffnen, und
-die Antwort gaelte nur fuer die Sekunden der Messung. Sie schreibt das an.
+## Rules the interface is built on
 
-## Regeln, nach denen die Oberflaeche gebaut ist
+- **Rows instead of paragraphs.** What has to be said stands in the subtitle
+  of the row it is about. On a phone nobody reads the essay above the switch.
+- **One way back, the same everywhere.** Every page has the same group "Back
+  to how it shipped" with the same plain button. No colours: blue would say
+  "do this", red would say "careful", and which applies depends on the page -
+  that is what the text beside it is for.
+- **Ask first.** No way back acts on the bare tap. The question repeats
+  exactly the text that stands next to the button; cancel is the default and
+  also the meaning of tapping away.
+- **Never claim more than is known.** A tool that does not answer greys out
+  its switches and says so. A radio reporting `null` is "not reachable" and
+  not "off".
+- **Every helper call is capped** (90 s). systemctl can wait for a job that is
+  itself waiting, and pkexec inherits that; without a cap the window stood
+  grey with a pulsing bar.
 
-- **Zeilen statt Absaetze.** Was gesagt werden muss, steht im Untertitel der
-  Zeile, um die es geht. Auf einem Telefon liest niemand den Aufsatz ueber dem
-  Schalter.
-- **Ein Weg zurueck, ueberall gleich.** Jede Seite hat dieselbe Gruppe "Back
-  to how it shipped" mit demselben schmucklosen Knopf. Keine Farben: blau
-  hiesse "mach das", rot hiesse "Vorsicht", und was zutrifft, haengt von der
-  Seite ab - das steht im Text daneben.
-- **Vorher fragen.** Kein Weg zurueck handelt auf den blossen Tipper. Die
-  Rueckfrage wiederholt genau den Text, der neben dem Knopf steht; Abbrechen
-  ist die Vorgabe und auch die Bedeutung des Wegtippens.
-- **Nie mehr behaupten als bekannt ist.** Ein Werkzeug, das nicht antwortet,
-  macht seine Schalter grau und sagt es. Ein Funk, der `null` meldet, ist
-  "nicht erreichbar" und nicht "aus".
-- **Jeder Helferaufruf ist gedeckelt** (90 s). systemctl kann auf einen Job
-  warten, der selbst wartet, und pkexec erbt das; ohne Deckel blieb das
-  Fenster grau mit pulsendem Balken stehen.
+## Origin
 
-## Herkunft
-
-Die App lag bis zum 14.9.2026 in
-[furios_pipewire](https://github.com/misc-de/furios_pipewire) unter `gui/`.
-Sie ist mit ihrer Geschichte hierher umgezogen, weil sie inzwischen vier
-Werkzeuge aus vier Repos bedient und keines davon ihr Zuhause ist.
+Until 14.9.2026 the app lived in
+[furios_pipewire](https://github.com/misc-de/furios_pipewire) under `gui/`. It
+moved here with its history, because it now drives five tools from five
+repositories and none of them is its home.
