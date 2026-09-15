@@ -28,7 +28,14 @@ from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 # stack meant masking system units and writing into /etc, and phosh registers
 # no agent of its own. It does not need one any more: audioctl keeps the
 # profile under $HOME, where the session may write anyway, so there is nothing
-# left to authenticate and no password for this app to handle.
+# left to authenticate when a switch is thrown.
+#
+# It does handle a password, on one path and only there: INSTALLING a tool
+# runs that repository's install.sh, and three of the five write to
+# /usr/local. That password is asked for in the dialog that says what is
+# about to run, it reaches sudo through a pipe and through the socket in
+# Askpass, and it is dropped when the chain ends. Switching, reading state
+# and restoring need none of it.
 
 APP_ID = "de.misc-de.tools"
 import json
@@ -354,9 +361,9 @@ class Askpass:
 
     def __init__(self, secret):
         self.secret = secret or ""
-        self.verzeichnis = None
-        self.dienst = None
-        self.helfer = None
+        self.directory = None
+        self.service = None
+        self.helper = None
         self.error = None
         # Only processes descended from this one are answered. The uid check
         # below rules out other accounts; it does not rule out anything else
@@ -365,30 +372,30 @@ class Askpass:
         # process of this user can find it with a glob, and the window is as
         # long as an install - up to half an hour. Measured on 15.9.2026: five
         # reads in a row from an unrelated process, none of them sudo.
-        self.root_dir = os.getpid()
+        self.own_pid = os.getpid()
 
     @staticmethod
-    def _stammt_ab(pid, root_dir, grenze=24):
-        """Does pid's parent chain reach root_dir?
+    def _descends_from(pid, ancestor, limit=24):
+        """Does pid's parent chain reach ancestor?
 
         Measured against real sudo on 15.9.2026: the helper it starts is a
         direct descendant (helper -> sudo -> the installer's shell -> us), so
         the chain holds. A count-based guard would not have worked - sudo asks
         three times for three attempts, from three different helper processes.
         """
-        gesehen = 0
-        while pid and pid > 1 and gesehen < grenze:
-            if pid == root_dir:
+        seen = 0
+        while pid and pid > 1 and seen < limit:
+            if pid == ancestor:
                 return True
             try:
                 with open("/proc/%d/stat" % pid) as fh:
-                    roh = fh.read()
+                    raw = fh.read()
                 # comm sits in brackets and may contain spaces and brackets
                 # itself, so everything before the LAST one is skipped.
-                pid = int(roh[roh.rindex(")") + 2:].split()[1])
+                pid = int(raw[raw.rindex(")") + 2:].split()[1])
             except (OSError, ValueError, IndexError):
                 return False
-            gesehen += 1
+            seen += 1
         return False
 
     def start(self):
@@ -401,21 +408,21 @@ class Askpass:
             # $XDG_RUNTIME_DIR is tmpfs and belongs to this user; mkdtemp
             # makes the directory 0700, so the socket in it is out of reach
             # for everybody else no matter what its own mode says.
-            self.verzeichnis = tempfile.mkdtemp(
+            self.directory = tempfile.mkdtemp(
                 prefix="misc-de-", dir=os.environ.get("XDG_RUNTIME_DIR") or None)
-            path = os.path.join(self.verzeichnis, "ask.sock")
-            self.helfer = os.path.join(self.verzeichnis, "askpass")
-            with open(self.helfer, "w") as fh:
+            path = os.path.join(self.directory, "ask.sock")
+            self.helper = os.path.join(self.directory, "askpass")
+            with open(self.helper, "w") as fh:
                 fh.write(ASKPASS_HELPER % path)
-            os.chmod(self.helfer, 0o700)
-            self.dienst = Gio.SocketService.new()
-            self.dienst.add_address(Gio.UnixSocketAddress.new(path),
+            os.chmod(self.helper, 0o700)
+            self.service = Gio.SocketService.new()
+            self.service.add_address(Gio.UnixSocketAddress.new(path),
                                     Gio.SocketType.STREAM,
                                     Gio.SocketProtocol.DEFAULT, None)
             os.chmod(path, 0o600)
-            self.dienst.connect("incoming", self.on_incoming)
-            self.dienst.start()
-            return self.helfer
+            self.service.connect("incoming", self.on_incoming)
+            self.service.start()
+            return self.helper
         except (OSError, GLib.Error) as error:
             # Saying why matters more than it looks. The install then stops at
             # its first sudo line with "a terminal is required to read the
@@ -425,26 +432,26 @@ class Askpass:
             # 108 characters, and $XDG_RUNTIME_DIR plus the directory and the
             # name eat into that.
             self.error = str(error) or error.__class__.__name__
-            if self.verzeichnis and len(self.verzeichnis) > 70:
+            if self.directory and len(self.directory) > 70:
                 self.error += " (the runtime directory is long - a unix" \
                                " socket path stops at 108 characters)"
             self.stop()
             return None
 
-    def on_incoming(self, _dienst, verbindung, _source):
+    def on_incoming(self, _service, connection, _source):
         """Answer one question from sudo - after asking who is asking."""
         try:
             if not self.secret:
                 return True
-            creds = verbindung.get_socket().get_credentials()
+            creds = connection.get_socket().get_credentials()
             if creds.get_unix_user() != os.getuid():
                 return True                    # not ours, so not a word
             # Same user is not enough: it has to be something we started.
-            if not self._stammt_ab(creds.get_unix_pid(), self.root_dir):
+            if not self._descends_from(creds.get_unix_pid(), self.own_pid):
                 return True                    # not ours either
-            verbindung.get_output_stream().write_all(
+            connection.get_output_stream().write_all(
                 (self.secret + "\n").encode(), None)
-            verbindung.close(None)
+            connection.close(None)
         except (GLib.Error, OSError):
             pass
         return True
@@ -454,17 +461,17 @@ class Askpass:
         out of an install, the ones that failed included. self.error is left
         alone - it is the one thing worth keeping after a failed start."""
         self.secret = ""
-        if self.dienst is not None:
+        if self.service is not None:
             try:
-                self.dienst.stop()
-                self.dienst.close()
+                self.service.stop()
+                self.service.close()
             except (GLib.Error, AttributeError):
                 pass
-            self.dienst = None
-        if self.verzeichnis:
-            shutil.rmtree(self.verzeichnis, ignore_errors=True)
-            self.verzeichnis = None
-        self.helfer = None
+            self.service = None
+        if self.directory:
+            shutil.rmtree(self.directory, ignore_errors=True)
+            self.directory = None
+        self.helper = None
 
 
 def source_steps(comp, state, path):
@@ -528,10 +535,10 @@ def installer_env(askpass):
     """
     if not askpass:
         return None
-    umgebung = {"SUDO_ASKPASS": askpass}
+    env = {"SUDO_ASKPASS": askpass}
     if not os.environ.get("DISPLAY"):
-        umgebung["DISPLAY"] = ":0"
-    return umgebung
+        env["DISPLAY"] = ":0"
+    return env
 
 
 def component_steps(comp, state, secret, path=None, askpass=None):
@@ -671,6 +678,20 @@ def run_async(argv, on_done, on_line=None, timeout=CALL_TIMEOUT, cwd=None,
 
         proc.communicate_utf8_async(stdin, None, finished)
         return
+
+    if stdin is not None:
+        # The pipe was opened above, and on this path nothing fills it:
+        # communicate_utf8_async does that for the other one and is not used
+        # here. A "sudo -S" reading from a pipe nobody writes to waits until
+        # the timeout runs out - so it is written and closed right here, and
+        # the combination stays usable instead of being a trap for later.
+        try:
+            pipe = proc.get_stdin_pipe()
+            pipe.write_all(stdin.encode(), None)
+            pipe.close(None)
+        except GLib.Error as err:
+            on_done(False, str(err))
+            return
 
     stream = Gio.DataInputStream.new(proc.get_stdout_pipe())
     collected = []
@@ -1064,14 +1085,14 @@ class Window(Adw.ApplicationWindow):
             elif other:
                 other()
 
-        def geholt(ok, _out):
+        def fetched(ok, _out):
             if ok:
                 run_async(["git", "-C", mine, "rev-list", "--count",
                            "HEAD..@{u}"], counted, timeout=30)
             elif other:
                 other()
 
-        run_async(["git", "-C", mine, "fetch", "--quiet"], geholt, timeout=60)
+        run_async(["git", "-C", mine, "fetch", "--quiet"], fetched, timeout=60)
 
     def check_app_program(self, comp=SELF):
         """Is the program that is running the one the clone has?
@@ -1088,13 +1109,13 @@ class Window(Adw.ApplicationWindow):
         """
         source = (clone_path(comp) if is_clone_of(clone_path(comp), comp["url"])
                   else clone_elsewhere(comp["url"]))
-        laufend = self.live.get("app")
-        if not source or not laufend:
+        running_file = self.live.get("app")
+        if not source or not running_file:
             return
         try:
             with open(os.path.join(source, "misc-de.py"), "rb") as fh:
                 im_klon = fh.read()
-            with open(laufend, "rb") as fh:
+            with open(running_file, "rb") as fh:
                 installiert = fh.read()
         except OSError:
             return                             # nothing to compare, nothing said
@@ -1147,21 +1168,21 @@ class Window(Adw.ApplicationWindow):
         and nothing more; what to do about it is their business, in their
         terminal.
         """
-        def verglichen(ok, out, oben):
-            hier = (out or "").strip().split()
-            if not ok or not oben or not hier or hier[0] == oben:
+        def compared(ok, out, theirs):
+            ours = (out or "").strip().split()
+            if not ok or not theirs or not ours or ours[0] == theirs:
                 if other:
                     other()
                 return                         # nothing to say, so nothing said
             self.offer_update(comp, "something new in " + comp["url"], foreign_path)
 
-        def oben_gelesen(ok, out):
+        def upstream_read(ok, out):
             head = (out or "").split()
-            oben = head[0] if ok and head else None
+            theirs = head[0] if ok and head else None
             run_async(["git", "-C", foreign_path, "rev-parse", "HEAD"],
-                      lambda ok2, out2: verglichen(ok2, out2, oben), timeout=30)
+                      lambda ok2, out2: compared(ok2, out2, theirs), timeout=30)
 
-        run_async(["git", "ls-remote", comp["url"], "HEAD"], oben_gelesen,
+        run_async(["git", "ls-remote", comp["url"], "HEAD"], upstream_read,
                   timeout=60)
 
     def ask_component(self, comp, state):
@@ -1220,14 +1241,14 @@ class Window(Adw.ApplicationWindow):
         # runs. Set up before the steps are built: the installer's step needs
         # the helper's path in it.
         self.askpass = Askpass(secret) if comp["root"] else None
-        helfer = self.askpass.start() if self.askpass else None
-        steps = component_steps(comp, state, secret, path, helfer)
+        helper = self.askpass.start() if self.askpass else None
+        steps = component_steps(comp, state, secret, path, helper)
 
         # A helper that could not be set up is not fatal - the install falls
         # back on sudo's ticket, which is where it was before this existed.
         # But it is the reason an install can stop at its first sudo line, so
         # it is said out loud rather than left to be guessed at.
-        if self.askpass is not None and helfer is None and self.askpass.error:
+        if self.askpass is not None and helper is None and self.askpass.error:
             self.component_says(comp, "no password helper: " + self.askpass.error)
         self.component_says(comp, "working …")
         self.set_busy(True)
@@ -1246,8 +1267,20 @@ class Window(Adw.ApplicationWindow):
             # audio one builds an SPA plugin - and a wait that runs out mid
             # apt-get leaves a half-installed system behind.
             deadline = 1800 if argv[0].endswith("install.sh") else 600
+
+            def said(line, page=comp):
+                # This is the longest thing the app ever starts - half an
+                # hour for the audio installer, which fetches build packages
+                # and compiles an SPA plugin. Until 15.9.2026 the row said
+                # "./install.sh …" for all of it and nothing else, while a
+                # three-second audio switch reported line by line: the wait
+                # with the least to show for it was the one that looked most
+                # like a hang. Same shortening as on_progress_line - a row
+                # subtitle holds about that much.
+                self.component_says(page, line[:60])
+
             run_async(argv, step, timeout=deadline, cwd=cwd, stdin=stdin,
-                      env=env)
+                      env=env, on_line=said)
 
         step()
 
@@ -1516,11 +1549,11 @@ class Window(Adw.ApplicationWindow):
             self.srow_cam.set_subtitle("unreadable answer")
             return
 
-        def stellung(value):
+        def position(value):
             return {"0": "engaged", "1": "free"}.get(value, "unknown")
 
-        self.srow_cam.set_subtitle(stellung(data.get("switches", {}).get("cam_switch")))
-        self.srow_net.set_subtitle(stellung(data.get("switches", {}).get("nwk_switch")))
+        self.srow_cam.set_subtitle(position(data.get("switches", {}).get("cam_switch")))
+        self.srow_net.set_subtitle(position(data.get("switches", {}).get("nwk_switch")))
 
         hal = data.get("camera_hal")
         self.srow_cam_hal.set_subtitle(
@@ -1547,11 +1580,11 @@ class Window(Adw.ApplicationWindow):
                              "currently off" if state is False else "not reachable")
 
     def on_indicator_active(self, ok, out):
-        aktiv = ok and out.strip() == "active"
+        active = ok and out.strip() == "active"
         self._loading = True
-        self.sw_row.set_active(aktiv)
+        self.sw_row.set_active(active)
         self._loading = False
-        self.sw_row.set_subtitle("running" if aktiv else "not running")
+        self.sw_row.set_subtitle("running" if active else "not running")
 
     def on_indicator_enabled(self, ok, out):
         self._loading = True
@@ -1680,18 +1713,18 @@ class Window(Adw.ApplicationWindow):
 
             row.slider_rows = []
             for label, ckey, low, high, step, digits, unit in sliders:
-                skala = Gtk.Scale.new_with_range(
+                scale = Gtk.Scale.new_with_range(
                     Gtk.Orientation.HORIZONTAL, low, high, step)
-                skala.set_digits(digits)
-                skala.set_draw_value(True)
-                skala.set_format_value_func(
+                scale.set_digits(digits)
+                scale.set_draw_value(True)
+                scale.set_format_value_func(
                     lambda _s, v, d=digits, u=unit:
                     self.threshold_text(v, d, u))
-                skala.set_hexpand(True)
-                skala.set_size_request(190, -1)
-                skala.connect("value-changed", self.on_battery_slider, ckey)
+                scale.set_hexpand(True)
+                scale.set_size_request(190, -1)
+                scale.connect("value-changed", self.on_battery_slider, ckey)
                 srow = Adw.ActionRow(title=label)
-                srow.add_suffix(skala)
+                srow.add_suffix(scale)
                 srow.set_visible(False)
                 # Into the group as a row of its own, not into a revealer:
                 # a PreferencesGroup sorts everything that is not a row to
@@ -1700,7 +1733,7 @@ class Window(Adw.ApplicationWindow):
                 # phone - it looked like a second, nameless block.
                 grp.add(srow)
                 row.slider_rows.append(srow)
-                self.batt_scales[ckey] = skala
+                self.batt_scales[ckey] = scale
         bpage.add(grp)
 
         back, self.batt_restore_btn = self.build_restore_group(
@@ -1810,13 +1843,13 @@ class Window(Adw.ApplicationWindow):
         for low, high, gap in self.BATTERY_PAIRS:
             if key not in (low, high):
                 continue
-            unten, oben = self.batt_scales[low], self.batt_scales[high]
-            if unten.get_value() + gap > oben.get_value():
+            lower_scale, upper_scale = self.batt_scales[low], self.batt_scales[high]
+            if lower_scale.get_value() + gap > upper_scale.get_value():
                 self._loading = True
                 if key == low:
-                    oben.set_value(unten.get_value() + gap)
+                    upper_scale.set_value(lower_scale.get_value() + gap)
                 else:
-                    unten.set_value(oben.get_value() - gap)
+                    lower_scale.set_value(upper_scale.get_value() - gap)
                 self._loading = False
 
     def write_battery_threshold(self, key, value):
@@ -2353,13 +2386,13 @@ class Window(Adw.ApplicationWindow):
         self._syncing = False
         # The tool reports both, because one cannot be read off the other:
         # switched on now and not remembered looks identical until the reboot.
-        gemerkt = "persistent=yes" in out
+        remembered = "persistent=yes" in out
         if on:
             self.dmnr_row.set_subtitle(
-                "On, remembered" if gemerkt else "On until the next reboot")
+                "On, remembered" if remembered else "On until the next reboot")
         else:
             self.dmnr_row.set_subtitle(
-                "Off, and stays off" if not gemerkt else
+                "Off, and stays off" if not remembered else
                 "Off now - but comes back at the next reboot")
 
     def on_status(self, ok, out):
@@ -2522,9 +2555,9 @@ class Window(Adw.ApplicationWindow):
         self.pulse_start("Switching echo suppression …")
         # The same reading of the persist switch as the stack switch above:
         # "set" is now and after the next reboot, the bare word is now only.
-        secret = "on" if row.get_active() else "off"
+        wanted = "on" if row.get_active() else "off"
         argv = [_tool_maybe(DMNR) or DMNR]
-        argv += ["set", secret] if self.persist_row.get_active() else [secret]
+        argv += ["set", wanted] if self.persist_row.get_active() else [wanted]
         run_async(argv, self.on_dmnr_done, on_line=self.on_progress_line)
 
     def on_dmnr_done(self, ok, out):

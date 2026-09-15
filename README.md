@@ -34,8 +34,12 @@ Not with `sudo` in front - the installer asks for it where it needs it, which
 is only the three lines that write to `/usr/local`.
 
 Puts `misc-de` in `/usr/local/bin` along with its icon and launcher entry. It
-then appears in the app grid, or starts with `misc-de`. Remove it again with
-`./uninstall.sh`.
+then appears in the app grid, or starts with `misc-de`.
+
+`./uninstall.sh` takes those three away again. It leaves the five tools and
+the clones where they are and says so: each tool was its own decision and has
+its own uninstaller, and two of them hold this phone's sound and its data
+connection.
 
 Keep the clone: the app updates itself out of it, and the icon in the header
 bar offers the next version when there is one. The five tools behind the tabs

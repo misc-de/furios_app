@@ -33,10 +33,10 @@ def load():
     return mod
 
 
-def ok(bedingung, worte):
-    print(("  \033[32mok\033[0m   " if bedingung else "  \033[31mFAIL\033[0m ")
-          + worte)
-    return bool(bedingung)
+def ok(condition, words):
+    print(("  \033[32mok\033[0m   " if condition else "  \033[31mFAIL\033[0m ")
+          + words)
+    return bool(condition)
 
 
 def main():
@@ -49,37 +49,37 @@ def main():
     good &= ok(helper, "the helper is set up at all")
     if not helper:
         return 1
-    verzeichnis = os.path.dirname(helper)
+    directory = os.path.dirname(helper)
     text = open(helper).read()
 
     good &= ok(SECRET not in text, "the helper script carries no password")
-    good &= ok(os.stat(verzeichnis).st_mode & 0o777 == 0o700,
+    good &= ok(os.stat(directory).st_mode & 0o777 == 0o700,
               "its directory is closed to everybody else (0700)")
     good &= ok(os.stat(helper).st_mode & 0o777 == 0o700, "the helper is 0700")
-    good &= ok(str(verzeichnis).startswith(
+    good &= ok(str(directory).startswith(
         os.environ.get("XDG_RUNTIME_DIR", "/run/user")),
         "it lives in the runtime directory, which is tmpfs")
 
     # The real thing: a process that is not this one asks, over the socket.
     # The main loop has to run for that, so the helper is started first and
     # read while GLib serves - exactly the order sudo produces.
-    ergebnis = {}
+    result = {}
     proc = subprocess.Popen([helper], stdout=subprocess.PIPE)
 
-    def warten():
+    def wait_():
         try:
-            ergebnis["out"] = proc.communicate(timeout=10)[0].decode().strip()
+            result["out"] = proc.communicate(timeout=10)[0].decode().strip()
         except subprocess.TimeoutExpired:
             proc.kill()
-            ergebnis["out"] = "(the helper never got an answer)"
-        schleife.quit()
+            result["out"] = "(the helper never got an answer)"
+        loop.quit()
         return False
 
-    schleife = GLib.MainLoop()
-    GLib.timeout_add(200, warten)
-    GLib.timeout_add_seconds(15, lambda: (schleife.quit(), False)[1])
-    schleife.run()
-    good &= ok(ergebnis.get("out") == SECRET,
+    loop = GLib.MainLoop()
+    GLib.timeout_add(200, wait_)
+    GLib.timeout_add_seconds(15, lambda: (loop.quit(), False)[1])
+    loop.run()
+    good &= ok(result.get("out") == SECRET,
               "a separate process gets the password through the socket")
 
     # The other half, and the one this was missing: same user is not enough.
@@ -102,7 +102,7 @@ def main():
         "except Exception: pass\n")
     answer = Path(__file__).parent / "_fremd_tmp.out"
     try:
-        sock = os.path.join(verzeichnis, "ask.sock")
+        sock = os.path.join(directory, "ask.sock")
         # "setsid --fork", not os.setsid: setsid alone changes the session and
         # leaves the parent in place, so the process is still our child and
         # would be answered - correctly. The --fork is what makes init adopt
@@ -111,25 +111,25 @@ def main():
         # wide open.)
         subprocess.run(["setsid", "--fork", sys.executable, str(fremd),
                         sock, str(answer)], timeout=20)
-        erg2 = {}
+        result2 = {}
 
-        def warten2():
-            erg2["out"] = answer.read_text().strip() if answer.exists() else ""
-            schleife2.quit()
+        def wait2():
+            result2["out"] = answer.read_text().strip() if answer.exists() else ""
+            loop2.quit()
             return False
 
-        schleife2 = GLib.MainLoop()
-        GLib.timeout_add_seconds(6, warten2)
-        GLib.timeout_add_seconds(20, lambda: (schleife2.quit(), False)[1])
-        schleife2.run()
-        good &= ok(erg2.get("out") != SECRET,
+        loop2 = GLib.MainLoop()
+        GLib.timeout_add_seconds(6, wait2)
+        GLib.timeout_add_seconds(20, lambda: (loop2.quit(), False)[1])
+        loop2.run()
+        good &= ok(result2.get("out") != SECRET,
                   "a process we did not start gets nothing")
     finally:
         fremd.unlink(missing_ok=True)
         answer.unlink(missing_ok=True)
 
     a.stop()
-    good &= ok(not os.path.exists(verzeichnis),
+    good &= ok(not os.path.exists(directory),
               "socket, helper and directory are gone afterwards")
     good &= ok(a.secret == "", "and the password is not kept either")
 
@@ -138,10 +138,10 @@ def main():
     # required to read the password" - the exact failure this class exists to
     # prevent, with nothing connecting the two. The likeliest cause is length:
     # a unix socket path stops at 108 characters.
-    tief = Path(tempfile.mkdtemp()) / ("x" * 60) / ("y" * 40)
-    tief.mkdir(parents=True)
+    depth = Path(tempfile.mkdtemp()) / ("x" * 60) / ("y" * 40)
+    depth.mkdir(parents=True)
     alt_runtime = os.environ.get("XDG_RUNTIME_DIR")
-    os.environ["XDG_RUNTIME_DIR"] = str(tief)
+    os.environ["XDG_RUNTIME_DIR"] = str(depth)
     try:
         b = sw.Askpass(SECRET)
         good &= ok(b.start() is None, "an impossible socket path fails, as it must")
@@ -174,21 +174,21 @@ def sudo_frage(sw):
     """
     a = sw.Askpass("not-the-real-one-either")
     helper = a.start()
-    umgebung = dict(os.environ, SUDO_ASKPASS=helper)
-    umgebung.setdefault("DISPLAY", ":0")
+    environment = dict(os.environ, SUDO_ASKPASS=helper)
+    environment.setdefault("DISPLAY", ":0")
     try:
-        p = subprocess.run(["setsid", "sudo", "-k", "-v"], env=umgebung,
+        p = subprocess.run(["setsid", "sudo", "-k", "-v"], env=environment,
                            stdin=subprocess.DEVNULL, capture_output=True,
                            timeout=30)
-        sagte = (p.stderr or b"").decode()
+        said = (p.stderr or b"").decode()
     except subprocess.TimeoutExpired:
-        sagte = "(sudo never came back)"
+        said = "(sudo never came back)"
     finally:
         a.stop()
-    return ok("terminal is required" not in sagte,
+    return ok("terminal is required" not in said,
               "sudo asks the helper instead of asking for a terminal"
-              + ("" if "terminal is required" not in sagte
-                 else " - it said: " + sagte.strip()))
+              + ("" if "terminal is required" not in said
+                 else " - it said: " + said.strip()))
 
 
 if __name__ == "__main__":
