@@ -774,7 +774,7 @@ class TheWindow(unittest.TestCase):
                       "srow_mic", "sw_restore_btn"]
         if BATTCTL:
             names += ["batt_row", "batt_drain", "batt_persist",
-                      "brow_now", "brow_colour", "brow_theme",
+                      "brow_now", "brow_colour", "brow_fill", "brow_theme",
                       "batt_restore_btn"]
         for name in names:
             setattr(self.win, name, Recording())
@@ -1088,12 +1088,16 @@ class TheWindow(unittest.TestCase):
     # ------------------------------------------------------------ Battery
 
     BATT = """{"state": "Charging", "watt": 5.2, "ampere": 1.2, "volt": 4.3,
+             "percent": 84,
              "readable": true, "plausible": true, "bucket": "amber",
-             "showing": "amber", "theme": "adw-gtk3-batt-amber",
+             "showing": "amber", "level_bucket": "none",
+             "level_showing": "none", "theme": "adw-gtk3-batt-amber",
              "base_theme": "adw-gtk3", "can_theme": true,
              "config": {"charging": true, "discharging": false,
                         "charge_green_w": 7.0, "charge_amber_w": 3.0,
-                        "drain_amber_w": 3.0, "drain_red_w": 5.0}}"""
+                        "drain_amber_w": 3.0, "drain_red_w": 5.0,
+                        "level": true, "level_amber_pct": 60.0,
+                        "level_red_pct": 15.0}}"""
 
     def batt(self, **anders):
         """The tool's answer, with single fields overridden."""
@@ -1125,20 +1129,36 @@ class TheWindow(unittest.TestCase):
 
     def test_a_tool_that_did_not_answer_is_not_a_zero_either(self):
         self.win.on_battery_status(False, "")
-        for row in (self.win.brow_now, self.win.brow_colour, self.win.brow_theme):
+        for row in (self.win.brow_now, self.win.brow_colour,
+                    self.win.brow_fill, self.win.brow_theme):
             self.assertIn("did not answer", row.subtitle)
 
     def test_an_unreadable_answer_is_said_out_loud(self):
         self.win.on_battery_status(True, "{ not json")
         self.assertIn("unreadable", self.win.brow_now.subtitle)
 
-    def test_the_colour_row_distinguishes_off_from_none(self):
-        """"none" while the service is off is a different statement from
-        "none" while it is on and the power says red."""
+    def test_the_shell_row_distinguishes_showing_from_would_be(self):
+        """The two differ while a colour waits out its dwell time, and
+        while the service is off entirely."""
         self.win.on_battery_status(True, self.batt(showing="none", bucket="red"))
         self.assertIn("would be red", self.win.brow_colour.subtitle)
         self.win.on_battery_status(True, self.batt(showing="none", bucket="none"))
-        self.assertEqual("none", self.win.brow_colour.subtitle)
+        self.assertIn("plain", self.win.brow_colour.subtitle)
+        self.assertNotIn("would be", self.win.brow_colour.subtitle)
+
+    def test_the_filling_has_a_row_of_its_own(self):
+        """The icon says two things at once - how fast it is moving and how
+        full it is - and one row would have to hide one of them."""
+        self.win.on_battery_status(True, self.batt(
+            showing="green", bucket="green",
+            level_showing="red", level_bucket="red"))
+        self.assertIn("green", self.win.brow_colour.subtitle)
+        self.assertIn("red", self.win.brow_fill.subtitle)
+        self.assertIn("15 %", self.win.brow_fill.subtitle)
+
+    def test_the_reading_says_how_full_as_well_as_how_fast(self):
+        self.win.on_battery_status(True, self.BATT)
+        self.assertIn("84 %", self.win.brow_now.subtitle)
 
     def test_the_theme_row_names_the_one_underneath(self):
         self.win.on_battery_status(True, self.BATT)
@@ -1151,10 +1171,16 @@ class TheWindow(unittest.TestCase):
         self.win.on_battery_status(True, self.batt(can_theme=False))
         self.assertIn("no GTK3 stylesheet", self.win.brow_theme.subtitle)
 
-    def test_the_thresholds_sit_next_to_the_switch_they_decide(self):
+    def test_the_thresholds_sit_next_to_the_colour_they_decide(self):
+        """In the status rows, once - saying them next to the switch as
+        well was the same sentence twice on a 360-pixel page."""
         self.win.on_battery_status(True, self.BATT)
-        self.assertIn("7.0 W", self.win.batt_row.subtitle)
-        self.assertIn("3.0 W", self.win.batt_row.subtitle)
+        self.assertIn("7.0 W", self.win.brow_colour.subtitle)
+        self.assertIn("3.0 W", self.win.brow_colour.subtitle)
+        self.assertIn("60 %", self.win.brow_fill.subtitle)
+        self.assertIn("15 %", self.win.brow_fill.subtitle)
+        self.assertNotIn("7.0 W", self.win.batt_row.subtitle)
+        # Die Entlade-Schwellen bleiben am Schalter, der sie einschaltet.
         self.assertIn("3.0 W", self.win.batt_drain.subtitle)
         self.assertIn("5.0 W", self.win.batt_drain.subtitle)
 

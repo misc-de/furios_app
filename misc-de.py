@@ -1636,11 +1636,16 @@ class Window(Adw.ApplicationWindow):
         grp.add(self.batt_persist)
         bpage.add(grp)
 
+        # Two halves, two rows: the icon says two different things at once -
+        # the shell how fast the battery is moving, the filling how full it
+        # is - and a single "Colour" row would have to hide one of them.
         info = Adw.PreferencesGroup(title="Status")
         self.brow_now = Adw.ActionRow(title="Now", subtitle="…")
-        self.brow_colour = Adw.ActionRow(title="Colour", subtitle="…")
+        self.brow_colour = Adw.ActionRow(title="Shell", subtitle="…")
+        self.brow_fill = Adw.ActionRow(title="Filling", subtitle="…")
         self.brow_theme = Adw.ActionRow(title="Theme", subtitle="…")
-        for row in (self.brow_now, self.brow_colour, self.brow_theme):
+        for row in (self.brow_now, self.brow_colour, self.brow_fill,
+                    self.brow_theme):
             row.set_subtitle_selectable(True)
             info.add(row)
         bpage.add(info)
@@ -1658,7 +1663,8 @@ class Window(Adw.ApplicationWindow):
 
     def on_battery_status(self, ok, out):
         if not ok:
-            for row in (self.brow_now, self.brow_colour, self.brow_theme):
+            for row in (self.brow_now, self.brow_colour, self.brow_fill,
+                        self.brow_theme):
                 row.set_subtitle("battctl did not answer")
             return
         try:
@@ -1667,10 +1673,13 @@ class Window(Adw.ApplicationWindow):
             self.brow_now.set_subtitle("unreadable answer")
             return
 
+        prozent = data.get("percent")
+        stand = "" if prozent is None else ", %d %%" % prozent
         if data.get("readable") and data.get("plausible"):
             richtung = {"Charging": "going in", "Discharging": "coming out"}
             wohin = richtung.get(data.get("state"), data.get("state", "?"))
-            self.brow_now.set_subtitle("%.1f W %s" % (data.get("watt", 0.0), wohin))
+            self.brow_now.set_subtitle("%.1f W %s%s"
+                                       % (data.get("watt", 0.0), wohin, stand))
         elif data.get("readable"):
             # The one failure that looks like a working phone: a driver
             # reporting the wrong unit would put the icon permanently green.
@@ -1679,14 +1688,25 @@ class Window(Adw.ApplicationWindow):
             self.brow_now.set_subtitle("battery not readable")
 
         cfg = data.get("config", {})
-        zeigt = data.get("showing", "none")
-        waere = data.get("bucket", "none")
-        if zeigt == "none" and waere != "none":
-            self.brow_colour.set_subtitle("none - would be %s" % waere)
-        elif zeigt == "none":
-            self.brow_colour.set_subtitle("none")
-        else:
-            self.brow_colour.set_subtitle(zeigt)
+
+        def farbzeile(zeigt, waere, regel):
+            """What is showing, and - when they differ - what the reading
+            says it would be. The two differ while a colour is waiting out
+            its dwell time, and while the service is off entirely."""
+            wort = "plain" if zeigt == "none" else zeigt
+            if zeigt != waere:
+                wort += " - would be %s" % ("plain" if waere == "none" else waere)
+            return "%s · %s" % (wort, regel)
+
+        self.brow_colour.set_subtitle(farbzeile(
+            data.get("showing", "none"), data.get("bucket", "none"),
+            "green from %.1f W, amber from %.1f W while charging"
+            % (cfg.get("charge_green_w", 0.0), cfg.get("charge_amber_w", 0.0))))
+        self.brow_fill.set_subtitle(farbzeile(
+            data.get("level_showing", "none"), data.get("level_bucket", "none"),
+            "amber below %d %%, red below %d %%"
+            % (int(cfg.get("level_amber_pct", 0)),
+               int(cfg.get("level_red_pct", 0)))))
         self.brow_theme.set_subtitle(
             "%s (on top of %s)" % (data.get("theme", "?"),
                                    data.get("base_theme", "?")))
@@ -1700,12 +1720,12 @@ class Window(Adw.ApplicationWindow):
         self._loading = True
         self.batt_drain.set_active(bool(cfg.get("discharging")))
         self._loading = False
-        # The thresholds belong next to the colour they decide, not in a
-        # paragraph above it.
+        # The switch says what it is for; the numbers live in the status
+        # rows, next to the colour they decide. Saying them in both places
+        # was the same sentence twice on a 360-pixel page.
         if cfg:
             self.batt_row.set_subtitle(
-                "green from %.1f W, amber from %.1f W"
-                % (cfg.get("charge_green_w", 0.0), cfg.get("charge_amber_w", 0.0)))
+                "The shell of the icon follows the charging power")
             self.batt_drain.set_subtitle(
                 "White below %.1f W, then amber, red from %.1f W"
                 % (cfg.get("drain_amber_w", 0.0), cfg.get("drain_red_w", 0.0)))
