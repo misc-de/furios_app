@@ -696,24 +696,29 @@ class Window(Adw.ApplicationWindow):
         self.switch_row.connect("notify::active", self.on_switch)
         grp.add(self.switch_row)
 
-        self.persist_row = Adw.SwitchRow(
-            title="Remember this choice",
-            subtitle="Off: a reboot returns to the shipped state",
-        )
-        grp.add(self.persist_row)
-
-        # Echo during a call, in the same group as the stack switch and
-        # without the essay it used to carry: MediaTek's dual-microphone
-        # method against noise and echo is disabled for calls on this device
-        # although the chip could do it, and this lays a modified tuning file
-        # over the vendor's. Experimental - it restarts audio and a reboot
-        # undoes it.
+        # Echo during a call, above the switch that decides how long a
+        # choice lasts - because that switch applies to this one too, and a
+        # control has to sit above what qualifies it, not below.
+        # MediaTek's dual-microphone method against noise and echo is
+        # disabled for calls on this device although the chip could do it,
+        # and this lays a modified tuning file over the vendor's.
         self.dmnr_row = Adw.SwitchRow(
             title="Handsfree echo suppression (DMNR)",
             subtitle="Vendor setting: off",
         )
         self.dmnr_row.connect("notify::active", self.on_dmnr)
         grp.add(self.dmnr_row)
+
+        # One switch for both rows above it. Audio profile and echo
+        # suppression are undone by a reboot in the same way and for the same
+        # kind of reason - one is a set of masks, the other a bind mount - so
+        # asking twice whether to keep them would be two questions about one
+        # thing.
+        self.persist_row = Adw.SwitchRow(
+            title="Remember these choices",
+            subtitle="Off: a reboot returns to the shipped state",
+        )
+        grp.add(self.persist_row)
 
         # Progress: deliberately pulsing instead of a percentage. Nobody
         # knows in advance how long the switch takes - audioctl waits up to 15
@@ -1947,9 +1952,16 @@ class Window(Adw.ApplicationWindow):
         self._syncing = True
         self.dmnr_row.set_active(on)
         self._syncing = False
-        self.dmnr_row.set_subtitle(
-            "On - modified tuning file in place" if on else "Vendor setting: off"
-        )
+        # The tool reports both, because one cannot be read off the other:
+        # switched on now and not remembered looks identical until the reboot.
+        gemerkt = "persistent=yes" in out
+        if on:
+            self.dmnr_row.set_subtitle(
+                "On, remembered" if gemerkt else "On until the next reboot")
+        else:
+            self.dmnr_row.set_subtitle(
+                "Off, and stays off" if not gemerkt else
+                "Off now - but comes back at the next reboot")
 
     def on_status(self, ok, out):
         profile, persistent, server, sinks = "unknown", "unknown", "-", "-"
@@ -2106,9 +2118,12 @@ class Window(Adw.ApplicationWindow):
             return
         self.set_busy(True)
         self.pulse_start("Switching echo suppression …")
-        run_async([_tool_maybe(DMNR) or DMNR,
-                   "on" if row.get_active() else "off"], self.on_dmnr_done,
-                  on_line=self.on_progress_line)
+        # The same reading of the persist switch as the stack switch above:
+        # "set" is now and after the next reboot, the bare word is now only.
+        wort = "on" if row.get_active() else "off"
+        argv = [_tool_maybe(DMNR) or DMNR]
+        argv += ["set", wort] if self.persist_row.get_active() else [wort]
+        run_async(argv, self.on_dmnr_done, on_line=self.on_progress_line)
 
     def on_dmnr_done(self, ok, out):
         self.pulse_stop()

@@ -967,12 +967,60 @@ class TheWindow(unittest.TestCase):
         self.assertIn("not available", self.win.dmnr_row.subtitle)
 
     def test_the_echo_switch_follows_the_state_of_the_file(self):
-        self.win.on_dmnr_status(True, "state=on\nfile: ...\n")
+        """Four states, not two. Whether it is on now and whether it survives
+        a reboot are separate facts - a bind mount is gone after a restart
+        whatever the switch said - so neither may be read off the other."""
+        self.win.on_dmnr_status(True, "state=on\npersistent=yes\n")
         self.assertTrue(self.win.dmnr_row.active)
-        self.assertIn("modified tuning file", self.win.dmnr_row.subtitle)
-        self.win.on_dmnr_status(True, "state=off\n")
+        self.assertIn("remembered", self.win.dmnr_row.subtitle)
+
+        self.win.on_dmnr_status(True, "state=on\npersistent=no\n")
+        self.assertTrue(self.win.dmnr_row.active)
+        self.assertIn("until the next reboot", self.win.dmnr_row.subtitle)
+
+        self.win.on_dmnr_status(True, "state=off\npersistent=no\n")
         self.assertFalse(self.win.dmnr_row.active)
-        self.assertIn("Vendor setting", self.win.dmnr_row.subtitle)
+        self.assertIn("stays off", self.win.dmnr_row.subtitle)
+
+        # Switched off now but still marked: the next boot brings it back, and
+        # a subtitle saying only "off" would be a lie by omission.
+        self.win.on_dmnr_status(True, "state=off\npersistent=yes\n")
+        self.assertFalse(self.win.dmnr_row.active)
+        self.assertIn("comes back", self.win.dmnr_row.subtitle)
+
+    def test_the_echo_switch_is_remembered_when_the_persist_switch_is_on(self):
+        """The same switch governs both rows above it, so the echo control
+        has to read it exactly as the stack control does."""
+        self.win.persist_row.active = True
+        self.win.dmnr_row.active = True
+        self.win.on_dmnr(self.win.dmnr_row, None)
+        self.assertEqual(["set", "on"], self.ran[0][0][1:3])
+
+    def test_without_it_the_echo_switch_only_holds_until_the_reboot(self):
+        self.win.persist_row.active = False
+        self.win.dmnr_row.active = True
+        self.win.on_dmnr(self.win.dmnr_row, None)
+        self.assertEqual(["on"], self.ran[0][0][1:])
+
+    def test_turning_echo_off_is_remembered_too(self):
+        """Otherwise "off" plus a reboot would silently turn it back on."""
+        self.win.persist_row.active = True
+        self.win.dmnr_row.active = False
+        self.win.on_dmnr(self.win.dmnr_row, None)
+        self.assertEqual(["set", "off"], self.ran[0][0][1:3])
+
+    def test_the_echo_row_sits_above_the_one_that_qualifies_it(self):
+        """Read off what the page built, not off the source. The remember
+        switch now governs the echo row as well, and a qualifier that sits
+        above what it qualifies reads as belonging to the row before it."""
+        recorder.reset()
+        switcher.Window(switcher.Adw.Application())
+        titel = [str(c[2].get("title", "")) for c in recorder.calls
+                 if c[0] == "Adw.SwitchRow"]
+        echo = [i for i, t in enumerate(titel) if "echo suppression" in t.lower()]
+        merken = [i for i, t in enumerate(titel) if t.startswith("Remember")]
+        self.assertTrue(echo and merken, "rows not built: %s" % titel)
+        self.assertLess(echo[0], merken[0])
 
     def test_restore_sound_runs_the_same_rescue_as_the_command_line(self):
         self.win.on_rescue(None)
