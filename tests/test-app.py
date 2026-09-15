@@ -26,6 +26,7 @@ import sys
 import tempfile
 import types
 import unittest
+from unittest import mock
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
@@ -763,7 +764,7 @@ class TheWindow(unittest.TestCase):
         if GPSCTL:
             names += ["gps_row", "gps_persist", "gps_progress", "gps_revealer",
                       "grow_profile", "grow_seen", "grow_health",
-                      "gps_restore_btn"]
+                      "gps_contrib", "gps_contrib_stats", "gps_restore_btn"]
         if KILLSWITCH:
             names += ["sw_row", "sw_persist", "sw_wifi", "sw_bt", "sw_modem",
                       "srow_cam", "srow_cam_hal", "srow_cams", "srow_net",
@@ -775,7 +776,7 @@ class TheWindow(unittest.TestCase):
                                    self.win.modem_restore_btn]
         if GPSCTL:
             self.win.gps_rows = [self.win.gps_row, self.win.gps_persist,
-                                 self.win.gps_restore_btn]
+                                 self.win.gps_contrib, self.win.gps_restore_btn]
         if KILLSWITCH:
             self.win.sw_rows = [self.win.sw_row, self.win.sw_persist,
                                 self.win.sw_wifi, self.win.sw_bt,
@@ -1021,6 +1022,48 @@ class TheWindow(unittest.TestCase):
         merken = [i for i, t in enumerate(titel) if t.startswith("Remember")]
         self.assertTrue(echo and merken, "rows not built: %s" % titel)
         self.assertLess(echo[0], merken[0])
+
+    def test_the_contribution_switch_is_off_and_says_what_it_would_send(self):
+        """Handing data to a public database is the one thing on these pages
+        that cannot be taken back, so the row has to say what it does before
+        anybody touches it - not after."""
+        self.win.on_gps_contrib_status(True, "contributing=no\nqueued=0\nsubmitted=0\n")
+        self.assertFalse(self.win.gps_contrib.active)
+        text = self.win.gps_contrib.subtitle.lower()
+        self.assertIn("nothing is collected", text)
+        self.assertIn("_nomap", text)
+
+    def test_when_it_is_on_the_row_says_what_leaves_the_phone(self):
+        self.win.on_gps_contrib_status(True, "contributing=yes\nqueued=3\nsubmitted=7\n")
+        self.assertTrue(self.win.gps_contrib.active)
+        self.assertIn("satellite", self.win.gps_contrib.subtitle.lower())
+        # Both numbers: one says it is measuring, the other that anything
+        # actually arrived.
+        self.assertIn("7", self.win.gps_contrib_stats.subtitle)
+        self.assertIn("3", self.win.gps_contrib_stats.subtitle)
+
+    def test_a_missing_contribution_tool_is_not_reported_as_off(self):
+        """"Off" would claim we asked and got an answer."""
+        with mock.patch.object(switcher, "_tool_maybe", return_value=None):
+            self.win.refresh_gps_contrib()
+        self.assertFalse(self.win.gps_contrib.sensitive)
+        self.assertIn("not installed", self.win.gps_contrib.subtitle)
+
+    def test_switching_contribution_on_calls_the_tool(self):
+        """With the tool present. Without it the switch does nothing at all,
+        which is the subject of the test above."""
+        self.win.gps_contrib.active = True
+        with mock.patch.object(switcher, "_tool_maybe",
+                               return_value="/usr/local/bin/furios-gps-contribute"):
+            self.win.on_gps_contrib(self.win.gps_contrib, None)
+        self.assertEqual("on", self.ran[0][0][1])
+
+    def test_switching_contribution_off_calls_the_tool_too(self):
+        self.win.gps_contrib.active = False
+        with mock.patch.object(switcher, "_tool_maybe",
+                               return_value="/usr/local/bin/furios-gps-contribute"):
+            self.win.on_gps_contrib(self.win.gps_contrib, None)
+        self.assertEqual("off", self.ran[0][0][1])
 
     def test_restore_sound_runs_the_same_rescue_as_the_command_line(self):
         self.win.on_rescue(None)
