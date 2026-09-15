@@ -1,20 +1,28 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- SPDX-FileCopyrightText: Copyright (c) 2026 misc-de
      SPDX-License-Identifier: MIT -->
-<!-- Two switches in different positions.
-
-     The icon used to be a loudspeaker with sound waves, from when this app
-     was the audio switcher and nothing else. It now drives four tools, so a
-     speaker named one quarter of it.
-
-     What all four pages have in common is the switch: shipped state on one
-     side, repair on the other. Two of them rather than one, because one alone
-     reads as "settings" and says nothing about this app; three stop being
-     legible at 32 px, which is the size that matters on the app grid.
-
-     The off one is drawn as an outline rather than a faded fill - at 55 %
-     opacity it read as disabled, which is a different thing from off. -->
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- The rationale sits INSIDE the element, not above it, and has to
+       stay there. GdkPixbuf recognises an SVG only when the <svg tag
+       begins within the first 256 bytes of the file (measured: 256
+       loads, 257 does not). A licence header fits; a licence header
+       plus this text does not, and phosh - which is GTK3 and renders
+       through GdkPixbuf - then drew the placeholder icon while every
+       lookup still reported the file as found.
+
+  Two switches in different positions.
+
+  The icon used to be a loudspeaker with sound waves, from when this app
+  was the audio switcher and nothing else. It now drives four tools, so a
+  speaker named one quarter of it.
+
+  What all four pages have in common is the switch: shipped state on one
+  side, repair on the other. Two of them rather than one, because one alone
+  reads as "settings" and says nothing about this app; three stop being
+  legible at 32 px, which is the size that matters on the app grid.
+
+  The off one is drawn as an outline rather than a faded fill - at 55 %
+  opacity it read as disabled, which is a different thing from off. -->
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#3584e4"/>

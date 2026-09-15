@@ -2922,6 +2922,38 @@ class TheWindow(unittest.TestCase):
         app.do_activate()
 
 
+class TheLauncherIcon(unittest.TestCase):
+    """The icon file, as GdkPixbuf sees it.
+
+    Measured on the phone on 15.9.2026: every lookup found the file and
+    phosh drew the placeholder anyway. GdkPixbuf sniffs a format from the
+    first 256 bytes and nothing else, so an SVG whose opening tag sits
+    behind a long licence-and-rationale header is not an SVG to it - and
+    GTK4's own loader has no such limit, which is why a test through the
+    app itself would have passed.
+    """
+
+    ICON = os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), "de.misc-de.tools.svg")
+
+    def test_the_opening_tag_is_inside_the_sniffing_window(self):
+        with open(self.ICON, "rb") as fh:
+            data = fh.read()
+        self.assertLessEqual(
+            data.find(b"<svg"), 256,
+            "the <svg tag sits behind byte 256 - GdkPixbuf will not "
+            "recognise this file and phosh draws the placeholder")
+
+    def test_the_desktop_entry_names_the_icon_that_is_shipped(self):
+        entry = os.path.join(os.path.dirname(self.ICON),
+                             "de.misc-de.tools.desktop")
+        with open(entry, encoding="utf-8") as fh:
+            named = [l.split("=", 1)[1].strip()
+                     for l in fh if l.startswith("Icon=")]
+        self.assertEqual(
+            [os.path.basename(self.ICON)[:-len(".svg")]], named)
+
+
 if __name__ == "__main__":
     # Built by hand rather than through unittest.main(), which looks for tests
     # in sys.modules["__main__"] - and under the coverage tracer that is the
