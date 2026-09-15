@@ -39,7 +39,7 @@ echo "Done. It appears in the app grid as \"misc-de\"."
 echo "Start it directly: misc-de"
 # Every tab exists whether its tool does or not, and the ones without offer to
 # fetch it - so a missing tool is a line about where to get it, not a warning.
-for tool in audioctl modemctl gpsctl killswitch-indicator; do
+for tool in audioctl modemctl gpsctl killswitch-indicator battctl; do
     command -v "$tool" >/dev/null \
         || echo "(no $tool yet - its tab offers to install it)"
 done

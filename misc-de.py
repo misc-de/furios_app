@@ -215,7 +215,22 @@ COMPONENTS = [
         # either has or does not.
         "needs": phone_has_switches,
     },
+    {
+        "tool": "battctl",
+        "page": "Battery",
+        "key": "battery",
+        "icon": "battery-good-charging-symbolic",
+        "url": "https://github.com/misc-de/furios_battery",
+        "dir": "furios_battery",
+        "root": False,
+        "does": "the battery icon goes green, amber or red with the charging "
+                "power - a tired cable and a good one look the same otherwise",
+    },
 ]
+
+# The unit behind the Battery page. Its switch is the service, the way the
+# indicator's is on the Switches page.
+BATTERY_UNIT = "furios-battery-color.service"
 
 # The window itself - a component like the four above, and deliberately not a
 # tab.
@@ -693,6 +708,7 @@ class Window(Adw.ApplicationWindow):
         self.modem_ok = True
         self.gps_ok = True
         self.gps_rows = []
+        self.batt_rows = []
 
         toolbar = Adw.ToolbarView()
         header = Adw.HeaderBar()
@@ -804,13 +820,15 @@ class Window(Adw.ApplicationWindow):
         self.modem_rows = []
         self.gps_rows = []
         self.sw_rows = []
+        self.batt_rows = []
         self.comp_rows = {}
         # Kept, not local: a tool fetched from the components page gets its
         # real page built right there, and that needs the same builder.
         self.bauer = {"audio": lambda: page,
                       "modem": self.build_modem_page,
                       "gps": self.build_gps_page,
-                      "switches": self.build_switches_page}
+                      "switches": self.build_switches_page,
+                      "battery": self.build_battery_page}
         # One source of truth for "is this tool here", written down while the
         # pages are built and read by refresh() and by every handler
         # afterwards. Asked twice - once here, once from a module constant -
@@ -1585,6 +1603,180 @@ class Window(Adw.ApplicationWindow):
             self.report(out or "No output.")
         self.refresh()
 
+    # ------------------------------------------------------------ Battery
+
+    def build_battery_page(self):
+        """One switch, one option, and the numbers behind them.
+
+        The reading is the point of this page: a percentage and a lightning
+        bolt look the same at one watt and at six, and that difference is
+        hours. So "Now" says what is actually going in, in watts, whether the
+        colouring is on or not.
+        """
+        bpage = Adw.PreferencesPage()
+
+        grp = Adw.PreferencesGroup(title="Battery icon")
+        self.batt_row = Adw.SwitchRow(
+            title="Colour it by charging power",
+            subtitle="reading …")
+        self.batt_row.connect("notify::active", self.on_battery_switch)
+        grp.add(self.batt_row)
+        # The second option, and the reason it is a switch of its own: on
+        # battery the colour means the opposite, and it is on all day. Wanted
+        # by some, noise to others.
+        self.batt_drain = Adw.SwitchRow(
+            title="On battery too",
+            subtitle="Green is then a phone that is drawing little")
+        self.batt_drain.connect("notify::active", self.on_battery_discharge)
+        grp.add(self.batt_drain)
+        self.batt_persist = Adw.SwitchRow(
+            title="Remember this choice",
+            subtitle="Off: gone again after the next boot")
+        self.batt_persist.connect("notify::active", self.on_battery_persist)
+        grp.add(self.batt_persist)
+        bpage.add(grp)
+
+        info = Adw.PreferencesGroup(title="Status")
+        self.brow_now = Adw.ActionRow(title="Now", subtitle="…")
+        self.brow_colour = Adw.ActionRow(title="Colour", subtitle="…")
+        self.brow_theme = Adw.ActionRow(title="Theme", subtitle="…")
+        for row in (self.brow_now, self.brow_colour, self.brow_theme):
+            row.set_subtitle_selectable(True)
+            info.add(row)
+        bpage.add(info)
+
+        back, self.batt_restore_btn = self.build_restore_group(
+            "Stops the colouring, takes it out of the next boot, puts your "
+            "own theme back and removes the three it generated. What the "
+            "battery reports is untouched - that is the kernel's.",
+            self.on_battery_restore)
+        bpage.add(back)
+
+        self.batt_rows = [self.batt_row, self.batt_drain, self.batt_persist,
+                          self.batt_restore_btn]
+        return bpage
+
+    def on_battery_status(self, ok, out):
+        if not ok:
+            for row in (self.brow_now, self.brow_colour, self.brow_theme):
+                row.set_subtitle("battctl did not answer")
+            return
+        try:
+            data = json.loads(out)
+        except ValueError:
+            self.brow_now.set_subtitle("unreadable answer")
+            return
+
+        if data.get("readable") and data.get("plausible"):
+            richtung = {"Charging": "going in", "Discharging": "coming out"}
+            wohin = richtung.get(data.get("state"), data.get("state", "?"))
+            self.brow_now.set_subtitle("%.1f W %s" % (data.get("watt", 0.0), wohin))
+        elif data.get("readable"):
+            # The one failure that looks like a working phone: a driver
+            # reporting the wrong unit would put the icon permanently green.
+            self.brow_now.set_subtitle("implausible reading - not coloured")
+        else:
+            self.brow_now.set_subtitle("battery not readable")
+
+        cfg = data.get("config", {})
+        zeigt = data.get("showing", "none")
+        waere = data.get("bucket", "none")
+        if zeigt == "none" and waere != "none":
+            self.brow_colour.set_subtitle("none - would be %s" % waere)
+        elif zeigt == "none":
+            self.brow_colour.set_subtitle("none")
+        else:
+            self.brow_colour.set_subtitle(zeigt)
+        self.brow_theme.set_subtitle(
+            "%s (on top of %s)" % (data.get("theme", "?"),
+                                   data.get("base_theme", "?")))
+        if not data.get("can_theme", True):
+            # Everything else can look healthy while this is the reason
+            # nothing ever changes colour.
+            self.brow_theme.set_subtitle(
+                "%s - no GTK3 stylesheet, nothing can be coloured"
+                % data.get("base_theme", "?"))
+
+        self._loading = True
+        self.batt_drain.set_active(bool(cfg.get("discharging")))
+        self._loading = False
+        # The thresholds belong next to the colour they decide, not in a
+        # paragraph above it.
+        if cfg:
+            self.batt_row.set_subtitle(
+                "green from %.1f W, amber from %.1f W"
+                % (cfg.get("charge_green_w", 0.0), cfg.get("charge_amber_w", 0.0)))
+            self.batt_drain.set_subtitle(
+                "Green is then under %.1f W, red over %.1f W"
+                % (cfg.get("drain_green_w", 0.0), cfg.get("drain_amber_w", 0.0)))
+
+    def on_battery_active(self, ok, out):
+        aktiv = ok and out.strip() == "active"
+        self._loading = True
+        self.batt_row.set_active(aktiv)
+        self._loading = False
+        if not aktiv:
+            self.batt_row.set_subtitle("not running - the icon stays white")
+
+    def on_battery_enabled(self, ok, out):
+        self._loading = True
+        self.batt_persist.set_active(ok and out.strip() == "enabled")
+        self._loading = False
+
+    def on_battery_switch(self, row, _param):
+        if getattr(self, "_loading", False):
+            return
+        verb = "start" if row.get_active() else "stop"
+        run_async(["systemctl", "--user", verb, BATTERY_UNIT],
+                  lambda ok, out: self.after_battery(ok, out, verb))
+
+    def on_battery_persist(self, row, _param):
+        if getattr(self, "_loading", False):
+            return
+        verb = "enable" if row.get_active() else "disable"
+        run_async(["systemctl", "--user", verb, BATTERY_UNIT],
+                  lambda ok, out: self.after_battery(ok, out, verb))
+
+    def on_battery_discharge(self, row, _param):
+        """The second option. battctl re-reads its file, so this takes effect
+        without the service being restarted - which is the whole reason the
+        switch can sit here and not next to a "restart to apply"."""
+        if getattr(self, "_loading", False):
+            return
+        wert = "on" if row.get_active() else "off"
+        run_async([self.live["battery"], "config", "discharging", wert],
+                  lambda ok, out: self.after_battery(ok, out, "change"))
+
+    def after_battery(self, ok, out, verb):
+        if not ok:
+            self.toast("Could not %s the colouring" % verb)
+            if out:
+                self.report(out)
+        self.refresh()
+
+    def on_battery_restore(self, _btn):
+        """The service first, then the tool.
+
+        In that order on purpose: battctl restore puts the theme back and
+        deletes what it generated, and a daemon still running would write
+        both again within the minute.
+        """
+        if self.busy:
+            return
+        self.set_busy(True)
+        self.run_chain([
+            ["systemctl", "--user", "disable", "--now", BATTERY_UNIT],
+            [self.live["battery"], "restore"],
+        ], self.on_battery_restored)
+
+    def on_battery_restored(self, ok, out):
+        if ok:
+            self.toast("Shipped state - your own theme, no colouring")
+        else:
+            self.toast("Could not restore the shipped state")
+            self.report(out or "No output.")
+        self.refresh()
+
     # ------------------------------------------------------------ Modem
 
     def build_modem_page(self):
@@ -1946,6 +2138,13 @@ class Window(Adw.ApplicationWindow):
                        "killswitch-indicator"], self.on_indicator_active)
             run_async(["systemctl", "--user", "is-enabled",
                        "killswitch-indicator"], self.on_indicator_enabled)
+        if self.live.get("battery"):
+            run_async([self.live["battery"], "status", "--json"],
+                      self.on_battery_status)
+            run_async(["systemctl", "--user", "is-active", BATTERY_UNIT],
+                      self.on_battery_active)
+            run_async(["systemctl", "--user", "is-enabled", BATTERY_UNIT],
+                      self.on_battery_enabled)
 
 
     # "recorded: x" and "actual: y", split on the colon rather than matched
@@ -2188,6 +2387,9 @@ class Window(Adw.ApplicationWindow):
         # are there or the page is not - so busy is the only thing that closes
         # them.
         for row in self.sw_rows:
+            row.set_sensitive(not busy)
+        # Same for the battery page: its rows exist only when battctl does.
+        for row in self.batt_rows:
             row.set_sensitive(not busy)
         # Install and Update belong here for the same reason everything else
         # does: ONE hand on the sensitivity. run_component used to switch them

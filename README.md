@@ -1,8 +1,8 @@
 # misc-de
 
 A GTK4/libadwaita app for the FuriPhone FLX1 that shows and switches what has
-been repaired on this phone by hand: audio, modem, location and the three
-hardware switches on the case.
+been repaired on this phone by hand: audio, modem, location, the three
+hardware switches on the case, and what the battery icon is allowed to say.
 
 It repairs nothing itself. It drives the tools that do, reads their state, and
 says what a decision costs.
@@ -13,6 +13,7 @@ says what a decision costs.
 | Modem | `modemctl` | [furios_modem_fixes](https://github.com/misc-de/furios_modem_fixes) |
 | GPS | `gpsctl` | [furios_gps](https://github.com/misc-de/furios_gps) |
 | Switches | `killswitch-indicator` | [furios_killswitch](https://github.com/misc-de/furios_killswitch) |
+| Battery | `battctl` | [furios_battery](https://github.com/misc-de/furios_battery) |
 
 None of them has to be installed. A tab whose tool is missing is still there
 and offers to fetch and install it for you; once that finishes, the tab becomes
@@ -37,7 +38,7 @@ then appears in the app grid, or starts with `misc-de`. Remove it again with
 `./uninstall.sh`.
 
 Keep the clone: the app updates itself out of it, and the icon in the header
-bar offers the next version when there is one. The four tools behind the tabs
+bar offers the next version when there is one. The five tools behind the tabs
 are fetched the same way, into `~/.local/share/misc-de/`.
 
 Requires `python3-gi` and `gir1.2-adw-1`, and nothing else.
@@ -58,6 +59,11 @@ the page says so.
 **Switches** — the three sliders on the case. Camera and cellular are software
 shutdowns; the microphone switch physically cuts the line and is therefore
 invisible to software, which the page states rather than guessing at.
+
+**Battery** — the battery icon goes green, amber or red with the charging
+power, because a bolt and a percentage look the same at one watt and at six.
+Optionally on battery as well, where the colour means the opposite. The page
+says the wattage whether the colouring is on or not.
 
 Every page has the same plainly labelled way back to how the phone shipped, and
 asks before it does anything.

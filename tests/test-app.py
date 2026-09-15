@@ -18,6 +18,7 @@ window can be built, filled and clicked in this process.
 """
 import importlib.util
 import io
+import json
 import os
 import re
 import shutil as shutil_real
@@ -63,6 +64,7 @@ CONTRIB = switcher._tool_maybe("furios-gps-contribute")
 MODEMCTL = switcher._tool_maybe("modemctl")
 GPSCTL = switcher._tool_maybe("gpsctl")
 KILLSWITCH = switcher._tool_maybe("killswitch-indicator")
+BATTCTL = switcher._tool_maybe("battctl")
 
 
 class AppReadsAudioctl(unittest.TestCase):
@@ -177,7 +179,7 @@ class ComponentTable(unittest.TestCase):
                 self.assertTrue(comp["url"].startswith("https://github.com/"))
                 self.assertGreater(len(comp["does"]), 30)
                 self.assertIn(comp["key"],
-                              ("audio", "modem", "gps", "switches"))
+                              ("audio", "modem", "gps", "switches", "battery"))
                 self.assertTrue(comp["icon"].endswith("-symbolic"))
 
     def test_a_clone_is_found_by_its_origin_not_by_its_name(self):
@@ -770,6 +772,10 @@ class TheWindow(unittest.TestCase):
             names += ["sw_row", "sw_persist", "sw_wifi", "sw_bt", "sw_modem",
                       "srow_cam", "srow_cam_hal", "srow_cams", "srow_net",
                       "srow_mic", "sw_restore_btn"]
+        if BATTCTL:
+            names += ["batt_row", "batt_drain", "batt_persist",
+                      "brow_now", "brow_colour", "brow_theme",
+                      "batt_restore_btn"]
         for name in names:
             setattr(self.win, name, Recording())
         if MODEMCTL:
@@ -782,6 +788,10 @@ class TheWindow(unittest.TestCase):
             self.win.sw_rows = [self.win.sw_row, self.win.sw_persist,
                                 self.win.sw_wifi, self.win.sw_bt,
                                 self.win.sw_restore_btn]
+        if BATTCTL:
+            self.win.batt_rows = [self.win.batt_row, self.win.batt_drain,
+                                  self.win.batt_persist,
+                                  self.win.batt_restore_btn]
         self.ran = []
         self.original = switcher.run_async
         # Four fields, not three: the components page passes cwd, stdin and a
@@ -1075,6 +1085,153 @@ class TheWindow(unittest.TestCase):
             self.win.on_gps_contrib(self.win.gps_contrib, None)
         self.assertEqual("off", self.ran[0][0][1])
 
+    # ------------------------------------------------------------ Battery
+
+    BATT = """{"state": "Charging", "watt": 5.2, "ampere": 1.2, "volt": 4.3,
+             "readable": true, "plausible": true, "bucket": "amber",
+             "showing": "amber", "theme": "adw-gtk3-batt-amber",
+             "base_theme": "adw-gtk3", "can_theme": true,
+             "config": {"charging": true, "discharging": false,
+                        "charge_green_w": 7.0, "charge_amber_w": 3.0,
+                        "drain_green_w": 1.0, "drain_amber_w": 3.0}}"""
+
+    def batt(self, **anders):
+        """The tool's answer, with single fields overridden."""
+        daten = json.loads(self.BATT)
+        daten.update(anders)
+        return json.dumps(daten)
+
+    def test_the_battery_row_says_what_is_going_in(self):
+        """The whole point of the page: a percentage and a bolt look the same
+        at one watt and at six."""
+        self.win.on_battery_status(True, self.BATT)
+        self.assertIn("5.2 W", self.win.brow_now.subtitle)
+        self.assertIn("going in", self.win.brow_now.subtitle)
+
+    def test_and_what_is_coming_out(self):
+        self.win.on_battery_status(True, self.batt(state="Discharging"))
+        self.assertIn("coming out", self.win.brow_now.subtitle)
+
+    def test_an_unreadable_battery_is_not_reported_as_zero(self):
+        self.win.on_battery_status(True, self.batt(readable=False, watt=0.0))
+        self.assertIn("not readable", self.win.brow_now.subtitle)
+        self.assertNotIn("0.0 W", self.win.brow_now.subtitle)
+
+    def test_an_implausible_reading_says_so_instead_of_colouring(self):
+        """A driver reporting the wrong unit would make every charge look
+        like a thousand watts - and the icon permanently green."""
+        self.win.on_battery_status(True, self.batt(plausible=False, watt=1240.0))
+        self.assertIn("implausible", self.win.brow_now.subtitle)
+
+    def test_a_tool_that_did_not_answer_is_not_a_zero_either(self):
+        self.win.on_battery_status(False, "")
+        for row in (self.win.brow_now, self.win.brow_colour, self.win.brow_theme):
+            self.assertIn("did not answer", row.subtitle)
+
+    def test_an_unreadable_answer_is_said_out_loud(self):
+        self.win.on_battery_status(True, "{ not json")
+        self.assertIn("unreadable", self.win.brow_now.subtitle)
+
+    def test_the_colour_row_distinguishes_off_from_none(self):
+        """"none" while the service is off is a different statement from
+        "none" while it is on and the power says red."""
+        self.win.on_battery_status(True, self.batt(showing="none", bucket="red"))
+        self.assertIn("would be red", self.win.brow_colour.subtitle)
+        self.win.on_battery_status(True, self.batt(showing="none", bucket="none"))
+        self.assertEqual("none", self.win.brow_colour.subtitle)
+
+    def test_the_theme_row_names_the_one_underneath(self):
+        self.win.on_battery_status(True, self.BATT)
+        self.assertIn("adw-gtk3-batt-amber", self.win.brow_theme.subtitle)
+        self.assertIn("adw-gtk3", self.win.brow_theme.subtitle)
+
+    def test_a_theme_that_cannot_carry_a_colour_is_the_one_thing_to_say(self):
+        """Everything else looks healthy while this is the reason nothing
+        ever changes colour."""
+        self.win.on_battery_status(True, self.batt(can_theme=False))
+        self.assertIn("no GTK3 stylesheet", self.win.brow_theme.subtitle)
+
+    def test_the_thresholds_sit_next_to_the_switch_they_decide(self):
+        self.win.on_battery_status(True, self.BATT)
+        self.assertIn("7.0 W", self.win.batt_row.subtitle)
+        self.assertIn("3.0 W", self.win.batt_row.subtitle)
+        self.assertIn("1.0 W", self.win.batt_drain.subtitle)
+
+    def test_the_second_option_follows_the_config_not_the_switch(self):
+        self.win.on_battery_status(True, self.batt(
+            config=dict(json.loads(self.BATT)["config"], discharging=True)))
+        self.assertTrue(self.win.batt_drain.active)
+
+    def test_a_service_that_is_not_running_says_what_that_means(self):
+        self.win.on_battery_active(True, "inactive")
+        self.assertFalse(self.win.batt_row.active)
+        self.assertIn("stays white", self.win.batt_row.subtitle)
+
+    def test_the_switch_starts_and_stops_the_unit(self):
+        self.ran.clear()
+        # The stub answers every attribute with an object, and an object is
+        # truthy - so the guard against firing while the page is being filled
+        # has to be said out loud here. On the phone it is simply unset.
+        self.win._loading = False
+        self.win.batt_row.active = True
+        self.win.on_battery_switch(self.win.batt_row, None)
+        self.assertEqual(["systemctl", "--user", "start",
+                          switcher.BATTERY_UNIT], self.ran[0][0])
+        self.ran.clear()
+        self.win.batt_row.active = False
+        self.win.on_battery_switch(self.win.batt_row, None)
+        self.assertIn("stop", self.ran[0][0])
+
+    def test_remembering_it_is_enable_not_start(self):
+        self.ran.clear()
+        self.win._loading = False
+        self.win.batt_persist.active = True
+        self.win.on_battery_persist(self.win.batt_persist, None)
+        self.assertIn("enable", self.ran[0][0])
+
+    def test_the_second_option_goes_to_the_tool_not_to_systemd(self):
+        """battctl re-reads its file, so this takes effect without the
+        service being restarted."""
+        self.ran.clear()
+        self.win._loading = False
+        self.win.batt_drain.active = True
+        self.win.on_battery_discharge(self.win.batt_drain, None)
+        argv = self.ran[0][0]
+        self.assertEqual(["config", "discharging", "on"], argv[1:])
+        self.assertNotIn("systemctl", argv[0])
+
+    def test_neither_switch_fires_while_the_page_is_being_filled(self):
+        self.ran.clear()
+        self.win._loading = True
+        self.win.on_battery_switch(self.win.batt_row, None)
+        self.win.on_battery_persist(self.win.batt_persist, None)
+        self.win.on_battery_discharge(self.win.batt_drain, None)
+        self.win._loading = False
+        self.assertEqual([], self.ran)
+
+    def test_a_switch_that_did_not_take_says_so(self):
+        self.win.after_battery(False, "nope", "start")
+        self.assertIn("Could not start", str(self.win.toasts.text))
+
+    def test_the_way_back_stops_the_service_before_it_cleans_up(self):
+        """In that order: battctl restore puts the theme back and deletes
+        what it generated, and a daemon still running would write both again
+        within the minute."""
+        self.ran.clear()
+        self.win.busy = False
+        self.win.on_battery_restore(None)
+        gelaufen = []
+        for _ in range(2):
+            argv, done, _on_line, _kw = self.ran.pop(0)
+            gelaufen.append(" ".join(argv))
+            done(True, "")
+        self.assertIn("disable --now", gelaufen[0])
+        self.assertTrue(gelaufen[1].endswith("restore"), gelaufen)
+
+    def test_the_way_back_reports_a_failure(self):
+        self.win.on_battery_restored(False, "")
+        self.assertIn("Could not", str(self.win.toasts.text))
+
     def test_a_phone_without_the_switches_gets_no_switches_tab(self):
         """Not just "no controls" - no tab. On a phone that has no such
         hardware the tab could only offer to fetch a tool that would never
@@ -1139,7 +1296,9 @@ class TheWindow(unittest.TestCase):
                     # the seconds after one that stopped half way.
                     + ((2 + bool(CONTRIB)) if GPSCTL else 0)
                     # status --json, plus is-active and is-enabled for the unit
-                    + (3 if KILLSWITCH else 0))
+                    + (3 if KILLSWITCH else 0)
+                    # the battery page asks the same three questions
+                    + (3 if BATTCTL else 0))
         self.assertEqual(expected, len(self.ran))
 
     def test_the_tabs_sit_under_the_header_not_at_the_foot(self):
@@ -1384,7 +1543,7 @@ class TheWindow(unittest.TestCase):
         win = self.ohne("modemctl", "gpsctl", "killswitch-indicator")
         seiten = [c[1] for c in recorder.calls
                   if c[0] == "Adw.ViewStack.add_titled_with_icon()" and c[1]]
-        self.assertEqual(["audio", "modem", "gps", "switches"],
+        self.assertEqual(["audio", "modem", "gps", "switches", "battery"],
                          [args[1] for args in seiten])
         self.assertIsNotNone(win)
 
@@ -1821,7 +1980,7 @@ class TheWindow(unittest.TestCase):
         # arguments, so the calls are the ones that carry some.
         gebaut = [c[1][1] for c in recorder.calls
                   if c[0] == "Adw.ViewStack.add_titled_with_icon()" and c[1]]
-        self.assertEqual(["gps", "switches"], gebaut)
+        self.assertEqual(["gps", "switches", "battery"], gebaut)
         # One for the tab being swapped, one for each tab behind it.
         self.assertEqual(len(gebaut), len([c for c in recorder.calls
                                            if c[0] == "Adw.ViewStack.remove()"
@@ -2034,7 +2193,7 @@ class TheWindow(unittest.TestCase):
         recorder.reset()
         switcher.Window(switcher.Adw.Application())
         erwartet = (1 + bool(MODEMCTL) + bool(GPSCTL)
-                    + bool(KILLSWITCH))
+                    + bool(KILLSWITCH) + bool(BATTCTL))
         knoepfe = [c for c in recorder.calls if c[0] == "Gtk.Button"
                    and c[2].get("label") == switcher.Window.RESTORE_LABEL]
         gruppen = [c for c in recorder.calls if c[0] == "Adw.PreferencesGroup"
@@ -2051,15 +2210,15 @@ class TheWindow(unittest.TestCase):
         self.assertIn("pill", klassen)
 
     def test_each_way_back_says_what_it_costs(self):
-        """The same button four times is only honest if the text next to it is
-        not the same four times."""
+        """The same button on every page is only honest if the text next to
+        it is not the same every time."""
         recorder.reset()
         switcher.Window(switcher.Adw.Application())
         texte = {str(c[2].get("description", ""))
                  for c in recorder.calls if c[0] == "Adw.PreferencesGroup"
                  and c[2].get("title") == switcher.Window.RESTORE_TITLE}
         erwartet = (1 + bool(MODEMCTL) + bool(GPSCTL)
-                    + bool(KILLSWITCH))
+                    + bool(KILLSWITCH) + bool(BATTCTL))
         self.assertEqual(erwartet, len(texte))
 
     def test_a_way_back_asks_before_it_acts(self):
