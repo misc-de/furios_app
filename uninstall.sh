@@ -22,6 +22,7 @@ CLONES="$HOME/.local/share/misc-de"
 
 echo "1) program"
 sudo rm -f "$PREFIX/bin/misc-de"
+sudo rm -rf "$PREFIX/lib/misc-de"
 
 echo "2) icon"
 sudo rm -f "$PREFIX/share/icons/hicolor/scalable/apps/de.misc-de.tools.svg"

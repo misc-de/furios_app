@@ -33,8 +33,10 @@ Fetch the repository, then run the installer from inside it:
 Not with `sudo` in front - the installer asks for it where it needs it, which
 is only the three lines that write to `/usr/local`.
 
-Puts `misc-de` in `/usr/local/bin` along with its icon and launcher entry. It
-then appears in the app grid, or starts with `misc-de`.
+Puts `misc-de` in `/usr/local/bin`, the `miscde` package it starts in
+`/usr/local/lib/misc-de`, and the icon and launcher entry beside them. It then
+appears in the app grid, or starts with `misc-de`. From the clone, `./misc-de.py`
+runs what is checked out rather than what is installed.
 
 `./uninstall.sh` takes those three away again. It leaves the five tools and
 the clones where they are and says so: each tool was its own decision and has
@@ -70,6 +72,23 @@ thresholds are sliders, shown under the option they belong to when it is on.
 
 Every page has the same plainly labelled way back to how the phone shipped, and
 asks before it does anything.
+
+## How it is laid out
+
+    misc-de.py          what /usr/local/bin/misc-de is: finds the package, starts it
+    miscde/
+      window.py         the frame, the tabs, and what every page shares
+      pages/            one module per tab, plus the installer behind a missing one
+      components.py     the five tools, and the steps that fetch one
+      askpass.py        how sudo asks for a password with no terminal
+      process.py        running a helper without freezing the window
+      tools.py          finding the programs, and fingerprinting this one
+      words.py          turning what a tool prints into what a row says
+
+`Window` is assembled from the page modules rather than holding them: they are
+mixins, because what they share is `self` - `self.live` to know whether a tool
+is there, `self.set_busy` to lock the window while a helper runs. Which module
+a method belongs in is decided by the page it speaks for.
 
 ## Tests
 

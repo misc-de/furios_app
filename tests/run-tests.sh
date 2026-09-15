@@ -41,7 +41,9 @@ else
 fi
 
 printf '\n\033[1m== python syntax\033[0m\n'
-for f in "$ROOT"/*.py "$HERE"/*.py; do
+# The package too, and not just the launcher and the tests - since the
+# window was split up, almost every line of this app lives under miscde/.
+for f in "$ROOT"/*.py "$HERE"/*.py "$ROOT"/miscde/*.py "$ROOT"/miscde/pages/*.py; do
     if python3 -m py_compile "$f"; then
         printf '  \033[32mok\033[0m   %s\n' "${f#"$ROOT"/}"
     else

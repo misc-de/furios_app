@@ -18,7 +18,16 @@ python3 - "$ROOT" "$OUT" <<'PY'
 import os, re, sys
 
 root, out = sys.argv[1], sys.argv[2]
+# Every file of the app, each on its own line. When this was one file the
+# list was that file; a package measured as one number would hide a page
+# nobody exercises behind four that are covered well.
 wanted = ["misc-de.py"]
+for sub, _dirs, files in os.walk(os.path.join(root, "miscde")):
+    if "__pycache__" in sub:
+        continue
+    for name in sorted(files):
+        if name.endswith(".py"):
+            wanted.append(os.path.relpath(os.path.join(sub, name), root))
 
 covers = {}
 for name in os.listdir(out):
@@ -26,12 +35,18 @@ for name in os.listdir(out):
         covers[name] = os.path.join(out, name)
 
 for want in wanted:
-    stem = want[:-3].replace("-", "_")
-    match = None
-    for name, path in covers.items():
-        if stem in name.replace("-", "_"):
-            match = path
-            break
+    # trace names its output after the MODULE, not the file: miscde/window.py
+    # is written as miscde.window.cover. Matching on the file name worked as
+    # long as the app was one file at the top; with a package it matched
+    # nothing and reported every file as never imported - which looks like a
+    # test suite that stopped running, and is not.
+    stem = want[:-3].replace("-", "_").replace(os.sep, ".")
+    match = covers.get(stem + ".cover")
+    if match is None:
+        for name, path in covers.items():
+            if stem in name.replace("-", "_"):
+                match = path
+                break
     if match is None:
         print("  %-40s not measured - never imported" % want)
         continue

@@ -20,7 +20,17 @@ python3 -c "import gi; gi.require_version('Adw','1')" 2>/dev/null \
   || { echo "libadwaita bindings missing: apt install python3-gi gir1.2-adw-1"; exit 1; }
 
 echo "1) program"
+# Two parts since 15.9.2026, where there used to be one file: the launcher in
+# bin, and the package it starts beside it. rsync --delete rather than a plain
+# copy, because a page that was deleted upstream has to disappear here too -
+# left behind it would still be imported, and the fingerprint the app compares
+# itself against would never match the clone again.
 sudo install -m755 misc-de.py /usr/local/bin/misc-de
+sudo rm -rf /usr/local/lib/misc-de/miscde
+sudo install -d -m755 /usr/local/lib/misc-de
+sudo cp -r miscde /usr/local/lib/misc-de/miscde
+sudo find /usr/local/lib/misc-de/miscde -name __pycache__ -prune -exec rm -rf {} +
+sudo chmod -R a+rX /usr/local/lib/misc-de
 
 echo "2) icon"
 sudo install -Dm644 de.misc-de.tools.svg \

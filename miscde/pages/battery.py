@@ -1,0 +1,241 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 misc-de
+# SPDX-License-Identifier: MIT
+"""The Battery page: what the battery icon is allowed to say."""
+
+import json
+
+from gi.repository import Adw, GLib, Gtk
+
+from .. import process
+from ..components import BATTERY_UNIT
+
+
+class BatteryPage:
+
+    # What each of the three options switches, and the two thresholds it
+    # owns. (config key, row title, [(slider label, config key, from, to,
+    # step, digits, unit)]).
+    BATTERY_OPTIONS = (
+        ("charging", "While charging", (
+            ("Green", "charge_green_w", 1.0, 12.0, 0.5, 1, "W"),
+            ("Amber", "charge_amber_w", 0.5, 11.0, 0.5, 1, "W"))),
+        ("level", "Charge level", (
+            ("Amber", "level_amber_pct", 20.0, 95.0, 5.0, 0, "%"),
+            ("Red", "level_red_pct", 5.0, 90.0, 5.0, 0, "%"))),
+        ("discharging", "Drain", (
+            ("Amber", "drain_amber_w", 0.5, 8.0, 0.5, 1, "W"),
+            ("Red", "drain_red_w", 1.0, 12.0, 0.5, 1, "W"))),
+    )
+
+    # Which threshold has to stay below which, and by how much.
+    BATTERY_PAIRS = (("charge_amber_w", "charge_green_w", 0.5),
+                     ("level_red_pct", "level_amber_pct", 5.0),
+                     ("drain_amber_w", "drain_red_w", 0.5))
+
+    @staticmethod
+    def threshold_text(value, digits, unit):
+        """The number on the slider, with what it is measured in.
+
+        Watts and percent in the same column of controls, and no sentence
+        anywhere to say which is which - so each slider carries its unit."""
+        return "%.*f %s" % (digits, value, unit)
+
+    def build_battery_page(self):
+        """Three options, and under each the sliders that decide it.
+
+        No readings on this page. A watt figure belongs where somebody is
+        measuring; here the question is only which colour appears when, and
+        an answer to that is a slider, not a number to read off.
+
+        The sliders sit under their own option and are revealed with it: a
+        page that shows six of them at once asks to be studied, and this is
+        a page to glance at.
+        """
+        bpage = Adw.PreferencesPage()
+        self.batt_switches = {}
+        self.batt_scales = {}
+        self.batt_rows = []
+
+        # One group for all three, so there is one heading over the lot and
+        # not three unnamed blocks. The sliders still sit under the switch
+        # they belong to: a group takes rows and revealers in the order they
+        # are added.
+        grp = Adw.PreferencesGroup(title="Colour marking")
+        for key, title, sliders in self.BATTERY_OPTIONS:
+            row = Adw.SwitchRow(title=title)
+            row.connect("notify::active", self.on_battery_option, key)
+            grp.add(row)
+            self.batt_switches[key] = row
+            self.batt_rows.append(row)
+
+            row.slider_rows = []
+            for label, ckey, low, high, step, digits, unit in sliders:
+                scale = Gtk.Scale.new_with_range(
+                    Gtk.Orientation.HORIZONTAL, low, high, step)
+                scale.set_digits(digits)
+                scale.set_draw_value(True)
+                scale.set_format_value_func(
+                    lambda _s, v, d=digits, u=unit:
+                    self.threshold_text(v, d, u))
+                scale.set_hexpand(True)
+                scale.set_size_request(190, -1)
+                scale.connect("value-changed", self.on_battery_slider, ckey)
+                srow = Adw.ActionRow(title=label)
+                srow.add_suffix(scale)
+                srow.set_visible(False)
+                # Into the group as a row of its own, not into a revealer:
+                # a PreferencesGroup sorts everything that is not a row to
+                # the end, and the sliders then sat under the whole card
+                # instead of under the switch they belong to. Seen on the
+                # phone - it looked like a second, nameless block.
+                grp.add(srow)
+                row.slider_rows.append(srow)
+                self.batt_scales[ckey] = scale
+        bpage.add(grp)
+
+        back, self.batt_restore_btn = self.build_restore_group(
+            "Stops the colouring, takes it out of the next boot, puts your "
+            "own theme and icons back. What the battery reports is "
+            "untouched - that is the kernel's.",
+            self.on_battery_restore)
+        bpage.add(back)
+        self.batt_rows.append(self.batt_restore_btn)
+        return bpage
+
+    def on_battery_status(self, ok, out):
+        """Follow battctl: which options are on, and where the sliders
+        stand. Nothing else - the page shows no readings."""
+        if not ok:
+            for row in self.batt_switches.values():
+                row.set_sensitive(False)
+            return
+        try:
+            data = json.loads(out)
+        except ValueError:
+            return
+        self.batt_cfg = data.get("config", {})
+        self.sync_battery_switches()
+
+    def sync_battery_switches(self):
+        """Switch on means "this colour is happening" - which is the
+        setting AND the service that acts on it.
+
+        An option left on in the file while the daemon is stopped would
+        show a switch that is on with nothing behind it, and this app's
+        rule is to never claim more than it knows.
+        """
+        cfg = getattr(self, "batt_cfg", {})
+        self._loading = True
+        for key, _title, sliders in self.BATTERY_OPTIONS:
+            row = self.batt_switches[key]
+            an = bool(cfg.get(key)) and getattr(self, "batt_running", True)
+            row.set_sensitive(True)
+            row.set_active(an)
+            self.show_sliders(row, an)
+            for _label, ckey, _lo, _hi, _st, _di, _un in sliders:
+                if ckey in cfg:
+                    self.batt_scales[ckey].set_value(float(cfg[ckey]))
+        self._loading = False
+
+    def on_battery_active(self, ok, out):
+        self.batt_running = ok and out.strip() == "active"
+        if getattr(self, "batt_cfg", None) is not None:
+            self.sync_battery_switches()
+
+    def on_battery_enabled(self, ok, out):
+        self.batt_enabled = ok and out.strip() == "enabled"
+
+    def on_battery_option(self, row, _param, key):
+        """One option on or off - and with it the service, which is the
+        thing that actually does the colouring.
+
+        No separate switch for "remember": an option somebody turns on is
+        one they want after the next boot as well, and a page of three
+        switches plus a fourth about the other three is exactly the kind of
+        furniture this page is meant not to have.
+        """
+        if getattr(self, "_loading", False):
+            return
+        wanted = row.get_active()
+        self.show_sliders(row, wanted)
+        steps = [[self.live["battery"], "config", key,
+                  "on" if wanted else "off"]]
+        if wanted:
+            steps.append(["systemctl", "--user", "enable", "--now",
+                          BATTERY_UNIT])
+        elif not any(r.get_active() for r in self.batt_switches.values()):
+            # Nothing left to colour: the daemon goes, and with it the
+            # theme it set.
+            steps.append(["systemctl", "--user", "disable", "--now",
+                          BATTERY_UNIT])
+        self.run_chain(steps, lambda ok, out: self.after_battery(
+            ok, out, "change"))
+
+    @staticmethod
+    def show_sliders(row, visible):
+        """The two sliders of one option, shown with it."""
+        for srow in getattr(row, "slider_rows", ()):
+            srow.set_visible(visible)
+
+    def on_battery_slider(self, scale, key):
+        """A threshold moved. Written after a moment's quiet, not on every
+        pixel of the drag - and the other threshold of the pair is pushed
+        out of the way rather than refused, because battctl will not take a
+        pair that crosses."""
+        if getattr(self, "_loading", False):
+            return
+        self.keep_thresholds_apart(key)
+        if getattr(self, "_batt_write", 0):
+            GLib.source_remove(self._batt_write)
+        self._batt_write = GLib.timeout_add(
+            400, self.write_battery_threshold, key, scale.get_value())
+
+    def keep_thresholds_apart(self, key):
+        """Push the neighbour along instead of refusing the move."""
+        for low, high, gap in self.BATTERY_PAIRS:
+            if key not in (low, high):
+                continue
+            lower_scale, upper_scale = self.batt_scales[low], self.batt_scales[high]
+            if lower_scale.get_value() + gap > upper_scale.get_value():
+                self._loading = True
+                if key == low:
+                    upper_scale.set_value(lower_scale.get_value() + gap)
+                else:
+                    lower_scale.set_value(upper_scale.get_value() - gap)
+                self._loading = False
+
+    def write_battery_threshold(self, key, value):
+        self._batt_write = 0
+        process.run_async([self.live["battery"], "config", key, "%g" % value],
+                  lambda ok, out: self.after_battery(ok, out, "change"))
+        return False
+
+    def after_battery(self, ok, out, verb):
+        if not ok:
+            self.toast("Could not %s the colouring" % verb)
+            if out:
+                self.report(out)
+        self.refresh()
+
+    def on_battery_restore(self, _btn):
+        """The service first, then the tool.
+
+        In that order on purpose: battctl restore puts the theme and the
+        icons back and deletes what it generated, and a daemon still
+        running would write both again within the minute.
+        """
+        if self.busy:
+            return
+        self.set_busy(True)
+        self.run_chain([
+            ["systemctl", "--user", "disable", "--now", BATTERY_UNIT],
+            [self.live["battery"], "restore"],
+        ], self.on_battery_restored)
+
+    def on_battery_restored(self, ok, out):
+        if ok:
+            self.toast("Shipped state - your own theme, no colouring")
+        else:
+            self.toast("Could not restore the shipped state")
+            self.report(out or "No output.")
+        self.refresh()

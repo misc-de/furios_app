@@ -166,3 +166,59 @@ Until 14.9.2026 the app lived in
 [furios_pipewire](https://github.com/misc-de/furios_pipewire) under `gui/`. It
 moved here with its history, because it now drives five tools from five
 repositories and none of them is its home.
+
+## One file became a package
+
+Until 15.9.2026 the whole app was `misc-de.py`: 2595 lines, of which `Window`
+alone was 1879 across 88 methods and five pages. It worked, and the reason to
+split it was not that it did not.
+
+It was that the file had stopped answering the question anybody actually asks
+of it. "What happens when the GPS switch is thrown" meant reading past the
+modem handlers, which sat under a heading called *state*, and past the audio
+ones, which sat under *actions*. The section banners had drifted from the
+pages they belonged to, and nothing made them drift back.
+
+**The pages are mixins, not widgets.** `Window` is assembled from six classes
+that each hold one subject. They are not objects of their own because what
+they share cannot be split: `self`. A page reads `self.live` to know whether
+its tool is there, calls `self.set_busy` to lock the whole window while a
+helper runs, and builds its own way back with `self.build_restore_group`.
+Handing each page an object would have meant handing it a reference to this
+one anyway - and the GTK signal that fires calls `win.on_gps_status`, exactly
+as the tests do.
+
+**What moved, and what decided it:** the page a method speaks for. Not the
+banner it sat under. `on_modem_switched` is modem, wherever it used to live.
+
+**Two things the split broke, both caught by the tests:**
+
+- Four class-level constants (`BATTERY_OPTIONS`, `BATTERY_PAIRS`, and the two
+  words on the restore button) are not methods, and a first pass that moved
+  methods left them behind. 27 tests failed at once, all with a `KeyError` on
+  a battery key.
+- Where a test REPLACES something, it has to name the module that holds it.
+  `switcher.run_async = …` used to be the seam; it is now a second name for
+  the same function, and assigning to it changes nothing for a page that
+  calls `process.run_async`. Every such test would have passed while
+  measuring nothing. They say `switcher.process.run_async` now, and the
+  comment above the import says why.
+
+**The app can no longer compare itself as one file.** `check_app_program`
+asked whether the running `misc-de.py` was byte for byte the clone's. It now
+fingerprints every `.py` under `miscde/` on both sides: content and relative
+path, sorted, `__pycache__` skipped. The path goes in with the content
+because moving a method from one page to another would otherwise leave the
+two trees looking identical - and a deleted file has to count, which a
+comparison of the launcher alone would have missed entirely.
+
+`misc-de.py` stayed, at thirty lines. It is the one path written down
+elsewhere - in `install.sh`, in the `.desktop` entry, and in the `execv` that
+restarts the app into a new version - and it should not have to change again
+because a page moved.
+
+**What it bought, beyond reading:** coverage is per file now. The single
+number said 95.98 % and hid that `askpass.py` sits at 60 % under the offline
+suite, because the only thing that really exercises it is
+`tests/askpass-live.py` against the real GLib. That was true before and
+nothing said so.

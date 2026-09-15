@@ -27,10 +27,15 @@ SECRET = "not-the-real-password"
 
 
 def load():
-    spec = importlib.util.spec_from_file_location("switcher", ROOT / "misc-de.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+    """The package, with the real gi behind it - not the stub.
+
+    This file exists because Askpass is the one class a stand-in cannot test:
+    what it does is hand a password to a socket, and whether that works is a
+    question about GLib, unix credentials and a process tree, none of which a
+    fake has. So it imports the app for real and drives it.
+    """
+    sys.path.insert(0, str(ROOT))
+    return importlib.import_module("miscde")
 
 
 def ok(condition, words):
@@ -44,7 +49,7 @@ def main():
     from gi.repository import GLib
 
     good = True
-    a = sw.Askpass(SECRET)
+    a = sw.askpass.Askpass(SECRET)
     helper = a.start()
     good &= ok(helper, "the helper is set up at all")
     if not helper:
@@ -88,8 +93,8 @@ def main():
     # is that the asker has to be something we started. Checked from a process
     # that is a SIBLING, not a descendant - started by this test's own parent,
     # which sudo's helper never is.
-    fremd = Path(__file__).parent / "_fremd_tmp.py"
-    fremd.write_text(
+    foreign_process = Path(__file__).parent / "_foreign_tmp.py"
+    foreign_process.write_text(
         "import socket,sys\n"
         "s=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM); s.settimeout(5)\n"
         "try:\n"
@@ -100,7 +105,7 @@ def main():
         "        t.append(c)\n"
         "    open(sys.argv[2],'w').write(b''.join(t).decode())\n"
         "except Exception: pass\n")
-    answer = Path(__file__).parent / "_fremd_tmp.out"
+    answer = Path(__file__).parent / "_foreign_tmp.out"
     try:
         sock = os.path.join(directory, "ask.sock")
         # "setsid --fork", not os.setsid: setsid alone changes the session and
@@ -109,7 +114,7 @@ def main():
         # it, which is the case that has to be refused. (Getting this wrong
         # once made this very check pass against a socket that was still
         # wide open.)
-        subprocess.run(["setsid", "--fork", sys.executable, str(fremd),
+        subprocess.run(["setsid", "--fork", sys.executable, str(foreign_process),
                         sock, str(answer)], timeout=20)
         result2 = {}
 
@@ -125,7 +130,7 @@ def main():
         good &= ok(result2.get("out") != SECRET,
                   "a process we did not start gets nothing")
     finally:
-        fremd.unlink(missing_ok=True)
+        foreign_process.unlink(missing_ok=True)
         answer.unlink(missing_ok=True)
 
     a.stop()
@@ -143,7 +148,7 @@ def main():
     alt_runtime = os.environ.get("XDG_RUNTIME_DIR")
     os.environ["XDG_RUNTIME_DIR"] = str(depth)
     try:
-        b = sw.Askpass(SECRET)
+        b = sw.askpass.Askpass(SECRET)
         good &= ok(b.start() is None, "an impossible socket path fails, as it must")
         good &= ok(bool(b.error), "and says why, instead of failing silently")
         good &= ok("108" in (b.error or ""),
@@ -156,11 +161,11 @@ def main():
             os.environ["XDG_RUNTIME_DIR"] = alt_runtime
 
     if "--with-sudo" in sys.argv:
-        good &= sudo_frage(sw)
+        good &= sudo_question(sw)
     return 0 if good else 1
 
 
-def sudo_frage(sw):
+def sudo_question(sw):
     """Does sudo use the helper when nobody is at a terminal?
 
     With a wrong password on purpose: what is measured is whether sudo asks at
@@ -172,7 +177,7 @@ def sudo_frage(sw):
     would fail against a sudo that is behaving exactly as it does on the
     phone.
     """
-    a = sw.Askpass("not-the-real-one-either")
+    a = sw.askpass.Askpass("not-the-real-one-either")
     helper = a.start()
     environment = dict(os.environ, SUDO_ASKPASS=helper)
     environment.setdefault("DISPLAY", ":0")
