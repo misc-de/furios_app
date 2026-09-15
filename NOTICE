@@ -1,32 +1,32 @@
-Lizenzhinweis fuer furios_app
+Licence notice for furios_app
 =============================
 
-Dieses Projekt enthaelt ausschliesslich eigenen Code (MIT, siehe LICENSE):
-misc-de.py, das App-Symbol, der Starter-Eintrag, der Installer und die Tests.
-Jede dieser Dateien traegt einen SPDX-Kopf, der das sagt.
+This repository contains only code of our own (MIT, see LICENSE):
+misc-de.py, the app icon, the launcher entry, the installer and the tests.
+Every one of those files carries an SPDX header saying so.
 
-Es verwendet zur Laufzeit:
-  - GTK 4 und libadwaita (LGPL-2.1+), ueber PyGObject (LGPL-2.1+)
-  - GLib und Gio (LGPL-2.1+), aus derselben Quelle
-  - Symbole aus dem Adwaita-Icon-Theme (CC-BY-SA 3.0 / LGPL-3):
-      audio-speakers-symbolic, changes-prevent-symbolic,
-      find-location-symbolic, network-cellular-symbolic,
-      software-update-available-symbolic
+At runtime it uses:
+  - GTK 4 and libadwaita (LGPL-2.1+), through PyGObject (LGPL-2.1+)
+  - GLib and Gio (LGPL-2.1+), from the same source
+  - icons from the Adwaita icon theme (CC-BY-SA 3.0 / LGPL-3):
+      audio-speakers-symbolic, network-cellular-symbolic,
+      find-location-symbolic, changes-prevent-symbolic,
+      battery-good-charging-symbolic, software-update-available-symbolic
 
-Es ruft auf, ohne sie mitzuliefern:
-  - git, sudo und pkexec (polkit)
-  - audioctl, modemctl, gpsctl und killswitch-indicator - die vier Werkzeuge,
-    die diese App bedient
+It calls, without shipping them:
+  - git, sudo and pkexec (polkit)
+  - audioctl, modemctl, gpsctl, killswitch-indicator and battctl - the five
+    tools this app drives
 
-Die vier Werkzeuge liegen in eigenen Repos und haben eigene Lizenzen. Wer sie
-ueber diese App installiert, installiert nicht MIT-Code: das Paket von
-furios_pipewire ist LGPL-2.1 (es kompiliert Jolla-Code ein), das von
-furios_modem_fixes ist GPL-2.0 (es patcht eine GPL-Datei von ofono2mm).
-furios_gps und furios_killswitch sind durchgehend MIT. Die Einzelheiten stehen
-im NOTICE des jeweiligen Repos; die Uebersicht in "Lizenz und Bausteine" in
-README.md.
+Those tools live in repositories of their own and have licences of their
+own. Anybody installing them through this app is not installing MIT code:
+the package from furios_pipewire is LGPL-2.1 (it compiles Jolla code in),
+the one from furios_modem_fixes is GPL-2.0 (it patches a GPL file of
+ofono2mm). furios_gps, furios_killswitch and furios_misc are MIT
+throughout. The details are in the NOTICE of the respective repository; the
+overview is under "Licence" in the README.
 
-Das App-Symbol de.misc-de.tools.svg ist selbst gezeichnet.
+The app icon de.misc-de.tools.svg is drawn by us.
 
-Kein Bestandteil von FuriOS wird gepatcht oder ersetzt. Die App aendert nichts
-selbst - sie ruft die Werkzeuge auf, die das tun.
+No part of FuriOS is patched or replaced. The app changes nothing itself -
+it calls the tools that do.
