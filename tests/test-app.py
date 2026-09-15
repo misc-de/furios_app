@@ -838,9 +838,9 @@ class TheWindow(unittest.TestCase):
             self.win.batt_scales = {}
             for key, _title, sliders in switcher.Window.BATTERY_OPTIONS:
                 row = Recording()
-                row.revealer = Recording()
+                row.slider_rows = [Recording(), Recording()]
                 self.win.batt_switches[key] = row
-                for _label, ckey, _lo, _hi, _st, _di in sliders:
+                for _label, ckey, _lo, _hi, _st, _di, _un in sliders:
                     self.win.batt_scales[ckey] = Recording()
             self.win.batt_rows = (list(self.win.batt_switches.values())
                                   + [self.win.batt_restore_btn])
@@ -1150,6 +1150,29 @@ class TheWindow(unittest.TestCase):
         daten["config"].update(anders)
         return json.dumps(daten)
 
+    def test_one_heading_over_the_lot(self):
+        """Three unnamed blocks under each other are a list of switches;
+        one heading makes them an answer to a question."""
+        recorder.reset()
+        self.win.build_battery_page()
+        titel = [c[2].get("title") for c in recorder.calls
+                 if c[0] == "Adw.PreferencesGroup" and c[2].get("title")]
+        self.assertIn("Colour marking", titel)
+        # And the three options are in that one group, not in three.
+        self.assertEqual(1, len([t for t in titel if t == "Colour marking"]))
+
+    def test_each_slider_carries_its_unit(self):
+        """Watts and percent in the same column of controls, and no
+        sentence anywhere to say which is which."""
+        self.assertEqual("7.0 W", switcher.Window.threshold_text(7.0, 1, "W"))
+        self.assertEqual("60 %", switcher.Window.threshold_text(60.0, 0, "%"))
+        einheiten = {ckey: unit
+                     for _k, _t, sliders in switcher.Window.BATTERY_OPTIONS
+                     for (_l, ckey, _lo, _hi, _st, _di, unit) in sliders}
+        self.assertEqual("W", einheiten["charge_green_w"])
+        self.assertEqual("W", einheiten["drain_red_w"])
+        self.assertEqual("%", einheiten["level_amber_pct"])
+
     def test_the_battery_page_offers_exactly_three_options(self):
         """Three, in the order somebody thinks about them: going in, how
         full, going out."""
@@ -1170,13 +1193,15 @@ class TheWindow(unittest.TestCase):
 
     def test_the_sliders_appear_with_their_option(self):
         """Six sliders at once ask to be studied; this is a page to glance
-        at."""
+        at. They are rows of the same group, hidden and shown - a revealer
+        would be sorted to the end of the card, away from its switch."""
         self.win.on_battery_active(True, "active")
         self.win.on_battery_status(True, self.batt(charging=False,
                                                    level=True))
         self.assertFalse(
-            self.win.batt_switches["charging"].revealer.revealed)
-        self.assertTrue(self.win.batt_switches["level"].revealer.revealed)
+            self.win.batt_switches["charging"].slider_rows[0].visible)
+        self.assertTrue(
+            self.win.batt_switches["level"].slider_rows[0].visible)
 
     def test_a_switch_is_only_on_when_something_is_behind_it(self):
         """The setting AND the service: an option left on in the file while
@@ -1248,10 +1273,10 @@ class TheWindow(unittest.TestCase):
         row = self.win.batt_switches["level"]
         row.active = True
         self.win.on_battery_option(row, None, "level")
-        self.assertTrue(row.revealer.revealed)
+        self.assertTrue(all(r.visible for r in row.slider_rows))
         row.active = False
         self.win.on_battery_option(row, None, "level")
-        self.assertFalse(row.revealer.revealed)
+        self.assertFalse(any(r.visible for r in row.slider_rows))
 
     def test_a_threshold_is_written_after_a_moment_not_per_pixel(self):
         """Dragging a slider fires continuously; battctl is called once,

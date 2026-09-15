@@ -1629,18 +1629,26 @@ class Window(Adw.ApplicationWindow):
 
     # What each of the three options switches, and the two thresholds it
     # owns. (config key, row title, [(slider label, config key, from, to,
-    # step, digits)]).
+    # step, digits, unit)]).
     BATTERY_OPTIONS = (
         ("charging", "While charging", (
-            ("Green", "charge_green_w", 1.0, 12.0, 0.5, 1),
-            ("Amber", "charge_amber_w", 0.5, 11.0, 0.5, 1))),
+            ("Green", "charge_green_w", 1.0, 12.0, 0.5, 1, "W"),
+            ("Amber", "charge_amber_w", 0.5, 11.0, 0.5, 1, "W"))),
         ("level", "Charge level", (
-            ("Amber", "level_amber_pct", 20.0, 95.0, 5.0, 0),
-            ("Red", "level_red_pct", 5.0, 90.0, 5.0, 0))),
+            ("Amber", "level_amber_pct", 20.0, 95.0, 5.0, 0, "%"),
+            ("Red", "level_red_pct", 5.0, 90.0, 5.0, 0, "%"))),
         ("discharging", "Drain", (
-            ("Amber", "drain_amber_w", 0.5, 8.0, 0.5, 1),
-            ("Red", "drain_red_w", 1.0, 12.0, 0.5, 1))),
+            ("Amber", "drain_amber_w", 0.5, 8.0, 0.5, 1, "W"),
+            ("Red", "drain_red_w", 1.0, 12.0, 0.5, 1, "W"))),
     )
+
+    @staticmethod
+    def threshold_text(value, digits, unit):
+        """The number on the slider, with what it is measured in.
+
+        Watts and percent in the same column of controls, and no sentence
+        anywhere to say which is which - so each slider carries its unit."""
+        return "%.*f %s" % (digits, value, unit)
 
     def build_battery_page(self):
         """Three options, and under each the sliders that decide it.
@@ -1658,34 +1666,42 @@ class Window(Adw.ApplicationWindow):
         self.batt_scales = {}
         self.batt_rows = []
 
+        # One group for all three, so there is one heading over the lot and
+        # not three unnamed blocks. The sliders still sit under the switch
+        # they belong to: a group takes rows and revealers in the order they
+        # are added.
+        grp = Adw.PreferencesGroup(title="Colour marking")
         for key, title, sliders in self.BATTERY_OPTIONS:
-            grp = Adw.PreferencesGroup()
             row = Adw.SwitchRow(title=title)
             row.connect("notify::active", self.on_battery_option, key)
             grp.add(row)
             self.batt_switches[key] = row
             self.batt_rows.append(row)
 
-            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-            for label, ckey, low, high, step, digits in sliders:
+            row.slider_rows = []
+            for label, ckey, low, high, step, digits, unit in sliders:
                 skala = Gtk.Scale.new_with_range(
                     Gtk.Orientation.HORIZONTAL, low, high, step)
                 skala.set_digits(digits)
                 skala.set_draw_value(True)
+                skala.set_format_value_func(
+                    lambda _s, v, d=digits, u=unit:
+                    self.threshold_text(v, d, u))
                 skala.set_hexpand(True)
                 skala.set_size_request(190, -1)
                 skala.connect("value-changed", self.on_battery_slider, ckey)
                 srow = Adw.ActionRow(title=label)
                 srow.add_suffix(skala)
-                box.append(srow)
+                srow.set_visible(False)
+                # Into the group as a row of its own, not into a revealer:
+                # a PreferencesGroup sorts everything that is not a row to
+                # the end, and the sliders then sat under the whole card
+                # instead of under the switch they belong to. Seen on the
+                # phone - it looked like a second, nameless block.
+                grp.add(srow)
+                row.slider_rows.append(srow)
                 self.batt_scales[ckey] = skala
-            revealer = Gtk.Revealer(
-                child=box,
-                transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN,
-                reveal_child=False)
-            grp.add(revealer)
-            row.revealer = revealer
-            bpage.add(grp)
+        bpage.add(grp)
 
         back, self.batt_restore_btn = self.build_restore_group(
             "Stops the colouring, takes it out of the next boot, puts your "
@@ -1725,8 +1741,8 @@ class Window(Adw.ApplicationWindow):
             an = bool(cfg.get(key)) and getattr(self, "batt_running", True)
             row.set_sensitive(True)
             row.set_active(an)
-            row.revealer.set_reveal_child(an)
-            for _label, ckey, _low, _high, _step, _digits in sliders:
+            self.show_sliders(row, an)
+            for _label, ckey, _lo, _hi, _st, _di, _un in sliders:
                 if ckey in cfg:
                     self.batt_scales[ckey].set_value(float(cfg[ckey]))
         self._loading = False
@@ -1751,7 +1767,7 @@ class Window(Adw.ApplicationWindow):
         if getattr(self, "_loading", False):
             return
         wanted = row.get_active()
-        row.revealer.set_reveal_child(wanted)
+        self.show_sliders(row, wanted)
         steps = [[self.live["battery"], "config", key,
                   "on" if wanted else "off"]]
         if wanted:
@@ -1764,6 +1780,12 @@ class Window(Adw.ApplicationWindow):
                           BATTERY_UNIT])
         self.run_chain(steps, lambda ok, out: self.after_battery(
             ok, out, "change"))
+
+    @staticmethod
+    def show_sliders(row, visible):
+        """The two sliders of one option, shown with it."""
+        for srow in getattr(row, "slider_rows", ()):
+            srow.set_visible(visible)
 
     def on_battery_slider(self, scale, key):
         """A threshold moved. Written after a moment's quiet, not on every
