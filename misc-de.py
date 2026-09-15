@@ -1757,7 +1757,7 @@ class Window(Adw.ApplicationWindow):
         # was the same sentence twice on a 360-pixel page.
         if cfg:
             self.batt_row.set_subtitle(
-                "The shell of the icon follows the charging power")
+                "The bolt follows the charging power, the frame the drain")
             self.batt_drain.set_subtitle(
                 "White below %.1f W, then amber, red from %.1f W"
                 % (cfg.get("drain_amber_w", 0.0), cfg.get("drain_red_w", 0.0)))
