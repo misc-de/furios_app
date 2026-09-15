@@ -24,13 +24,23 @@ only appears when there is something to take.
 
 ## Install
 
-    ./install.sh        # needs sudo for /usr/local, nothing else
+Fetch the repository, then run the installer from inside it:
+
+    git clone https://github.com/misc-de/furios_app
+    cd furios_app && ./install.sh
+
+Not with `sudo` in front - the installer asks for it where it needs it, which
+is only the three lines that write to `/usr/local`.
 
 Puts `misc-de` in `/usr/local/bin` along with its icon and launcher entry. It
-then appears in the app grid, or starts with `misc-de`.
+then appears in the app grid, or starts with `misc-de`. Remove it again with
+`./uninstall.sh`.
 
-Requires `python3-gi` and `gir1.2-adw-1`. Nothing else — the app fetches the
-tools behind the tabs itself.
+Keep the clone: the app updates itself out of it, and the icon in the header
+bar offers the next version when there is one. The four tools behind the tabs
+are fetched the same way, into `~/.local/share/misc-de/`.
+
+Requires `python3-gi` and `gir1.2-adw-1`, and nothing else.
 
 ## What each tab does
 
