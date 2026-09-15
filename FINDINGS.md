@@ -133,9 +133,14 @@ line - and is invisible to software for exactly that reason. The page does not
 listen after it: that would mean opening the microphone, and the answer would
 hold only for the seconds of the measurement. It says so.
 
-**Battery** - the battery icon coloured by what the battery is doing: the
-frame by the charging power or by an unusual drain, the filling by how full it
-is. The page says the wattage whether the colouring is on or not.
+**Battery** - three options, and nothing else on the page: colour while
+charging (the bolt), colour by charge level (the filling), colour an unusual
+drain (the frame). Under each option, revealed with it, the two sliders that
+say when green, amber and red appear. No readings: a watt figure belongs
+where somebody is measuring, and here the only question is which colour
+appears when. A switch is on only when the setting AND the service behind it
+are - an option left on in the file with the daemon stopped would be a switch
+with nothing behind it.
 
 ## Rules the interface is built on
 

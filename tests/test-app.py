@@ -673,6 +673,7 @@ class Recording:
 
     def __init__(self, active=False):
         self.subtitle = None
+        self.value = 0.0
         self.visible = None
         self.sensitive = True
         self.active = active
@@ -690,6 +691,12 @@ class Recording:
 
     def set_active(self, value):
         self.active = value
+
+    def set_value(self, value):
+        self.value = value
+
+    def get_value(self):
+        return self.value
 
     def get_active(self):
         return self.active
@@ -811,9 +818,7 @@ class TheWindow(unittest.TestCase):
                       "srow_cam", "srow_cam_hal", "srow_cams", "srow_net",
                       "srow_mic", "sw_restore_btn"]
         if BATTCTL:
-            names += ["batt_row", "batt_drain", "batt_persist",
-                      "brow_now", "brow_colour", "brow_fill", "brow_theme",
-                      "batt_restore_btn"]
+            names += ["batt_restore_btn"]
         for name in names:
             setattr(self.win, name, Recording())
         if MODEMCTL:
@@ -827,9 +832,18 @@ class TheWindow(unittest.TestCase):
                                 self.win.sw_wifi, self.win.sw_bt,
                                 self.win.sw_restore_btn]
         if BATTCTL:
-            self.win.batt_rows = [self.win.batt_row, self.win.batt_drain,
-                                  self.win.batt_persist,
-                                  self.win.batt_restore_btn]
+            # The page keeps its controls in two dictionaries, so the
+            # stand-ins go in there rather than on attributes.
+            self.win.batt_switches = {}
+            self.win.batt_scales = {}
+            for key, _title, sliders in switcher.Window.BATTERY_OPTIONS:
+                row = Recording()
+                row.revealer = Recording()
+                self.win.batt_switches[key] = row
+                for _label, ckey, _lo, _hi, _st, _di in sliders:
+                    self.win.batt_scales[ckey] = Recording()
+            self.win.batt_rows = (list(self.win.batt_switches.values())
+                                  + [self.win.batt_restore_btn])
         self.ran = []
         self.original = switcher.run_async
         # Four fields, not three: the components page passes cwd, stdin and a
@@ -1125,191 +1139,170 @@ class TheWindow(unittest.TestCase):
 
     # ------------------------------------------------------------ Battery
 
-    BATT = """{"state": "Charging", "watt": 5.2, "ampere": 1.2, "volt": 4.3,
-             "percent": 84,
-             "readable": true, "plausible": true, "bucket": "amber",
-             "showing": "amber", "level_bucket": "none",
-             "level_showing": "none", "theme": "adw-gtk3-batt-amber",
-             "icon": "battery-level-80-charging-symbolic",
-             "split_icon": true, "sources_agree": true,
-             "base_theme": "adw-gtk3", "can_theme": true,
-             "config": {"charging": true, "discharging": false,
-                        "charge_green_w": 7.0, "charge_amber_w": 3.0,
-                        "drain_amber_w": 3.0, "drain_red_w": 5.0,
-                        "level": true, "level_amber_pct": 60.0,
-                        "level_red_pct": 15.0}}"""
+    BATT = """{"config": {"charging": true, "discharging": false,
+                          "level": true,
+                          "charge_green_w": 7.0, "charge_amber_w": 3.0,
+                          "drain_amber_w": 2.0, "drain_red_w": 4.0,
+                          "level_amber_pct": 60.0, "level_red_pct": 15.0}}"""
 
     def batt(self, **anders):
-        """The tool's answer, with single fields overridden."""
         daten = json.loads(self.BATT)
-        daten.update(anders)
+        daten["config"].update(anders)
         return json.dumps(daten)
 
-    def test_the_battery_row_says_what_is_going_in(self):
-        """The whole point of the page: a percentage and a bolt look the same
-        at one watt and at six."""
-        self.win.on_battery_status(True, self.BATT)
-        self.assertIn("5.2 W", self.win.brow_now.subtitle)
-        self.assertIn("going in", self.win.brow_now.subtitle)
+    def test_the_battery_page_offers_exactly_three_options(self):
+        """Three, in the order somebody thinks about them: going in, how
+        full, going out."""
+        self.assertEqual(["charging", "level", "discharging"],
+                         [k for k, _t, _s in switcher.Window.BATTERY_OPTIONS])
 
-    def test_and_what_is_coming_out(self):
-        self.win.on_battery_status(True, self.batt(state="Discharging"))
-        self.assertIn("coming out", self.win.brow_now.subtitle)
+    def test_and_says_nothing_else(self):
+        """No readings on this page - a watt figure belongs where somebody
+        is measuring. Checked by building the page and looking for a row
+        with a subtitle: the option rows and the sliders carry a title and
+        nothing more."""
+        recorder.reset()
+        self.win.build_battery_page()
+        untertitel = [c[2].get("subtitle") for c in recorder.calls
+                      if c[0] in ("Adw.ActionRow", "Adw.SwitchRow")
+                      and c[2].get("subtitle")]
+        self.assertEqual([], untertitel)
 
-    def test_an_unreadable_battery_is_not_reported_as_zero(self):
-        self.win.on_battery_status(True, self.batt(readable=False, watt=0.0))
-        self.assertIn("not readable", self.win.brow_now.subtitle)
-        self.assertNotIn("0.0 W", self.win.brow_now.subtitle)
+    def test_the_sliders_appear_with_their_option(self):
+        """Six sliders at once ask to be studied; this is a page to glance
+        at."""
+        self.win.on_battery_active(True, "active")
+        self.win.on_battery_status(True, self.batt(charging=False,
+                                                   level=True))
+        self.assertFalse(
+            self.win.batt_switches["charging"].revealer.revealed)
+        self.assertTrue(self.win.batt_switches["level"].revealer.revealed)
 
-    def test_an_implausible_reading_says_so_instead_of_colouring(self):
-        """A driver reporting the wrong unit would make every charge look
-        like a thousand watts - and the icon permanently green."""
-        self.win.on_battery_status(True, self.batt(plausible=False, watt=1240.0))
-        self.assertIn("implausible", self.win.brow_now.subtitle)
-
-    def test_a_tool_that_did_not_answer_is_not_a_zero_either(self):
-        self.win.on_battery_status(False, "")
-        for row in (self.win.brow_now, self.win.brow_colour,
-                    self.win.brow_fill, self.win.brow_theme):
-            self.assertIn("did not answer", row.subtitle)
-
-    def test_an_unreadable_answer_is_said_out_loud(self):
-        self.win.on_battery_status(True, "{ not json")
-        self.assertIn("unreadable", self.win.brow_now.subtitle)
-
-    def test_the_shell_row_distinguishes_showing_from_would_be(self):
-        """The two differ while a colour waits out its dwell time, and
-        while the service is off entirely."""
-        self.win.on_battery_status(True, self.batt(showing="none", bucket="red"))
-        self.assertIn("would be red", self.win.brow_colour.subtitle)
-        self.win.on_battery_status(True, self.batt(showing="none", bucket="none"))
-        self.assertIn("plain", self.win.brow_colour.subtitle)
-        self.assertNotIn("would be", self.win.brow_colour.subtitle)
-
-    def test_the_filling_has_a_row_of_its_own(self):
-        """The icon says two things at once - how fast it is moving and how
-        full it is - and one row would have to hide one of them."""
-        self.win.on_battery_status(True, self.batt(
-            showing="green", bucket="green",
-            level_showing="red", level_bucket="red"))
-        self.assertIn("green", self.win.brow_colour.subtitle)
-        self.assertIn("red", self.win.brow_fill.subtitle)
-        self.assertIn("15 %", self.win.brow_fill.subtitle)
-
-    def test_a_single_shape_icon_is_said_out_loud(self):
-        """Adwaita draws the ordinary discharge battery as ONE path, so the
-        two halves cannot differ. Without the sentence that reads as the
-        colouring being broken."""
-        self.win.on_battery_status(True, self.batt(split_icon=False))
-        self.assertIn("one shape", self.win.brow_fill.subtitle)
-
-    def test_and_so_is_a_disagreement_between_the_two_sources(self):
-        """Seen on the phone: sysfs "Charging" at 1.8 W, UPower
-        "discharging" at 0 W. The shell stays plain, and the row says why
-        rather than looking like nothing is happening."""
-        self.win.on_battery_status(True, self.batt(sources_agree=False,
-                                                   showing="none",
-                                                   bucket="none"))
-        self.assertIn("disagree", self.win.brow_colour.subtitle)
-
-    def test_the_reading_says_how_full_as_well_as_how_fast(self):
-        self.win.on_battery_status(True, self.BATT)
-        self.assertIn("84 %", self.win.brow_now.subtitle)
-
-    def test_the_theme_row_names_the_one_underneath(self):
-        self.win.on_battery_status(True, self.BATT)
-        self.assertIn("adw-gtk3-batt-amber", self.win.brow_theme.subtitle)
-        self.assertIn("adw-gtk3", self.win.brow_theme.subtitle)
-
-    def test_a_theme_that_cannot_carry_a_colour_is_the_one_thing_to_say(self):
-        """Everything else looks healthy while this is the reason nothing
-        ever changes colour."""
-        self.win.on_battery_status(True, self.batt(can_theme=False))
-        self.assertIn("no GTK3 stylesheet", self.win.brow_theme.subtitle)
-
-    def test_the_thresholds_sit_next_to_the_colour_they_decide(self):
-        """In the status rows, once - saying them next to the switch as
-        well was the same sentence twice on a 360-pixel page."""
-        self.win.on_battery_status(True, self.BATT)
-        self.assertIn("7.0 W", self.win.brow_colour.subtitle)
-        self.assertIn("3.0 W", self.win.brow_colour.subtitle)
-        self.assertIn("60 %", self.win.brow_fill.subtitle)
-        self.assertIn("15 %", self.win.brow_fill.subtitle)
-        self.assertNotIn("7.0 W", self.win.batt_row.subtitle)
-        # The drain thresholds stay with the switch that turns them on.
-        self.assertIn("3.0 W", self.win.batt_drain.subtitle)
-        self.assertIn("5.0 W", self.win.batt_drain.subtitle)
-
-    def test_on_battery_promises_white_not_green(self):
-        """The option says when something is unusual; a colour that is on all
-        day says nothing. Asked of the page, because this is the sentence
-        somebody reads before deciding."""
-        text = (self.win.batt_drain.subtitle or "").lower()
-        self.win.on_battery_status(True, self.BATT)
-        text = self.win.batt_drain.subtitle.lower()
-        self.assertIn("white", text)
-        self.assertNotIn("green", text)
-
-    def test_the_second_option_follows_the_config_not_the_switch(self):
-        self.win.on_battery_status(True, self.batt(
-            config=dict(json.loads(self.BATT)["config"], discharging=True)))
-        self.assertTrue(self.win.batt_drain.active)
-
-    def test_a_service_that_is_not_running_says_what_that_means(self):
+    def test_a_switch_is_only_on_when_something_is_behind_it(self):
+        """The setting AND the service: an option left on in the file while
+        the daemon is stopped would be a switch with nothing behind it."""
         self.win.on_battery_active(True, "inactive")
-        self.assertFalse(self.win.batt_row.active)
-        self.assertIn("stays white", self.win.batt_row.subtitle)
+        self.win.on_battery_status(True, self.BATT)
+        self.assertFalse(self.win.batt_switches["charging"].active)
+        self.win.on_battery_active(True, "active")
+        self.assertTrue(self.win.batt_switches["charging"].active)
 
-    def test_the_switch_starts_and_stops_the_unit(self):
-        self.ran.clear()
-        # The stub answers every attribute with an object, and an object is
-        # truthy - so the guard against firing while the page is being filled
-        # has to be said out loud here. On the phone it is simply unset.
-        self.win._loading = False
-        self.win.batt_row.active = True
-        self.win.on_battery_switch(self.win.batt_row, None)
-        self.assertEqual(["systemctl", "--user", "start",
-                          switcher.BATTERY_UNIT], self.ran[0][0])
-        self.ran.clear()
-        self.win.batt_row.active = False
-        self.win.on_battery_switch(self.win.batt_row, None)
-        self.assertIn("stop", self.ran[0][0])
+    def test_the_switches_follow_the_config(self):
+        self.win.on_battery_active(True, "active")
+        self.win.on_battery_status(True, self.batt(discharging=True))
+        self.assertTrue(self.win.batt_switches["charging"].active)
+        self.assertTrue(self.win.batt_switches["discharging"].active)
 
-    def test_remembering_it_is_enable_not_start(self):
-        self.ran.clear()
-        self.win._loading = False
-        self.win.batt_persist.active = True
-        self.win.on_battery_persist(self.win.batt_persist, None)
-        self.assertIn("enable", self.ran[0][0])
+    def test_and_so_do_the_sliders(self):
+        self.win.on_battery_status(True, self.batt(drain_amber_w=2.5))
+        self.assertEqual(2.5, self.win.batt_scales["drain_amber_w"].value)
+        self.assertEqual(7.0, self.win.batt_scales["charge_green_w"].value)
 
-    def test_the_second_option_goes_to_the_tool_not_to_systemd(self):
-        """battctl re-reads its file, so this takes effect without the
-        service being restarted."""
+    def test_a_tool_that_did_not_answer_closes_the_switches(self):
+        self.win.on_battery_status(False, "")
+        for row in self.win.batt_switches.values():
+            self.assertFalse(row.sensitive)
+
+    def test_an_unreadable_answer_changes_nothing(self):
+        self.win.on_battery_status(True, "{ not json")
+
+    def test_switching_an_option_on_writes_it_and_starts_the_service(self):
         self.ran.clear()
         self.win._loading = False
-        self.win.batt_drain.active = True
-        self.win.on_battery_discharge(self.win.batt_drain, None)
-        argv = self.ran[0][0]
-        self.assertEqual(["config", "discharging", "on"], argv[1:])
-        self.assertNotIn("systemctl", argv[0])
+        row = self.win.batt_switches["discharging"]
+        row.active = True
+        self.win.on_battery_option(row, None, "discharging")
+        befehle = [" ".join(a) for a, _d, _o, _k in self.ran]
+        self.assertTrue(befehle[0].endswith("config discharging on"), befehle)
+        for argv, done, _o, _k in list(self.ran):
+            done(True, "")
+        befehle = [" ".join(a) for a, _d, _o, _k in self.ran]
+        self.assertTrue(any("enable --now" in b for b in befehle), befehle)
 
-    def test_neither_switch_fires_while_the_page_is_being_filled(self):
+    def test_switching_the_last_one_off_stops_the_service(self):
+        self.ran.clear()
+        self.win._loading = False
+        for key, row in self.win.batt_switches.items():
+            row.active = False
+        row = self.win.batt_switches["charging"]
+        self.win.on_battery_option(row, None, "charging")
+        for argv, done, _o, _k in list(self.ran):
+            done(True, "")
+        befehle = [" ".join(a) for a, _d, _o, _k in self.ran]
+        self.assertTrue(any("disable --now" in b for b in befehle), befehle)
+
+    def test_but_not_while_another_one_is_still_on(self):
+        self.ran.clear()
+        self.win._loading = False
+        self.win.batt_switches["level"].active = True
+        row = self.win.batt_switches["charging"]
+        row.active = False
+        self.win.on_battery_option(row, None, "charging")
+        for argv, done, _o, _k in list(self.ran):
+            done(True, "")
+        befehle = [" ".join(a) for a, _d, _o, _k in self.ran]
+        self.assertFalse(any("disable" in b for b in befehle), befehle)
+
+    def test_the_sliders_hide_and_show_with_the_switch(self):
+        self.win._loading = False
+        row = self.win.batt_switches["level"]
+        row.active = True
+        self.win.on_battery_option(row, None, "level")
+        self.assertTrue(row.revealer.revealed)
+        row.active = False
+        self.win.on_battery_option(row, None, "level")
+        self.assertFalse(row.revealer.revealed)
+
+    def test_a_threshold_is_written_after_a_moment_not_per_pixel(self):
+        """Dragging a slider fires continuously; battctl is called once,
+        when it stops."""
+        self.ran.clear()
+        self.win._loading = False
+        self.win.batt_scales["drain_red_w"].value = 5.0
+        self.win.on_battery_slider(self.win.batt_scales["drain_red_w"],
+                                   "drain_red_w")
+        self.assertEqual([], self.ran)
+        self.win.write_battery_threshold("drain_red_w", 5.0)
+        self.assertEqual(["config", "drain_red_w", "5"], self.ran[0][0][1:])
+
+    def test_the_neighbour_is_pushed_along_not_refused(self):
+        """battctl will not take a pair that crosses, and a slider that
+        stops dead under the thumb feels broken."""
+        self.win._loading = False
+        self.win.batt_scales["drain_amber_w"].value = 2.0
+        self.win.batt_scales["drain_red_w"].value = 4.0
+        self.win.batt_scales["drain_amber_w"].value = 6.0
+        self.win.keep_thresholds_apart("drain_amber_w")
+        self.assertEqual(6.5, self.win.batt_scales["drain_red_w"].value)
+        self.win.batt_scales["drain_red_w"].value = 3.0
+        self.win.keep_thresholds_apart("drain_red_w")
+        self.assertEqual(2.5, self.win.batt_scales["drain_amber_w"].value)
+
+    def test_the_level_pair_keeps_its_own_distance(self):
+        self.win._loading = False
+        self.win.batt_scales["level_amber_pct"].value = 60.0
+        self.win.batt_scales["level_red_pct"].value = 70.0
+        self.win.keep_thresholds_apart("level_red_pct")
+        self.assertEqual(75.0, self.win.batt_scales["level_amber_pct"].value)
+
+    def test_nothing_is_written_while_the_page_is_being_filled(self):
         self.ran.clear()
         self.win._loading = True
-        self.win.on_battery_switch(self.win.batt_row, None)
-        self.win.on_battery_persist(self.win.batt_persist, None)
-        self.win.on_battery_discharge(self.win.batt_drain, None)
+        self.win.on_battery_option(self.win.batt_switches["level"], None,
+                                   "level")
+        self.win.on_battery_slider(self.win.batt_scales["level_red_pct"],
+                                   "level_red_pct")
         self.win._loading = False
         self.assertEqual([], self.ran)
 
-    def test_a_switch_that_did_not_take_says_so(self):
-        self.win.after_battery(False, "nope", "start")
-        self.assertIn("Could not start", str(self.win.toasts.text))
+    def test_a_change_that_did_not_take_says_so(self):
+        self.win.after_battery(False, "nope", "change")
+        self.assertIn("Could not change", str(self.win.toasts.text))
 
     def test_the_way_back_stops_the_service_before_it_cleans_up(self):
-        """In that order: battctl restore puts the theme back and deletes
-        what it generated, and a daemon still running would write both again
-        within the minute."""
+        """In that order: battctl restore puts the theme and the icons back
+        and deletes what it generated, and a daemon still running would
+        write both again within the minute."""
         self.ran.clear()
         self.win.busy = False
         self.win.on_battery_restore(None)

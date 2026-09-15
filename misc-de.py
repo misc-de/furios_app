@@ -1627,177 +1627,181 @@ class Window(Adw.ApplicationWindow):
 
     # ------------------------------------------------------------ Battery
 
-    def build_battery_page(self):
-        """One switch, one option, and the numbers behind them.
+    # What each of the three options switches, and the two thresholds it
+    # owns. (config key, row title, [(slider label, config key, from, to,
+    # step, digits)]).
+    BATTERY_OPTIONS = (
+        ("charging", "While charging", (
+            ("Green", "charge_green_w", 1.0, 12.0, 0.5, 1),
+            ("Amber", "charge_amber_w", 0.5, 11.0, 0.5, 1))),
+        ("level", "Charge level", (
+            ("Amber", "level_amber_pct", 20.0, 95.0, 5.0, 0),
+            ("Red", "level_red_pct", 5.0, 90.0, 5.0, 0))),
+        ("discharging", "Drain", (
+            ("Amber", "drain_amber_w", 0.5, 8.0, 0.5, 1),
+            ("Red", "drain_red_w", 1.0, 12.0, 0.5, 1))),
+    )
 
-        The reading is the point of this page: a percentage and a lightning
-        bolt look the same at one watt and at six, and that difference is
-        hours. So "Now" says what is actually going in, in watts, whether the
-        colouring is on or not.
+    def build_battery_page(self):
+        """Three options, and under each the sliders that decide it.
+
+        No readings on this page. A watt figure belongs where somebody is
+        measuring; here the question is only which colour appears when, and
+        an answer to that is a slider, not a number to read off.
+
+        The sliders sit under their own option and are revealed with it: a
+        page that shows six of them at once asks to be studied, and this is
+        a page to glance at.
         """
         bpage = Adw.PreferencesPage()
+        self.batt_switches = {}
+        self.batt_scales = {}
+        self.batt_rows = []
 
-        grp = Adw.PreferencesGroup(title="Battery icon")
-        self.batt_row = Adw.SwitchRow(
-            title="Colour it by charging power",
-            subtitle="reading …")
-        self.batt_row.connect("notify::active", self.on_battery_switch)
-        grp.add(self.batt_row)
-        # The second option, and the reason it is a switch of its own: on
-        # battery the colour means the opposite, and it is on all day. Wanted
-        # by some, noise to others.
-        self.batt_drain = Adw.SwitchRow(
-            title="On battery too",
-            subtitle="White until the drain is unusual, then amber, then red")
-        self.batt_drain.connect("notify::active", self.on_battery_discharge)
-        grp.add(self.batt_drain)
-        self.batt_persist = Adw.SwitchRow(
-            title="Remember this choice",
-            subtitle="Off: gone again after the next boot")
-        self.batt_persist.connect("notify::active", self.on_battery_persist)
-        grp.add(self.batt_persist)
-        bpage.add(grp)
+        for key, title, sliders in self.BATTERY_OPTIONS:
+            grp = Adw.PreferencesGroup()
+            row = Adw.SwitchRow(title=title)
+            row.connect("notify::active", self.on_battery_option, key)
+            grp.add(row)
+            self.batt_switches[key] = row
+            self.batt_rows.append(row)
 
-        # Two halves, two rows: the icon says two different things at once -
-        # the shell how fast the battery is moving, the filling how full it
-        # is - and a single "Colour" row would have to hide one of them.
-        info = Adw.PreferencesGroup(title="Status")
-        self.brow_now = Adw.ActionRow(title="Now", subtitle="…")
-        self.brow_colour = Adw.ActionRow(title="Shell", subtitle="…")
-        self.brow_fill = Adw.ActionRow(title="Filling", subtitle="…")
-        self.brow_theme = Adw.ActionRow(title="Theme", subtitle="…")
-        for row in (self.brow_now, self.brow_colour, self.brow_fill,
-                    self.brow_theme):
-            row.set_subtitle_selectable(True)
-            info.add(row)
-        bpage.add(info)
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+            for label, ckey, low, high, step, digits in sliders:
+                skala = Gtk.Scale.new_with_range(
+                    Gtk.Orientation.HORIZONTAL, low, high, step)
+                skala.set_digits(digits)
+                skala.set_draw_value(True)
+                skala.set_hexpand(True)
+                skala.set_size_request(190, -1)
+                skala.connect("value-changed", self.on_battery_slider, ckey)
+                srow = Adw.ActionRow(title=label)
+                srow.add_suffix(skala)
+                box.append(srow)
+                self.batt_scales[ckey] = skala
+            revealer = Gtk.Revealer(
+                child=box,
+                transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN,
+                reveal_child=False)
+            grp.add(revealer)
+            row.revealer = revealer
+            bpage.add(grp)
 
         back, self.batt_restore_btn = self.build_restore_group(
             "Stops the colouring, takes it out of the next boot, puts your "
-            "own theme back and removes the three it generated. What the "
-            "battery reports is untouched - that is the kernel's.",
+            "own theme and icons back. What the battery reports is "
+            "untouched - that is the kernel's.",
             self.on_battery_restore)
         bpage.add(back)
-
-        self.batt_rows = [self.batt_row, self.batt_drain, self.batt_persist,
-                          self.batt_restore_btn]
+        self.batt_rows.append(self.batt_restore_btn)
         return bpage
 
     def on_battery_status(self, ok, out):
+        """Follow battctl: which options are on, and where the sliders
+        stand. Nothing else - the page shows no readings."""
         if not ok:
-            for row in (self.brow_now, self.brow_colour, self.brow_fill,
-                        self.brow_theme):
-                row.set_subtitle("battctl did not answer")
+            for row in self.batt_switches.values():
+                row.set_sensitive(False)
             return
         try:
             data = json.loads(out)
         except ValueError:
-            self.brow_now.set_subtitle("unreadable answer")
             return
+        self.batt_cfg = data.get("config", {})
+        self.sync_battery_switches()
 
-        prozent = data.get("percent")
-        stand = "" if prozent is None else ", %d %%" % prozent
-        if data.get("readable") and data.get("plausible"):
-            direction = {"Charging": "going in", "Discharging": "coming out"}
-            whither = direction.get(data.get("state"), data.get("state", "?"))
-            self.brow_now.set_subtitle("%.1f W %s%s"
-                                       % (data.get("watt", 0.0), whither, stand))
-        elif data.get("readable"):
-            # The one failure that looks like a working phone: a driver
-            # reporting the wrong unit would put the icon permanently green.
-            self.brow_now.set_subtitle("implausible reading - not coloured")
-        else:
-            self.brow_now.set_subtitle("battery not readable")
+    def sync_battery_switches(self):
+        """Switch on means "this colour is happening" - which is the
+        setting AND the service that acts on it.
 
-        cfg = data.get("config", {})
-
-        def colour_line(shows, would_be, rule):
-            """What is showing, and - when they differ - what the reading
-            says it would be. The two differ while a colour is waiting out
-            its dwell time, and while the service is off entirely."""
-            secret = "plain" if shows == "none" else shows
-            if shows != would_be:
-                secret += " - would be %s" % ("plain" if would_be == "none" else would_be)
-            return "%s · %s" % (secret, rule)
-
-        # Two states that would otherwise look like the colouring simply
-        # not working, and both are things the phone is doing, not faults.
-        rule = ("green from %.1f W, amber from %.1f W while charging"
-                 % (cfg.get("charge_green_w", 0.0),
-                    cfg.get("charge_amber_w", 0.0)))
-        if not data.get("sources_agree", True):
-            rule = ("the kernel and UPower disagree about the direction, "
-                     "so the shell stays plain")
-        self.brow_colour.set_subtitle(colour_line(
-            data.get("showing", "none"), data.get("bucket", "none"), rule))
-        stand_regel = ("amber below %d %%, red below %d %%"
-                       % (int(cfg.get("level_amber_pct", 0)),
-                          int(cfg.get("level_red_pct", 0))))
-        if not data.get("split_icon", True):
-            stand_regel += (" · this icon is one shape, so both halves take "
-                            "the more urgent colour")
-        self.brow_fill.set_subtitle(colour_line(
-            data.get("level_showing", "none"), data.get("level_bucket", "none"),
-            stand_regel))
-        self.brow_theme.set_subtitle(
-            "%s (on top of %s)" % (data.get("theme", "?"),
-                                   data.get("base_theme", "?")))
-        if not data.get("can_theme", True):
-            # Everything else can look healthy while this is the reason
-            # nothing ever changes colour.
-            self.brow_theme.set_subtitle(
-                "%s - no GTK3 stylesheet, nothing can be coloured"
-                % data.get("base_theme", "?"))
-
+        An option left on in the file while the daemon is stopped would
+        show a switch that is on with nothing behind it, and this app's
+        rule is to never claim more than it knows.
+        """
+        cfg = getattr(self, "batt_cfg", {})
         self._loading = True
-        self.batt_drain.set_active(bool(cfg.get("discharging")))
+        for key, _title, sliders in self.BATTERY_OPTIONS:
+            row = self.batt_switches[key]
+            an = bool(cfg.get(key)) and getattr(self, "batt_running", True)
+            row.set_sensitive(True)
+            row.set_active(an)
+            row.revealer.set_reveal_child(an)
+            for _label, ckey, _low, _high, _step, _digits in sliders:
+                if ckey in cfg:
+                    self.batt_scales[ckey].set_value(float(cfg[ckey]))
         self._loading = False
-        # The switch says what it is for; the numbers live in the status
-        # rows, next to the colour they decide. Saying them in both places
-        # was the same sentence twice on a 360-pixel page.
-        if cfg:
-            self.batt_row.set_subtitle(
-                "The bolt follows the charging power, the frame the drain")
-            self.batt_drain.set_subtitle(
-                "White below %.1f W, then amber, red from %.1f W"
-                % (cfg.get("drain_amber_w", 0.0), cfg.get("drain_red_w", 0.0)))
 
     def on_battery_active(self, ok, out):
-        aktiv = ok and out.strip() == "active"
-        self._loading = True
-        self.batt_row.set_active(aktiv)
-        self._loading = False
-        if not aktiv:
-            self.batt_row.set_subtitle("not running - the icon stays white")
+        self.batt_running = ok and out.strip() == "active"
+        if getattr(self, "batt_cfg", None) is not None:
+            self.sync_battery_switches()
 
     def on_battery_enabled(self, ok, out):
-        self._loading = True
-        self.batt_persist.set_active(ok and out.strip() == "enabled")
-        self._loading = False
+        self.batt_enabled = ok and out.strip() == "enabled"
 
-    def on_battery_switch(self, row, _param):
+    def on_battery_option(self, row, _param, key):
+        """One option on or off - and with it the service, which is the
+        thing that actually does the colouring.
+
+        No separate switch for "remember": an option somebody turns on is
+        one they want after the next boot as well, and a page of three
+        switches plus a fourth about the other three is exactly the kind of
+        furniture this page is meant not to have.
+        """
         if getattr(self, "_loading", False):
             return
-        verb = "start" if row.get_active() else "stop"
-        run_async(["systemctl", "--user", verb, BATTERY_UNIT],
-                  lambda ok, out: self.after_battery(ok, out, verb))
+        wanted = row.get_active()
+        row.revealer.set_reveal_child(wanted)
+        steps = [[self.live["battery"], "config", key,
+                  "on" if wanted else "off"]]
+        if wanted:
+            steps.append(["systemctl", "--user", "enable", "--now",
+                          BATTERY_UNIT])
+        elif not any(r.get_active() for r in self.batt_switches.values()):
+            # Nothing left to colour: the daemon goes, and with it the
+            # theme it set.
+            steps.append(["systemctl", "--user", "disable", "--now",
+                          BATTERY_UNIT])
+        self.run_chain(steps, lambda ok, out: self.after_battery(
+            ok, out, "change"))
 
-    def on_battery_persist(self, row, _param):
+    def on_battery_slider(self, scale, key):
+        """A threshold moved. Written after a moment's quiet, not on every
+        pixel of the drag - and the other threshold of the pair is pushed
+        out of the way rather than refused, because battctl will not take a
+        pair that crosses."""
         if getattr(self, "_loading", False):
             return
-        verb = "enable" if row.get_active() else "disable"
-        run_async(["systemctl", "--user", verb, BATTERY_UNIT],
-                  lambda ok, out: self.after_battery(ok, out, verb))
+        self.keep_thresholds_apart(key)
+        if getattr(self, "_batt_write", 0):
+            GLib.source_remove(self._batt_write)
+        self._batt_write = GLib.timeout_add(
+            400, self.write_battery_threshold, key, scale.get_value())
 
-    def on_battery_discharge(self, row, _param):
-        """The second option. battctl re-reads its file, so this takes effect
-        without the service being restarted - which is the whole reason the
-        switch can sit here and not next to a "restart to apply"."""
-        if getattr(self, "_loading", False):
-            return
-        value = "on" if row.get_active() else "off"
-        run_async([self.live["battery"], "config", "discharging", value],
+    # Which threshold has to stay below which, and by how much.
+    BATTERY_PAIRS = (("charge_amber_w", "charge_green_w", 0.5),
+                     ("level_red_pct", "level_amber_pct", 5.0),
+                     ("drain_amber_w", "drain_red_w", 0.5))
+
+    def keep_thresholds_apart(self, key):
+        """Push the neighbour along instead of refusing the move."""
+        for low, high, gap in self.BATTERY_PAIRS:
+            if key not in (low, high):
+                continue
+            unten, oben = self.batt_scales[low], self.batt_scales[high]
+            if unten.get_value() + gap > oben.get_value():
+                self._loading = True
+                if key == low:
+                    oben.set_value(unten.get_value() + gap)
+                else:
+                    unten.set_value(oben.get_value() - gap)
+                self._loading = False
+
+    def write_battery_threshold(self, key, value):
+        self._batt_write = 0
+        run_async([self.live["battery"], "config", key, "%g" % value],
                   lambda ok, out: self.after_battery(ok, out, "change"))
+        return False
 
     def after_battery(self, ok, out, verb):
         if not ok:
@@ -1809,9 +1813,9 @@ class Window(Adw.ApplicationWindow):
     def on_battery_restore(self, _btn):
         """The service first, then the tool.
 
-        In that order on purpose: battctl restore puts the theme back and
-        deletes what it generated, and a daemon still running would write
-        both again within the minute.
+        In that order on purpose: battctl restore puts the theme and the
+        icons back and deletes what it generated, and a daemon still
+        running would write both again within the minute.
         """
         if self.busy:
             return

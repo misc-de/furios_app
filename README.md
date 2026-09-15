@@ -60,10 +60,9 @@ the page says so.
 shutdowns; the microphone switch physically cuts the line and is therefore
 invisible to software, which the page states rather than guessing at.
 
-**Battery** — the battery icon goes green, amber or red with the charging
-power, because a bolt and a percentage look the same at one watt and at six.
-Optionally on battery as well, where the colour means the opposite. The page
-says the wattage whether the colouring is on or not.
+**Battery** — three options: colour while charging (the bolt), colour by
+charge level (the filling), colour an unusual drain (the frame). The
+thresholds are sliders, shown under the option they belong to when it is on.
 
 Every page has the same plainly labelled way back to how the phone shipped, and
 asks before it does anything.
