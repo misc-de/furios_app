@@ -2154,7 +2154,7 @@ class Window(Adw.ApplicationWindow):
             self.report(out or "No output.")
         self.refresh()
 
-    # ------------------------------------------------------------ Zustand
+    # -------------------------------------------------------------- state
 
     def refresh(self):
         """Ask every tool whose page was actually built.
