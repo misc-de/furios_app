@@ -1075,6 +1075,38 @@ class TheWindow(unittest.TestCase):
             self.win.on_gps_contrib(self.win.gps_contrib, None)
         self.assertEqual("off", self.ran[0][0][1])
 
+    def test_a_phone_without_the_switches_gets_no_switches_tab(self):
+        """Not just "no controls" - no tab. On a phone that has no such
+        hardware the tab could only offer to fetch a tool that would never
+        have anything to show: an offer to repair a fault the device does not
+        have."""
+        leer = tempfile.mkdtemp()
+        with mock.patch.dict(os.environ, {"FURIOS_KILLSWITCH_BASE": leer}):
+            self.assertFalse(switcher.phone_has_switches())
+            recorder.reset()
+            switcher.Window(switcher.Adw.Application())
+        titel = [str(c[1][2]) for c in recorder.calls
+                 if c[0].endswith("add_titled_with_icon()") and len(c[1]) > 2]
+        self.assertNotIn("Switches", titel, titel)
+
+    def test_a_phone_with_them_still_gets_it(self):
+        basis = tempfile.mkdtemp()
+        open(os.path.join(basis, "cam_switch"), "w").write("1\n")
+        with mock.patch.dict(os.environ, {"FURIOS_KILLSWITCH_BASE": basis}):
+            self.assertTrue(switcher.phone_has_switches())
+            recorder.reset()
+            switcher.Window(switcher.Adw.Application())
+        titel = [str(c[1][2]) for c in recorder.calls
+                 if c[0].endswith("add_titled_with_icon()") and len(c[1]) > 2]
+        self.assertIn("Switches", titel, titel)
+
+    def test_one_switch_attribute_is_enough(self):
+        """The two are read separately and a phone could have one of them."""
+        basis = tempfile.mkdtemp()
+        open(os.path.join(basis, "nwk_switch"), "w").write("1\n")
+        with mock.patch.dict(os.environ, {"FURIOS_KILLSWITCH_BASE": basis}):
+            self.assertTrue(switcher.phone_has_switches())
+
     def test_restore_sound_runs_the_same_rescue_as_the_command_line(self):
         self.win.on_rescue(None)
         self.assertEqual("rescue", self.ran[0][0][1])

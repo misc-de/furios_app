@@ -69,6 +69,31 @@ def _tool_maybe(name):
 # and is looked up when it is used.
 DMNR = "furios-audio-dmnr"
 CONTRIB = "furios-gps-contribute"
+
+
+# Where the kernel driver puts the switch positions. Taken from
+# killswitch-indicator, which reads the same two files and honours the same
+# override - this is the one place the app needs to know a path of another
+# tool, and it needs it before that tool is installed.
+KILLSWITCH_SYSFS = "/sys/devices/platform/custom-keys"
+
+
+def phone_has_switches():
+    """Does this phone have the hardware switches at all?
+
+    Asked before the tab is built, not after. A phone without them would
+    otherwise get a Switches tab offering to fetch a tool that could never
+    show anything on it - an offer for a repair to a fault the device does
+    not have.
+
+    The camera and network switches are what can be read; the microphone
+    switch cuts the line and is invisible to software, so it cannot serve as
+    the test. A phone with only that one would be missed here, and there is
+    no way to tell it apart from a phone with none.
+    """
+    basis = os.environ.get("FURIOS_KILLSWITCH_BASE", KILLSWITCH_SYSFS)
+    return any(os.path.exists(os.path.join(basis, name))
+               for name in ("cam_switch", "nwk_switch"))
 # modemctl, gpsctl and killswitch-indicator have NO constant here on purpose.
 # They ship in other packages, may simply not be on the phone, and - since the
 # components page can fetch one - may arrive while this window is open. A
@@ -185,6 +210,10 @@ COMPONENTS = [
         "root": False,
         "does": "an icon in the top bar while the camera or the network "
                 "switch is engaged - nothing else on the phone says so",
+        # Only on a phone that has the switches. Everything else here is
+        # software this phone could have; this one is about hardware it
+        # either has or does not.
+        "needs": phone_has_switches,
     },
 ]
 
@@ -797,6 +826,8 @@ class Window(Adw.ApplicationWindow):
         # without the others being rebuilt underneath somebody.
         self.pages = {}
         for comp in COMPONENTS:
+            if not comp.get("needs", lambda: True)():
+                continue
             self.build_component_page(comp)
 
         # Directly under the header, not at the foot of the window: the tabs
@@ -856,6 +887,10 @@ class Window(Adw.ApplicationWindow):
                 self.stack.remove(self.pages[c["key"]])
         self.build_component_page(comp)
         for c in danach[1:]:
+            # A tab that was never built has nothing to put back - the
+            # Switches one is absent on a phone without the hardware.
+            if self.pages.get(c["key"]) is None:
+                continue
             self.stack.add_titled_with_icon(
                 self.pages[c["key"]], c["key"], c["page"], c["icon"])
         # The tab somebody was standing on went out with the swap, so say
