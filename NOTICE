@@ -1,22 +1,32 @@
-Licence notice for furios_pipewire
-==================================
+Lizenzhinweis fuer furios_app
+=============================
 
-The source files in this repository are MIT (see LICENSE). Every file we wrote
-carries an SPDX header saying so.
+Dieses Projekt enthaelt ausschliesslich eigenen Code (MIT, siehe LICENSE):
+misc-de.py, das App-Symbol, der Starter-Eintrag, der Installer und die Tests.
+Jede dieser Dateien traegt einen SPDX-Kopf, der das sagt.
 
-The built plugin is not MIT. `libspa-droid.so` compiles six source files from
-pulseaudio-modules-droid-modern into itself:
+Es verwendet zur Laufzeit:
+  - GTK 4 und libadwaita (LGPL-2.1+), ueber PyGObject (LGPL-2.1+)
+  - GLib und Gio (LGPL-2.1+), aus derselben Quelle
+  - Symbole aus dem Adwaita-Icon-Theme (CC-BY-SA 3.0 / LGPL-3):
+      audio-speakers-symbolic, changes-prevent-symbolic,
+      find-location-symbolic, network-cellular-symbolic,
+      software-update-available-symbolic
 
-    droid-util.c  droid-config.c  config-parser-xml.c
-    conversion.c  sllist.c        utils.c
+Es ruft auf, ohne sie mitzuliefern:
+  - git, sudo und pkexec (polkit)
+  - audioctl, modemctl, gpsctl und killswitch-indicator - die vier Werkzeuge,
+    die diese App bedient
 
-Those are LGPL-2.1 (Copyright (C) 2013-2022 Jolla Ltd.), version 2.1 only, not
-"or later". The resulting binary is a combined work and can only be distributed
-under the terms of the LGPL-2.1 - the .deb from packaging/build-deb.sh
-included, which ships a matching Debian copyright file.
+Die vier Werkzeuge liegen in eigenen Repos und haben eigene Lizenzen. Wer sie
+ueber diese App installiert, installiert nicht MIT-Code: das Paket von
+furios_pipewire ist LGPL-2.1 (es kompiliert Jolla-Code ein), das von
+furios_modem_fixes ist GPL-2.0 (es patcht eine GPL-Datei von ofono2mm).
+furios_gps und furios_killswitch sind durchgehend MIT. Die Einzelheiten stehen
+im NOTICE des jeweiligen Repos; die Uebersicht in "Lizenz und Bausteine" in
+README.md.
 
-Anyone taking only the MIT files from here - the SPA node, the WirePlumber
-scripts, audioctl - takes on none of that.
+Das App-Symbol de.misc-de.tools.svg ist selbst gezeichnet.
 
-The full picture, including the projects this work is built on, is in the
-"Licence and credits" section of README.md.
+Kein Bestandteil von FuriOS wird gepatcht oder ersetzt. Die App aendert nichts
+selbst - sie ruft die Werkzeuge auf, die das tun.

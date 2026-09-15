@@ -209,6 +209,31 @@ Die App lag bis zum 14.9.2026 in
 Sie ist mit ihrer Geschichte hierher umgezogen, weil sie inzwischen vier
 Werkzeuge aus vier Repos bedient und keines davon ihr Zuhause ist.
 
-## Lizenz
+## Lizenz und Bausteine
 
-MIT, siehe [LICENSE](LICENSE).
+Alles in diesem Repo ist **MIT** (siehe [LICENSE](LICENSE)), und jede Datei,
+die wir geschrieben haben, traegt einen SPDX-Kopf. Die App patcht nichts und
+ersetzt nichts - sie ruft die Werkzeuge auf, die das tun.
+
+| Baustein | Lizenz | Wofuer |
+|---|---|---|
+| GTK 4 / [libadwaita](https://gitlab.gnome.org/GNOME/libadwaita) | LGPL-2.1+ | die Oberflaeche, ueber PyGObject |
+| [PyGObject](https://gitlab.gnome.org/GNOME/pygobject) | LGPL-2.1+ | die Bruecke von Python dorthin |
+| GLib / Gio | LGPL-2.1+ | Unterprozesse, Sockets, der Askpass-Dienst |
+| Adwaita-Icon-Theme | CC-BY-SA 3.0 / LGPL-3 | fuenf symbolische Symbole, je eins pro Reiter |
+| `git`, `sudo`, `pkexec` (polkit) | - | aufgerufen, nicht mitgeliefert |
+
+Das App-Symbol `de.misc-de.tools.svg` ist selbst gezeichnet.
+
+**Was die App installiert, ist nicht MIT.** Die vier Werkzeuge liegen in
+eigenen Repos und bringen eigene Lizenzen mit:
+
+| Werkzeug | Repo | Lizenz des Pakets |
+|---|---|---|
+| `audioctl` | [furios_pipewire](https://github.com/misc-de/furios_pipewire) | **LGPL-2.1** - das Plugin kompiliert Jolla-Code ein |
+| `modemctl` | [furios_modem_fixes](https://github.com/misc-de/furios_modem_fixes) | **GPL-2.0** - ein Patch trifft eine GPL-Datei von ofono2mm |
+| `gpsctl` | [furios_gps](https://github.com/misc-de/furios_gps) | MIT |
+| `killswitch-indicator` | [furios_killswitch](https://github.com/misc-de/furios_killswitch) | MIT |
+
+Die Begruendung steht jeweils im `NOTICE` des betreffenden Repos. Die kurze
+Fassung fuer dieses hier: [NOTICE](NOTICE).
