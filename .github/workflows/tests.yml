@@ -35,14 +35,19 @@ jobs:
           set -o pipefail
           ./tests/run-tests.sh 2>&1 | tee /tmp/suite.log
 
-      - name: Nothing may be quietly skipped here
+      - name: Only the phone may be missing here
         run: |
-          # Every runner skips a check whose tool is missing, and prints that
-          # it did. On the phone that is a kindness - the rest of the suite
-          # still runs. Here it would be a green tick over an empty run, which
-          # is worse than a red one.
-          if cat /tmp/suite.log | grep -q skipped; then
-              echo "::error::a check was skipped - install its tool above"
-              grep skipped /tmp/suite.log
+          # A skip is not a failure by itself. A good part of these suites
+          # cross-checks our own programs against each other, and on a runner
+          # audioctl, gpsctl, modemctl and WirePlumber are simply not there -
+          # that skip is honest, and saying so is the point of it.
+          #
+          # A skip for want of a TOOL is a different thing: the step above
+          # installs those, so one of them being reported missing means that
+          # step is wrong and a whole check silently did not run. Which is
+          # exactly what this phone had been doing with shellcheck since the
+          # suite was written.
+          if grep -Eni 'no shellcheck|no desktop-file-validate|systemd-analyze not available|luac?5\.4 not installed|no GTK3' /tmp/suite.log; then
+              echo "::error::a check was skipped for want of a tool - install it in the step above"
               exit 1
           fi
