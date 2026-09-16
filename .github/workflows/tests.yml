@@ -1,0 +1,48 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 misc-de
+# SPDX-License-Identifier: MIT
+#
+# The suite, on every push.
+#
+# Why this exists: the tests only ever ran when somebody on the phone
+# remembered to type run-tests.sh, which is a poor place to keep a safety
+# net. They need no display, no battery, no radio and no root - everything
+# they touch is a stub or a copy - so an ordinary x86 runner can say whether
+# the last commit still holds.
+#
+# What a runner cannot say is whether the PHONE still works. That is measured
+# on the device, and the README says so in the same words.
+
+name: tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The tools the suite looks for
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends shellcheck desktop-file-utils
+
+      - name: Run it
+        run: |
+          set -o pipefail
+          ./tests/run-tests.sh 2>&1 | tee /tmp/suite.log
+
+      - name: Nothing may be quietly skipped here
+        run: |
+          # Every runner skips a check whose tool is missing, and prints that
+          # it did. On the phone that is a kindness - the rest of the suite
+          # still runs. Here it would be a green tick over an empty run, which
+          # is worse than a red one.
+          if cat /tmp/suite.log | grep -q skipped; then
+              echo "::error::a check was skipped - install its tool above"
+              grep skipped /tmp/suite.log
+              exit 1
+          fi
