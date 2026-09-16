@@ -6,9 +6,72 @@ The page itself is built in window.py with the rest of the window -
 it is the one tab that exists before any tool is found. What lives
 here is everything that happens after somebody touches it."""
 
+from gi.repository import Adw
+
 from .. import process, tools
 from ..tools import DMNR
 from ..words import profile_in_words, server_in_words
+
+
+# batman, the battery manager that ships with the phone, keeps its settings
+# here as plain KEY=value lines. BTSAVE is the one that decides whether the
+# Bluetooth adapter is switched off along with the screen.
+BATMAN_CONFIG = "/var/lib/batman/config"
+BATMAN_UNIT = "batman.service"
+
+# Everything it works on comes in as an argument: the file as $1, the unit as
+# $2, the value as $3. Not for quoting's sake - all three are ours - but so
+# the script can be run against a scratch file in a test. A script that names
+# /var/lib/batman/config in its own text can only ever be read, not checked.
+# `sed` over the existing line, append when the key is missing; batman reads
+# this file at startup only, hence the restart.
+BTSAVE_SCRIPT = (
+    'set -e\n'
+    'if grep -q "^BTSAVE=" "$1"; then\n'
+    '  sed -i "s/^BTSAVE=.*/BTSAVE=$3/" "$1"\n'
+    'else\n'
+    '  printf "BTSAVE=%s\\n" "$3" >> "$1"\n'
+    'fi\n'
+    'systemctl restart "$2"\n'
+)
+
+
+def btsave_in_config(text):
+    """Whether batman is set to power the adapter down.
+
+    None when the key is not in the file at all, which is a different thing
+    from "off" and is shown as such: an unknown setting must not be drawn as
+    a switch that is merely not on."""
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("BTSAVE="):
+            return line.split("=", 1)[1].strip().lower() == "true"
+    return None
+
+
+def btsave_argv(wanted, secret=None):
+    """The one command that changes it, with or without a password.
+
+    Without a secret this is `sudo -n`: on a phone whose sudoers asks for
+    nothing, the switch just works and nobody is shown a password box for a
+    single config line. When sudo does want one, the caller asks and comes
+    back through here with it - `-S` reads it from the pipe, `-p ""` keeps
+    sudo's prompt out of the window's own output."""
+    value = "true" if wanted else "false"
+    front = (["sudo", "-S", "-p", ""] if secret is not None
+             else ["sudo", "-n"])
+    return front + ["sh", "-c", BTSAVE_SCRIPT, "sh",
+                    BATMAN_CONFIG, BATMAN_UNIT, value]
+
+
+def needs_a_password(out):
+    """sudo -n turning the job down, told apart from the job failing.
+
+    sudo says "a password is required" (or, in older versions, "no tty
+    present and no askpass program specified"). Either way the answer is to
+    ask, not to report a broken switch."""
+    low = (out or "").lower()
+    return "password is required" in low or "askpass" in low
 
 
 class AudioPage:
@@ -166,6 +229,106 @@ class AudioPage:
         if not ok:
             self.report(out or "No output.")
         self.refresh()
+
+    # --- Bluetooth powersave ---
+    #
+    # Not part of the audio stack and not ours: batman, the battery manager
+    # the phone ships with, powers the Bluetooth adapter DOWN when the screen
+    # goes off and nothing is connected. It is on this page because that is
+    # where somebody looking for "why is my headset silent" arrives - and
+    # because the symptom is entirely an audio one: take the earbuds out of
+    # their case with the screen dark and they page a controller that is not
+    # there. Nothing happens until the phone is woken, and then the headset
+    # is back in under a second. Measured on 16.9.2026 with btmon.
+
+    @staticmethod
+    def btsave_words(state):
+        """What the switch says about itself, including "no idea"."""
+        if state is None:
+            return "batman is not installed - nothing powers the adapter down"
+        if state:
+            return ("On: the adapter goes off with the screen - a headset "
+                    "cannot get back until the phone is woken")
+        return "Off: the adapter stays on, a headset reconnects by itself"
+
+    def sync_btsave(self):
+        """Follow the config file, which is the only thing that decides this.
+
+        Read here rather than through a helper: the file is world-readable
+        and this is one line of it. It is also read again after every change,
+        because a switch that reports what somebody just clicked, rather than
+        what is in the file, is how this window once claimed a setting it had
+        failed to write."""
+        try:
+            with open(BATMAN_CONFIG) as handle:
+                state = btsave_in_config(handle.read())
+        except OSError:
+            state = None
+        self.btsave_ok = state is not None
+        self._syncing = True
+        self.btsave_row.set_active(bool(state))
+        self._syncing = False
+        self.btsave_row.set_subtitle(self.btsave_words(state))
+        self.btsave_row.set_sensitive(not self.busy and self.btsave_ok)
+
+    def on_btsave(self, row, _param):
+        if self._syncing or self.busy:
+            return
+        self.apply_btsave(row.get_active())
+
+    def apply_btsave(self, wanted, secret=None):
+        self.set_busy(True)
+        self.pulse_start("Changing Bluetooth powersave …")
+        process.run_async(
+            btsave_argv(wanted, secret),
+            lambda ok, out: self.on_btsave_done(ok, out, wanted),
+            stdin=None if secret is None else (secret + "\n"))
+
+    def on_btsave_done(self, ok, out, wanted):
+        self.pulse_stop()
+        self.set_busy(False)
+        # A password being wanted is not a failure - it is the one answer
+        # this switch can do something about, so it asks instead of reporting.
+        if not ok and needs_a_password(out):
+            self.ask_btsave_password(wanted)
+            return
+        if not ok:
+            self.toast("Could not change Bluetooth powersave")
+            self.report(out or "No output.")
+        else:
+            self.toast("Bluetooth powersave " + ("on" if wanted else "off"))
+        self.sync_btsave()
+
+    def ask_btsave_password(self, wanted):
+        entry = Adw.PasswordEntryRow(title="Your password (for sudo)")
+        group = Adw.PreferencesGroup()
+        group.add(entry)
+        dlg = Adw.AlertDialog(
+            heading="Bluetooth powersave",
+            body="This changes one line in batman's config and restarts it, "
+                 "so sudo asks for a password. It goes to sudo through a "
+                 "pipe and nowhere else.")
+        dlg.set_extra_child(group)
+        dlg.add_response("go", "Change it")
+        dlg.add_response("cancel", "Cancel")
+        dlg.set_default_response("cancel")
+        dlg.set_close_response("cancel")
+        self._btsave_pending = (wanted, entry)
+        dlg.connect("response", self.on_btsave_password)
+        dlg.present(self)
+
+    def on_btsave_password(self, _dlg, response):
+        wanted, entry = self._btsave_pending
+        self._btsave_pending = (None, None)
+        secret = entry.get_text() if entry is not None else None
+        if entry is not None:
+            entry.set_text("")               # not kept a moment longer
+        if response != "go" or wanted is None:
+            # Cancelled: the switch goes back to what the file says, not to
+            # what the finger left it at.
+            self.sync_btsave()
+            return
+        self.apply_btsave(wanted, secret)
 
     def run_chain(self, commands, done):
         """Run several commands one after another, stopping at the first that

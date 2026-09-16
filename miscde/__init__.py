@@ -50,6 +50,10 @@ from .components import (BATTERY_UNIT, CLONE_HOME, COMPONENTS, OWN_CLONES,
                          SELF, behind_count, clone_elsewhere, clone_path,
                          component_steps, installer_dir, installer_env,
                          installer_said, is_clone, is_clone_of, source_steps)
+# The Bluetooth powersave switch reads batman's config rather than a tool of
+# its own, so what the tests need is the parsing and the command, not a path.
+from .pages.audio import (BATMAN_CONFIG, BATMAN_UNIT, btsave_argv,
+                          btsave_in_config, needs_a_password)
 from .process import CALL_TIMEOUT, run_async
 from .tools import (APP_ID, CONTRIB, DMNR, KILLSWITCH_SYSFS, PKEXEC, _tool,
                     _tool_maybe, phone_has_switches)
@@ -58,12 +62,15 @@ from .words import PROFILE_WORDS, profile_in_words, server_in_words
 
 __all__ = [
     "Adw", "GLib", "Gio", "Gtk", "os", "shutil",
-    "APP_ID", "ASKPASS_HELPER", "App", "Askpass", "BATTERY_UNIT",
+    "APP_ID", "ASKPASS_HELPER", "App", "Askpass", "BATMAN_CONFIG",
+    "BATMAN_UNIT", "BATTERY_UNIT",
     "CALL_TIMEOUT", "CLONE_HOME", "COMPONENTS", "CONTRIB", "DMNR",
     "KILLSWITCH_SYSFS", "OWN_CLONES", "PKEXEC", "PROFILE_WORDS", "SELF",
     "Window", "askpass", "behind_count", "clone_elsewhere", "clone_path",
-    "component_steps", "components", "installer_dir", "installer_env",
+    "btsave_argv", "btsave_in_config", "component_steps", "components",
+    "installer_dir", "installer_env",
     "installer_said", "is_clone", "is_clone_of", "phone_has_switches",
-    "process", "profile_in_words", "run_async", "server_in_words",
+    "needs_a_password", "process", "profile_in_words", "run_async",
+    "server_in_words",
     "source_steps", "tools", "words", "_tool", "_tool_maybe",
 ]

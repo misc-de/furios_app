@@ -54,6 +54,14 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         # happened as long as set_busy was the only hand on the sensitivity.
         self.audio_ok = True
         self.dmnr_ok = True
+        # Whether batman's config could be read at all. Without it the row is
+        # closed rather than shown as "off" - nothing is powering the adapter
+        # down in that case, but saying so from a file that is not there
+        # would be a guess.
+        self.btsave_ok = False
+        # Which Bluetooth powersave change is waiting for a password, with the
+        # entry it would come from.
+        self._btsave_pending = (None, None)
         self.modem_ok = True
         self.gps_ok = True
         self.gps_rows = []
@@ -133,7 +141,7 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         page.add(grp)
         self._pulse_id = 0
 
-        # --- Was gerade wirklich runs ---
+        # --- what is actually running right now ---
         info = Adw.PreferencesGroup(title="Status")
         self.row_profile = Adw.ActionRow(title="Owns the Android HAL", subtitle="reading …")
         self.row_server = Adw.ActionRow(title="Sound server", subtitle="…")
@@ -143,6 +151,20 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
             info.add(row)
         page.add(info)
 
+        # --- what switches Bluetooth off behind everybody's back ---
+        #
+        # A group of its own, and deliberately not inside "Audio stack": the
+        # switch above it that says how long a choice lasts does not apply
+        # here. This one is a line in another program's config file and is
+        # permanent the moment it is written.
+        bt = Adw.PreferencesGroup(title="Bluetooth")
+        self.btsave_row = Adw.SwitchRow(
+            title="Bluetooth powersave",
+            subtitle="reading …",
+        )
+        self.btsave_row.connect("notify::active", self.on_btsave)
+        bt.add(self.btsave_row)
+        page.add(bt)
 
         # --- last resort ---
         rescue, self.rescue_btn = self.build_restore_group(
@@ -279,6 +301,9 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
                 # Same installer, so this only happens in the seconds after
                 # one that stopped half way. The row says so and closes.
                 self.on_dmnr_status(False, "")
+        # No tool of its own and nothing to wait for: a file read, so the row
+        # is right from the first frame instead of after the first answer.
+        self.sync_btsave()
         if self.live.get("modem"):
             # Both read-only, and neither needs root - which is the whole
             # reason the page can show something before anybody touches it.
@@ -328,6 +353,7 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         self.switch_row.set_sensitive(not busy and self.audio_ok)
         self.persist_row.set_sensitive(not busy and self.audio_ok)
         self.dmnr_row.set_sensitive(not busy and self.dmnr_ok)
+        self.btsave_row.set_sensitive(not busy and self.btsave_ok)
         self.update_btn.set_sensitive(not busy)
         self.rescue_btn.set_sensitive(not busy)
         # Empty when there is no modem page, which is the point: nothing here

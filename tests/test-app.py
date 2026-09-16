@@ -114,15 +114,34 @@ class AppReadsAudioctl(unittest.TestCase):
                           "the app against" % name)
         return text
 
+    # A label the app looks for that is NOT audioctl's, and the file it does
+    # belong to. Until 16.9.2026 there was one source and the search over the
+    # whole package was the same thing as "everything audioctl prints"; the
+    # Bluetooth powersave switch reads batman's config, so a second source
+    # has to be named rather than quietly exempted. The check itself is the
+    # same one - the label has to appear in the file it is read from.
+    OTHER_SOURCES = {"BTSAVE=": switcher.BATMAN_CONFIG}
+
     def labels_in_app(self):
         return re.findall(r'line\.startswith\("([^"]+)"\)', self.app)
 
     def test_every_label_the_app_looks_for_is_one_audioctl_prints(self):
-        audioctl = self.tool(self.audioctl, "audioctl")
         for label in self.labels_in_app():
             with self.subTest(label=label):
-                self.assertIn(label, audioctl,
-                              "the app waits for a line audioctl never prints")
+                other = self.OTHER_SOURCES.get(label)
+                if other is None:
+                    audioctl = self.tool(self.audioctl, "audioctl")
+                    self.assertIn(
+                        label, audioctl,
+                        "the app waits for a line audioctl never prints")
+                    continue
+                text = self.installed(other)
+                if text is None:
+                    self.skipTest("%s is not on this phone, so there is "
+                                  "nothing to check %s against"
+                                  % (other, label))
+                self.assertIn(label, text,
+                              "the app reads a key that file does not have")
 
     def test_the_app_looks_for_something_at_all(self):
         """Guards the test above from passing by finding nothing."""
@@ -882,8 +901,8 @@ class TheWindow(unittest.TestCase):
     def setUp(self):
         self.win = switcher.Window(switcher.Adw.Application())
         names = ["row_profile", "row_server", "row_sinks", "switch_row",
-                 "persist_row", "dmnr_row", "update_btn", "progress",
-                 "progress_revealer", "toasts"]
+                 "persist_row", "dmnr_row", "btsave_row", "update_btn",
+                 "progress", "progress_revealer", "toasts"]
         # The modem widgets only exist when the page was built, and the page is
         # only built when modemctl is installed - so they are swapped in the
         # same way, and only when they are there to swap.
@@ -1086,6 +1105,113 @@ class TheWindow(unittest.TestCase):
     def test_a_failed_switch_without_output_still_reports(self):
         self.win.on_switched(False, "")
         self.assertIsNotNone(self.win.toasts.text)
+
+    # --- Bluetooth powersave, driven through the row ---
+
+    def watch_password_prompt(self):
+        """Catch the password dialog without opening one.
+
+        Patched on the CLASS, not on the instance: the window inherits from a
+        stub whose __setattr__ files everything away in a dictionary, so
+        assigning over a real method there changes nothing and the test would
+        pass while measuring the untouched original.
+        """
+        asked = []
+        patch = mock.patch.object(
+            type(self.win), "ask_btsave_password",
+            lambda _self, wanted: asked.append(wanted))
+        patch.start()
+        self.addCleanup(patch.stop)
+        return asked
+
+    def scratch_config(self, contents):
+        """batman's config, somewhere this test may write."""
+        audio = importlib.import_module("miscde.pages.audio")
+        handle = tempfile.NamedTemporaryFile("w", suffix=".conf", delete=False)
+        handle.write(contents)
+        handle.close()
+        self.addCleanup(os.unlink, handle.name)
+        patch = mock.patch.object(audio, "BATMAN_CONFIG", handle.name)
+        patch.start()
+        self.addCleanup(patch.stop)
+        return handle.name
+
+    def test_the_powersave_row_follows_the_file(self):
+        self.scratch_config("[Settings]\nBTSAVE=true\n")
+        self.win.sync_btsave()
+        self.assertTrue(self.win.btsave_row.active)
+        self.assertTrue(self.win.btsave_ok)
+        self.assertIn("headset", self.win.btsave_row.subtitle)
+
+    def test_without_batmans_config_the_powersave_row_closes(self):
+        """Not shown as off: nothing is powering the adapter down in that
+        case, but a row that says so from a file it could not read is a
+        guess dressed as a reading."""
+        audio = importlib.import_module("miscde.pages.audio")
+        patch = mock.patch.object(audio, "BATMAN_CONFIG",
+                                  "/nonexistent/batman/config")
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.win.sync_btsave()
+        self.assertFalse(self.win.btsave_ok)
+        self.assertFalse(self.win.btsave_row.sensitive)
+        self.assertIn("batman", self.win.btsave_row.subtitle)
+
+    def test_syncing_the_powersave_row_does_not_switch_anything(self):
+        """set_active on the row fires notify::active in the real widget, and
+        a sync that ran a sudo command every time the page refreshed would
+        rewrite batman's config on its own."""
+        self.scratch_config("[Settings]\nBTSAVE=true\n")
+        self.win.sync_btsave()
+        self.assertEqual(self.ran, [])
+
+    def test_the_powersave_switch_runs_one_command_as_root(self):
+        self.win.btsave_row.active = False
+        self.win.on_btsave(self.win.btsave_row, None)
+        argv, _done, _line, kw = self.ran[0]
+        self.assertEqual(argv, switcher.btsave_argv(False))
+        self.assertIsNone(kw.get("stdin"))
+
+    def test_a_password_is_asked_for_rather_than_reported(self):
+        """sudo -n refusing is the one answer this switch can do something
+        about. Reporting it would leave somebody with an error message and a
+        switch that did nothing."""
+        asked = self.watch_password_prompt()
+        self.win.on_btsave_done(False, "sudo: a password is required", True)
+        self.assertEqual(asked, [True])
+        self.assertIsNone(self.win.toasts.text)
+
+    def test_an_older_sudo_asking_for_a_helper_counts_as_the_same_question(self):
+        asked = self.watch_password_prompt()
+        self.win.on_btsave_done(
+            False, "sudo: no tty present and no askpass program specified",
+            False)
+        self.assertEqual(asked, [False])
+
+    def test_the_password_goes_through_the_pipe(self):
+        self.win.apply_btsave(True, "hunter2")
+        argv, _done, _line, kw = self.ran[0]
+        self.assertEqual(kw.get("stdin"), "hunter2\n")
+        self.assertNotIn("hunter2", argv)
+
+    def test_a_cancelled_password_puts_the_row_back(self):
+        self.scratch_config("[Settings]\nBTSAVE=true\n")
+        entry = Recording()
+        entry.text = "hunter2"
+        self.win._btsave_pending = (False, entry)
+        self.win.on_btsave_password(None, "cancel")
+        # Nothing ran, the file still says true, and so does the row.
+        self.assertEqual(self.ran, [])
+        self.assertTrue(self.win.btsave_row.active)
+        self.assertEqual(entry.text, "")
+
+    def test_a_change_that_failed_leaves_the_row_at_the_file(self):
+        """The row is a reading, not a memory of what was clicked."""
+        self.scratch_config("[Settings]\nBTSAVE=true\n")
+        self.win.btsave_row.active = False
+        self.win.on_btsave_done(False, "sed: cannot write", False)
+        self.assertTrue(self.win.btsave_row.active)
+        self.assertIn("Could not change", str(self.win.toasts.text))
 
     def test_the_echo_switch_asks_the_dmnr_helper(self):
         self.win.dmnr_row.active = True
@@ -3073,6 +3199,106 @@ class TheWindow(unittest.TestCase):
         app = switcher.App()
         app.props.active_window = None
         app.do_activate()
+
+
+class BluetoothPowersave(unittest.TestCase):
+    """The switch that decides whether Bluetooth survives a dark screen.
+
+    It is the one control in this app that edits another program's config
+    file, so the checks are about that file: what is read out of it, what is
+    written back, and that the switch never shows a state it only wishes were
+    true. The symptom behind it, measured on 16.9.2026: with BTSAVE=true the
+    adapter is powered down when the screen goes off, earbuds taken out of
+    their case page a controller that is not there, and nothing happens until
+    the phone is woken.
+    """
+
+    audio = importlib.import_module("miscde.pages.audio")
+
+    def test_the_key_is_read_out_of_the_file(self):
+        self.assertIs(switcher.btsave_in_config("BTSAVE=true"), True)
+        self.assertIs(switcher.btsave_in_config("BTSAVE=false"), False)
+
+    def test_the_rest_of_the_file_is_not_in_the_way(self):
+        text = "[Settings]\nOFFLINE=true\nBTSAVE=false\nWIFI=true\n"
+        self.assertIs(switcher.btsave_in_config(text), False)
+
+    def test_a_key_that_is_not_there_is_not_off(self):
+        """None, not False - "batman does not know this setting" and "batman
+        is set to leave Bluetooth alone" are different phones, and the row
+        says so."""
+        self.assertIsNone(switcher.btsave_in_config("[Settings]\nWIFI=true\n"))
+
+    def test_the_value_is_read_the_way_a_shell_would(self):
+        self.assertIs(switcher.btsave_in_config("BTSAVE=TRUE"), True)
+        self.assertIs(switcher.btsave_in_config("  BTSAVE=true  "), True)
+
+    def test_without_a_password_sudo_is_told_not_to_ask(self):
+        argv = switcher.btsave_argv(True)
+        self.assertEqual(argv[:2], ["sudo", "-n"])
+
+    def test_with_a_password_sudo_reads_it_from_the_pipe(self):
+        argv = switcher.btsave_argv(True, "hunter2")
+        self.assertEqual(argv[:4], ["sudo", "-S", "-p", ""])
+
+    def test_the_password_is_never_an_argument(self):
+        """The same rule as everywhere else in this app: a secret goes
+        through the pipe, never through argv, where every ps on the phone
+        would read it."""
+        self.assertNotIn("hunter2", switcher.btsave_argv(False, "hunter2"))
+
+    def test_the_file_and_the_unit_are_arguments_not_text(self):
+        argv = switcher.btsave_argv(False)
+        self.assertEqual(argv[-3:], [switcher.BATMAN_CONFIG,
+                                     switcher.BATMAN_UNIT, "false"])
+
+    def run_script(self, contents, value):
+        """The real script, against a scratch file.
+
+        systemctl is the last line and it fails here - there is no such unit
+        - which is why the file is what gets checked and not the exit code.
+        Everything this script does to the config happens before it.
+        """
+        with tempfile.NamedTemporaryFile("w", suffix=".conf",
+                                         delete=False) as handle:
+            handle.write(contents)
+            path = handle.name
+        try:
+            subprocess_real.run(
+                ["sh", "-c", self.audio.BTSAVE_SCRIPT, "sh", path,
+                 "miscde-no-such-unit.service", value],
+                capture_output=True)
+            return Path(path).read_text()
+        finally:
+            os.unlink(path)
+
+    def test_an_existing_line_is_rewritten_in_place(self):
+        out = self.run_script("[Settings]\nBTSAVE=true\nWIFI=true\n", "false")
+        self.assertEqual(out, "[Settings]\nBTSAVE=false\nWIFI=true\n")
+
+    def test_a_missing_key_is_appended(self):
+        out = self.run_script("[Settings]\nWIFI=true\n", "false")
+        self.assertEqual(out, "[Settings]\nWIFI=true\nBTSAVE=false\n")
+
+    def test_nothing_else_in_the_file_is_touched(self):
+        """batman reads eight settings out of this file. Rewriting the one
+        line has to leave the other seven exactly as they were."""
+        before = ("[Settings]\nOFFLINE=true\nPOWERSAVE=true\nCHARGESAVE=true\n"
+                  "BUSSAVE=true\nGPUSAVE=true\nBTSAVE=true\nHYBRIS=true\n"
+                  "WIFI=true\n")
+        after = self.run_script(before, "false")
+        self.assertEqual(after, before.replace("BTSAVE=true", "BTSAVE=false"))
+
+    def test_the_words_name_the_symptom_not_the_setting(self):
+        """Somebody opens this page because a headset stayed silent, not
+        because they were looking for a config key."""
+        on = switcher.Window.btsave_words(True)
+        self.assertIn("headset", on)
+        off = switcher.Window.btsave_words(False)
+        self.assertIn("stays on", off)
+
+    def test_with_no_batman_the_row_says_that_rather_than_off(self):
+        self.assertIn("batman", switcher.Window.btsave_words(None))
 
 
 class TheLauncherIcon(unittest.TestCase):
