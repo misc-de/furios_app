@@ -160,9 +160,172 @@ def main():
         else:
             os.environ["XDG_RUNTIME_DIR"] = alt_runtime
 
+    good &= without_nopasswd(sw)
+
     if "--with-sudo" in sys.argv:
         good &= sudo_question(sw)
     return 0 if good else 1
+
+
+# A sudo that always wants one, and runs the command once it has it. The gate
+# is what a phone without "NOPASSWD:ALL" in its sudoers gives you; what sits
+# behind it here is the ordinary user, because what is being tested is the
+# plumbing, not whether anything reached root.
+FAKE_SUDO = r"""#!/bin/bash
+PW=%s
+mode=none; askpass=0; validate=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -n) mode=nonint; shift;;
+        -S) mode=stdin; shift;;
+        -A) askpass=1; shift;;
+        -p) shift 2;;
+        -v) validate=1; shift;;
+        -k) exit 0;;
+        -E|-H) shift;;
+        --) shift; break;;
+        -*) shift;;
+        *) break;;
+    esac
+done
+check() {
+    if [ "$mode" = stdin ]; then
+        IFS= read -r given
+        [ "$given" = "$PW" ] && return 0
+        echo "Sorry, try again." >&2; return 1
+    fi
+    if [ "$askpass" = 1 ] || { [ -n "${SUDO_ASKPASS:-}" ] && [ -n "${DISPLAY:-}" ]; }; then
+        [ -n "${SUDO_ASKPASS:-}" ] || { echo "sudo: no askpass program specified" >&2; return 1; }
+        given=$("$SUDO_ASKPASS")
+        [ "$given" = "$PW" ] && return 0
+        echo "Sorry, try again." >&2; return 1
+    fi
+    if [ "$mode" = nonint ]; then
+        echo "sudo: a password is required" >&2; return 1
+    fi
+    echo "sudo: a terminal is required to read the password; either use the -S option to read from standard input or configure an askpass helper" >&2
+    return 1
+}
+check || exit 1
+[ "$validate" = 1 ] && [ $# -eq 0 ] && exit 0
+exec "$@"
+"""
+
+
+def without_nopasswd(sw):
+    """Everything this app does as root, on a phone whose sudo asks.
+
+    This one has `furios ALL=(ALL) NOPASSWD:ALL` in its sudoers, so every sudo
+    line in this project succeeds here whether or not anybody thought about a
+    password. That is a property of this phone, not of the app, and it is not
+    one to build on: it is not the default anywhere, and it is the first thing
+    somebody hardening a device removes.
+
+    So sudo is replaced by one that always asks, and the app's own machinery
+    is driven against it - not a copy of it. What is NOT covered here is
+    pkexec: the modem and GPS switches go through polkit, which does not read
+    sudoers at all, and their policies allow an active local session without
+    asking anything (de.misc-de.modemctl.policy, allow_active=yes).
+    """
+    import shutil
+    from gi.repository import Gio, GLib
+
+    password = "not-the-real-password-either"
+    home = tempfile.mkdtemp()
+    binaries = os.path.join(home, "bin")
+    os.makedirs(binaries)
+    fake = os.path.join(binaries, "sudo")
+    with open(fake, "w") as fh:
+        fh.write(FAKE_SUDO % password)
+    os.chmod(fake, 0o755)
+    was = os.environ["PATH"]
+    os.environ["PATH"] = binaries + ":" + was
+    a = sw.askpass.Askpass(password)
+    helper = a.start()
+    good = ok(bool(helper), "a helper for the run below")
+
+    def run(argv, env=None, cwd=None, stdin=None):
+        """A child, while the main loop turns - the socket has to be served
+        from this process while sudo's helper is asking it."""
+        answer = {}
+
+        def done(proc, res):
+            try:
+                proc.wait_check_finish(res)
+                answer["code"] = 0
+            except GLib.Error as error:
+                answer["code"] = 1
+                answer["said"] = error.message
+            loop.quit()
+
+        flags = Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_MERGE
+        if stdin is not None:
+            flags |= Gio.SubprocessFlags.STDIN_PIPE
+        launcher = Gio.SubprocessLauncher.new(flags)
+        for key, value in (env or {}).items():
+            launcher.setenv(key, value, True)
+        if cwd:
+            launcher.set_cwd(cwd)
+        proc = launcher.spawnv(argv)
+        if stdin is not None:
+            proc.get_stdin_pipe().write_all(stdin.encode(), None)
+            proc.get_stdin_pipe().close(None)
+        proc.wait_check_async(None, done)
+        loop = GLib.MainLoop()
+        GLib.timeout_add_seconds(30, lambda: (loop.quit(), False)[1])
+        loop.run()
+        return answer.get("code", 1), answer.get("said", "")
+
+    # 1 - the one switch in the app that needs root by itself. It tries
+    #     without a password first, and has to be able to tell that answer
+    #     apart from the job failing, or it would report a broken switch.
+    argv = sw.pages.audio.btsave_argv(True)
+    probe = subprocess.run(argv[:2] + ["true"], capture_output=True, text=True)
+    good &= ok(probe.returncode != 0
+               and sw.pages.audio.needs_a_password(probe.stderr),
+               "the BTSAVE switch sees that sudo wants a password")
+    code, _ = run(sw.pages.audio.btsave_argv(True, password)[:4] + ["true"],
+                  stdin=password + "\n")
+    good &= ok(code == 0, "and goes through once it has one")
+    code, _ = run(sw.pages.audio.btsave_argv(True, password)[:4] + ["true"],
+                  stdin="wrong\n")
+    good &= ok(code != 0, "a wrong password is not taken for a working switch")
+
+    # 2 - an install: our own sudo lines, inside a script, with no terminal
+    #     anywhere. This is the case that broke on 14.9. and the reason
+    #     Askpass exists.
+    script = os.path.join(home, "install.sh")
+    with open(script, "w") as fh:
+        fh.write("#!/bin/bash\nset -e\n"
+                 "sudo touch '%s/was-root'\n" % home)
+    os.chmod(script, 0o755)
+    env = sw.components.installer_env(helper)
+    code, said = run(["./install.sh"], env=env, cwd=home)
+    good &= ok(code == 0 and os.path.exists(os.path.join(home, "was-root")),
+               "an installer's own sudo lines are answered by the helper"
+               + ("" if code == 0 else " - it said: " + said))
+
+    # 3 - and the helper is what does it, rather than something about this
+    #     phone. Without it the same script stops where the GPS install did.
+    os.unlink(os.path.join(home, "was-root"))
+    code, said = run(["./install.sh"], env={"DISPLAY": ":0"}, cwd=home)
+    good &= ok(code != 0, "without the helper that same install stops dead")
+
+    # 4 - the steps the install page builds, which is where the two meet.
+    comp = dict(sw.components.COMPONENTS[0], root=True)
+    steps = sw.components.component_steps(comp, {}, password, path=home,
+                                          askpass=helper)
+    tickets = [s for s in steps if s[0][:2] == ["sudo", "-S"]]
+    good &= ok(len(tickets) == 1 and tickets[0][1] == password + "\n",
+               "the ticket is taken with the password on the pipe")
+    good &= ok(steps[-1][0] == ["sudo", "-k"], "and dropped again at the end")
+    good &= ok(any((s[3] or {}).get("SUDO_ASKPASS") == helper for s in steps),
+               "and the installer is told where to ask")
+
+    a.stop()
+    os.environ["PATH"] = was
+    shutil.rmtree(home, ignore_errors=True)
+    return good
 
 
 def sudo_question(sw):

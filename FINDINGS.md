@@ -85,6 +85,36 @@ the real page immediately - in the same place in the switcher bar, and the app
 stands on it afterwards. No restart: the tool is on the phone at that moment,
 there is nothing left to wait for.
 
+## Without NOPASSWD
+
+This phone carries `furios ALL=(ALL) NOPASSWD:ALL` in `/etc/sudoers`. Every
+sudo line in this project therefore succeeds here whether or not anybody
+thought about a password, which makes it a poor place to find out. It is not
+the default anywhere and it is the first line somebody hardening a device
+takes out.
+
+So the app was walked through with a `sudo` that always asks (16.9.2026).
+Everything it does as root, and what each one does when the password is
+wanted:
+
+| what | how | asked |
+|---|---|---|
+| install or update a component | `./install.sh` as the user, its own sudo lines | ticket on the pipe, then `SUDO_ASKPASS` |
+| the Bluetooth power switch (BTSAVE) | `sudo -n`, then `sudo -S` | one password row on the page |
+| modem and GPS switch, and their restore | `pkexec` | nothing - polkit, `allow_active=yes` |
+| the camera list | not run by the app at all | the page prints the command |
+| everything else | the user's own session | nothing |
+
+**pkexec does not read sudoers.** The modem and GPS switches go through
+polkit, whose policies here allow an active local session and refuse a remote
+one (`de.misc-de.modemctl.policy`, `allow_active=yes`, `allow_any=no`) - which
+is also why no agent is needed on a shell that has none.
+
+The one thing that would have broken is the one that already did on 14.9.,
+and `askpass-live.py` now holds it down from both sides: an installer with a
+sudo line inside it and no terminal anywhere goes through with the helper, and
+stops dead without it.
+
 ## When there is something new in the repo
 
 At start the app looks once whether the installed tools still match the state
