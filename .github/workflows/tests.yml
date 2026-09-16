@@ -28,7 +28,7 @@ jobs:
       - name: The tools the suite looks for
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends shellcheck desktop-file-utils
+          sudo apt-get install -y --no-install-recommends shellcheck desktop-file-utils python3-gi gir1.2-gtk-4.0 gir1.2-adw-1
 
       - name: Run it
         run: |
