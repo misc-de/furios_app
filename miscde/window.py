@@ -43,10 +43,15 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         # Same idea on the components page: which fetch is waiting for an
         # answer, and the entry its password would come from.
         self._comp_pending = (None, None, None, None)
+        # The password entry of the update dialog, while it is open.
+        self._updates_pending = None
         # The socket sudo asks at while an install runs, and nothing outside
         # of one.
         self.askpass = None
         self.comp_rows = {}
+        # What is waiting, keyed by tool: one dict for the whole window, so
+        # the count in the header and the list behind it cannot disagree.
+        self.updates = {}
         self.modem_rows = []
         # Whether there is anything behind each control. A switch whose tool
         # did not answer must not look operable - and it must not become
@@ -78,13 +83,22 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         # opening, after every switch, after every install - so it was a
         # button whose whole job was to produce the state that was already on
         # screen. What belongs up here is the one thing the window cannot do
-        # by itself: take its own next version. It appears when there is one
-        # and is gone the rest of the time, which makes its presence the
-        # message.
-        self.update_btn = Gtk.Button(icon_name="software-update-available-symbolic")
-        self.update_btn.set_tooltip_text("A newer version of this app is available")
+        # by itself: take the next version, of itself and of everything it
+        # drives. It appears when there is one and is gone the rest of the
+        # time, which makes its presence the message.
+        # One place for all of them, not one offer per tab. Five
+        # repositories each with their own "Update available" group meant
+        # five places to look for the same answer, five passwords for one
+        # evening's updates, and no way to see at a glance whether anything
+        # was waiting at all. A count says that in one word.
+        self.update_btn = Gtk.Button()
+        zeile = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        zeile.append(Gtk.Image.new_from_icon_name("dialog-warning-symbolic"))
+        self.update_label = Gtk.Label(label="")
+        zeile.append(self.update_label)
+        self.update_btn.set_child(zeile)
         self.update_btn.set_visible(False)
-        self.update_btn.connect("clicked", lambda *_: self.ask_self_update())
+        self.update_btn.connect("clicked", lambda *_: self.ask_updates())
         header.pack_start(self.update_btn)
 
 
@@ -354,7 +368,10 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         self.persist_row.set_sensitive(not busy and self.audio_ok)
         self.dmnr_row.set_sensitive(not busy and self.dmnr_ok)
         self.btsave_row.set_sensitive(not busy and self.btsave_ok)
-        self.update_btn.set_sensitive(not busy)
+        # Sensitive only while there is something behind it. show_update_count
+        # owns whether it is there at all; this owns whether it can be
+        # pressed, and a batch that is running must not be started twice.
+        self.update_btn.set_sensitive(not busy and bool(self.updates))
         self.rescue_btn.set_sensitive(not busy)
         # Empty when there is no modem page, which is the point: nothing here
         # may assume the second page exists.

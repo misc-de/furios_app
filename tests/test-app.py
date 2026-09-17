@@ -917,8 +917,8 @@ class TheWindow(unittest.TestCase):
                       "gps_contrib", "gps_contrib_stats", "gps_restore_btn"]
         if KILLSWITCH:
             names += ["sw_row", "sw_persist", "sw_wifi", "sw_bt", "sw_modem",
-                      "srow_cam", "srow_cam_hal", "srow_cams", "srow_net",
-                      "srow_mic", "sw_restore_btn"]
+                      "srow_cam_hal", "srow_cams", "srow_mic",
+                      "sw_restore_btn"]
         if BATTCTL:
             names += ["batt_restore_btn"]
         for name in names:
@@ -938,7 +938,7 @@ class TheWindow(unittest.TestCase):
             # stand-ins go in there rather than on attributes.
             self.win.batt_switches = {}
             self.win.batt_scales = {}
-            for key, _title, sliders in switcher.Window.BATTERY_OPTIONS:
+            for key, _head, _title, _sub, sliders in switcher.Window.BATTERY_OPTIONS:
                 row = Recording()
                 row.slider_rows = [Recording(), Recording()]
                 self.win.batt_switches[key] = row
@@ -1359,16 +1359,40 @@ class TheWindow(unittest.TestCase):
         data["config"].update(changes)
         return json.dumps(data)
 
-    def test_one_heading_over_the_lot(self):
-        """Three unnamed blocks under each other are a list of switches;
-        one heading makes them an answer to a question."""
+    def test_each_option_is_a_box_of_its_own(self):
+        """One box per option, headed by what the option is about.
+
+        In a single box the six sliders read as one block of furniture and
+        which pair belonged to which switch was a thing to work out rather
+        than to see. Every box is named, which is what the one heading over
+        the lot used to be for: unnamed blocks under each other are a list
+        of switches, not an answer to a question."""
         recorder.reset()
         self.win.build_battery_page()
         titles = [c[2].get("title") for c in recorder.calls
-                 if c[0] == "Adw.PreferencesGroup" and c[2].get("title")]
-        self.assertIn("Colour marking", titles)
-        # And the three options are in that one group, not in three.
-        self.assertEqual(1, len([t for t in titles if t == "Colour marking"]))
+                 if c[0] == "Adw.PreferencesGroup"]
+        for _key, heading, _t, _s, _sl in switcher.Window.BATTERY_OPTIONS:
+            self.assertEqual(1, titles.count(heading), heading)
+        self.assertNotIn("Colour marking", titles)
+        self.assertEqual([], [t for t in titles if not t], titles)
+
+    def test_the_sliders_sit_in_the_box_of_their_own_switch(self):
+        """Built in the order they are drawn in, so a slider made after the
+        next heading would appear under the wrong option."""
+        recorder.reset()
+        self.win.build_battery_page()
+        order = [str(c[2].get("title", "")) for c in recorder.calls
+                 if c[0] in ("Adw.PreferencesGroup", "Adw.ActionRow")]
+        headings = [h for _k, h, _t, _s, _sl
+                    in switcher.Window.BATTERY_OPTIONS]
+        for i, (_key, heading, _t, _s, sliders) in enumerate(
+                switcher.Window.BATTERY_OPTIONS):
+            start = order.index(heading)
+            end = (order.index(headings[i + 1]) if i + 1 < len(headings)
+                   else len(order))
+            for slider in sliders:
+                self.assertIn(slider[0], order[start:end],
+                              "%s: %s" % (heading, slider[0]))
 
     def test_each_slider_carries_its_unit(self):
         """Watts and percent in the same column of controls, and no
@@ -1376,29 +1400,39 @@ class TheWindow(unittest.TestCase):
         self.assertEqual("7.0 W", switcher.Window.threshold_text(7.0, 1, "W"))
         self.assertEqual("60 %", switcher.Window.threshold_text(60.0, 0, "%"))
         units = {ckey: unit
-                     for _k, _t, sliders in switcher.Window.BATTERY_OPTIONS
+                     for _k, _h, _t, _s, sliders in switcher.Window.BATTERY_OPTIONS
                      for (_l, ckey, _lo, _hi, _st, _di, unit) in sliders}
         self.assertEqual("W", units["charge_green_w"])
         self.assertEqual("W", units["drain_red_w"])
         self.assertEqual("%", units["level_amber_pct"])
 
-    def test_the_battery_page_offers_exactly_three_options(self):
-        """Three, in the order somebody thinks about them: going in, how
-        full, going out."""
-        self.assertEqual(["charging", "level", "discharging"],
-                         [k for k, _t, _s in switcher.Window.BATTERY_OPTIONS])
+    def test_the_battery_page_offers_the_options_in_order(self):
+        """In the order somebody thinks about them: going in, how full,
+        going out - and then the two that are not colours at all."""
+        self.assertEqual(["charging", "level", "discharging", "runtime",
+                          "charge_time"],
+                         [k for k, _h, _t, _s, _sl
+                          in switcher.Window.BATTERY_OPTIONS])
 
     def test_and_says_nothing_else(self):
         """No readings on this page - a watt figure belongs where somebody
         is measuring. Checked by building the page and looking for a row
         with a subtitle: the option rows and the sliders carry a title and
-        nothing more."""
+        nothing more.
+
+        Two exceptions, and they are the reason this is a count rather than
+        an emptiness: both time options take the percentage away, and what a
+        switch gives back in its place cannot be read off the switch. What a
+        box heading and a switch title can say between them gets no
+        subtitle."""
         recorder.reset()
         self.win.build_battery_page()
-        subtitles = [c[2].get("subtitle") for c in recorder.calls
+        subtitles = [str(c[2].get("subtitle")) for c in recorder.calls
                       if c[0] in ("Adw.ActionRow", "Adw.SwitchRow")
                       and c[2].get("subtitle")]
-        self.assertEqual([], subtitles)
+        self.assertEqual(2, len(subtitles), subtitles)
+        for text in subtitles:
+            self.assertIn("percentage", text)
 
     def test_the_sliders_appear_with_their_option(self):
         """Six sliders at once ask to be studied; this is a page to glance
@@ -1688,11 +1722,24 @@ class TheWindow(unittest.TestCase):
     # kept in this fixture on purpose: the page must ignore it rather than put
     # a three-second-old verdict on screen as if it were the position.
 
-    def test_the_page_reads_both_switch_positions(self):
+    def test_no_slider_position_is_put_on_screen(self):
+        """A position is a reading with nothing to do: the hand on the case
+        has already decided, and this page cannot switch it back. Against the
+        microphone, which cannot be read at all, the word made the absence
+        look like a fault - so it is gone from all three."""
+        self.switches_win()
+        recorder.reset()
+        switcher.Window(switcher.Adw.Application())
+        titled = [c for c in recorder.calls if c[0] == "Adw.ActionRow"
+                  and str(c[2].get("title", "")) == "Position"]
+        self.assertEqual([], titled, titled)
+
+    def test_a_status_still_says_what_the_switch_took_down(self):
+        """What replaced the position: not where the slider sits, but what
+        went with it - which is the part nothing else on the phone says."""
         win = self.switches_win()
         win.on_switches_status(True, self.JSON)
-        self.assertEqual("engaged", win.srow_cam.subtitle)
-        self.assertEqual("free", win.srow_net.subtitle)
+        self.assertEqual("stopped", win.srow_cam_hal.subtitle)
 
     def test_the_camera_row_says_all_of_them(self):
         """The switch stops one service every camera goes through, so picking
@@ -1760,11 +1807,11 @@ class TheWindow(unittest.TestCase):
         win.on_switches_status(True, self.JSON)
         self.assertEqual([], [r for r in self.ran if "config" in r[0]])
 
-    def test_an_unreadable_answer_is_not_shown_as_a_position(self):
+    def test_an_unreadable_answer_is_not_shown_as_a_reading(self):
         win = self.switches_win()
         win.on_switches_status(True, "not json at all")
-        self.assertNotIn("engaged", win.srow_cam.subtitle)
-        self.assertNotIn("free", win.srow_cam.subtitle)
+        self.assertIn("unreadable", win.srow_cam_hal.subtitle)
+        self.assertNotIn("running", win.srow_cam_hal.subtitle)
 
     def test_no_page_starts_with_a_paragraph_under_its_heading(self):
         """A group with a description draws its title higher than one without,
@@ -1797,16 +1844,20 @@ class TheWindow(unittest.TestCase):
                       and c[2].get("description")]
         self.assertEqual([], with_paragraph)
 
-    def test_the_microphone_row_says_it_is_not_read(self):
+    def test_the_microphone_row_says_software_does_not_reach_it(self):
         """The one switch that cuts the line is also the one nothing here can
-        see. Saying so is the whole content of the row - checked against what
-        the page actually built, not against a stand-in a test wrote."""
+        see or set. Saying so is the whole content of the row - checked
+        against what the page actually built, not against a stand-in a test
+        wrote. Without the reason it reads like a defect, so the reason stays
+        even though the row got shorter."""
         self.switches_win()
+        recorder.reset()
         switcher.Window(switcher.Adw.Application())
         rows = [c for c in recorder.calls if c[0] == "Adw.ActionRow"]
         mic = [c for c in rows
-               if "not readable" in str(c[2].get("subtitle", ""))]
-        self.assertTrue(mic, "no row saying the microphone is not read")
+               if "not controlled by software" in str(c[2].get("title", "")).lower()]
+        self.assertTrue(mic, "no row saying software does not reach it")
+        self.assertIn("opening the microphone", str(mic[0][2].get("subtitle", "")))
 
     def test_an_old_tools_verdict_does_not_reach_the_row(self):
         """Older killswitch-indicators still send a measurement. Putting it on
@@ -2032,6 +2083,23 @@ class TheWindow(unittest.TestCase):
         on_line("x" * 200)
         self.assertEqual(60, len(row.subtitle))
 
+    def catch_execv(self):
+        """Hold on to os.execv for the length of one test.
+
+        At os.execv and NOT by replacing Window.restart_self: the gi stub
+        gives every window an `__setattr__` of its own that files unknown
+        attributes away as properties, so assigning a method on an instance
+        looks like it worked and changes nothing. Written down because it
+        cost a debugging round - the test process was replaced by the app
+        mid-run, the output stopped in the middle of a line and the exit code
+        was 0.
+        """
+        started = []
+        real = os.execv
+        os.execv = lambda *args: started.append(args)
+        self.addCleanup(lambda: setattr(os, "execv", real))
+        return started
+
     def stub_askpass(self):
         """switcher.askpass.Askpass replaced by one that only writes down what it was
         asked to do. The real one needs a real GLib - tests/askpass-live.py
@@ -2191,51 +2259,119 @@ class TheWindow(unittest.TestCase):
                          "the window must not have a tab of its own")
 
     def test_nothing_is_offered_until_something_was_found(self):
-        """An update icon that is always there says nothing - so the window
-        builds it hidden and only a finding brings it out."""
+        """A count that is always there says nothing - so the window builds
+        it hidden and only a finding brings it out. "0 Updates" in the header
+        would be furniture."""
         recorder.reset()
         switcher.Window(switcher.Adw.Application())
-        hidden = [c[1] for c in recorder.calls
-                     if c[0] == "Gtk.Button.set_visible()" and c[1]]
-        self.assertEqual([(False,)], hidden)
+        shown = [c[1] for c in recorder.calls
+                 if c[0] == "Gtk.Button.set_visible()" and c[1] == (True,)]
+        self.assertEqual([], shown, "the count came up before anything looked")
 
-    def test_the_offer_is_the_icon_in_the_header_and_says_what_it_found(self):
+    def test_every_repository_reports_into_the_same_place(self):
+        """One dict for the window, so the count in the header and the list
+        behind it cannot disagree - they are the same thing counted and read
+        out."""
+        self.win.updates = {}
         self.win.update_btn = Recording()
-        self.win.offer_self_update("2 new commit(s)", "/home/furios/clone_dir")
-        self.assertEqual(True, self.win.update_btn.visible)
-        self.assertIn("2 new commit(s)", str(self.win.update_btn.tooltip))
-        self.assertIn("/home/furios/clone_dir", str(self.win.update_btn.tooltip))
+        self.win.update_label = Recording()
+        self.win.offer_update(self.app_component(), "2 new commit(s)",
+                              "/home/furios/clone_dir")
+        self.win.offer_update(self.component(), "1 new commit(s)", "/tmp/c")
+        self.assertEqual({"misc-de", self.component()["tool"]},
+                         set(self.win.updates))
         self.assertEqual("/home/furios/clone_dir",
-                         self.win.comp_rows["misc-de"]["path"])
+                         self.win.updates["misc-de"]["path"])
+        self.assertEqual(True, self.win.update_btn.visible)
 
-    def test_the_icon_asks_before_it_replaces_the_running_program(self):
-        """Pressing it must not start anything: this replaces the program
-        somebody is looking at."""
+    def test_the_header_counts_them_and_gets_the_plural_right(self):
+        self.win.updates = {}
+        self.win.update_btn = Recording()
+        self.win.update_label = Recording()
+        self.win.offer_update(self.app_component(), "something", "/tmp/a")
+        self.assertEqual("1 Update", str(self.win.update_label.text))
+        self.win.offer_update(self.component(), "something", "/tmp/b")
+        self.assertEqual("2 Updates", str(self.win.update_label.text))
+
+    def test_no_updates_means_no_button_at_all(self):
+        self.win.updates = {}
+        self.win.update_btn = Recording()
+        self.win.update_label = Recording()
+        self.win.show_update_count()
+        self.assertEqual(False, self.win.update_btn.visible)
+
+    def test_pressing_the_count_asks_and_starts_nothing(self):
+        """It replaces the program somebody is looking at, among others. So
+        it asks first, and it names what it would take."""
+        self.win.updates = {}
+        self.win.update_btn = Recording()
+        self.win.update_label = Recording()
+        self.win.busy = False
+        self.win.offer_update(self.app_component(), "2 new commit(s)", "/tmp/a")
+        self.win.offer_update(self.component(), "9 new commit(s)", "/tmp/b")
         recorder.reset()
         self.ran.clear()
-        self.win.busy = False
-        self.win.offer_self_update("something new", "/home/furios/clone_dir")
-        self.win.ask_self_update()
-        self.assertEqual([], self.ran, "pressing the icon started something")
-        heads = [str(c[2].get("heading", "")) for c in recorder.calls
-                  if c[0] == "Adw.AlertDialog"]
-        self.assertIn("misc-de?", heads)
+        self.win.ask_updates()
+        self.assertEqual([], self.ran, "pressing the count started something")
+        dialogs = [c for c in recorder.calls if c[0] == "Adw.AlertDialog"]
+        self.assertEqual(1, len(dialogs), "one decision, one dialog")
+        body = str(dialogs[0][2].get("body", ""))
+        self.assertIn("misc-de", body)
+        self.assertIn(self.component()["tool"], body)
+        self.assertIn("9 new commit(s)", body)
+        self.assertIn("restarts", body)
         answers = [str(c[1][1]) for c in recorder.calls
                      if c[0].endswith("add_response()") and c[1]]
-        self.assertIn("Update", answers)
+        self.assertIn("Update and restart", answers)
         self.assertIn("Cancel", answers)
 
-    def test_the_question_carries_the_kind_of_update_that_was_found(self):
-        """A reinstall pulls nothing; an update that pulled would run into the
-        guard of a clone somebody keeps themselves."""
+    def test_the_password_is_asked_once_for_all_of_them(self):
+        """Four tools with updates used to mean four dialogs and four
+        passwords for what is one decision."""
+        self.win.updates = {}
+        self.win.update_btn = Recording()
+        self.win.update_label = Recording()
         self.win.busy = False
-        self.win.offer_self_update("newer than what runs", "/home/furios/clone_dir",
-                                   "reinstall")
-        self.win.ask_self_update()
-        comp, state, _entry, path = self.win._comp_pending
-        self.assertEqual("misc-de", comp["tool"])
-        self.assertEqual("reinstall", state)
-        self.assertEqual("/home/furios/clone_dir", path)
+        for comp in (self.app_component(), self.component()):
+            self.win.offer_update(comp, "something", "/tmp/x")
+        recorder.reset()
+        self.win.ask_updates()
+        entries = [c for c in recorder.calls if c[0] == "Adw.PasswordEntryRow"]
+        self.assertEqual(1, len(entries), entries)
+
+    def test_one_socket_carries_the_whole_batch(self):
+        """One Askpass, not one per tool: it is the socket sudo asks at, and
+        setting it up per tool would hand the password over again for every
+        one of them."""
+        log, stub = self.stub_askpass()
+        real = switcher.askpass.Askpass
+        switcher.askpass.Askpass = stub
+        self.win.updates = {}
+        self.win.update_btn = Recording()
+        self.win.update_label = Recording()
+        self.win.busy = False
+        for comp in (self.app_component(), self.component()):
+            self.win.offer_update(comp, "something", "/tmp/x")
+        self.ran.clear()
+        try:
+            self.win.run_updates("secret_word")
+        finally:
+            switcher.askpass.Askpass = real
+        self.assertEqual(1, len([e for e in log if e[0] == "new"]), log)
+        self.assertEqual([("new", "secret_word"), ("start", None)], log[:2])
+
+    def test_what_was_found_decides_how_it_is_taken(self):
+        """A reinstall pulls nothing; an update that pulled would run into
+        the guard of a clone somebody keeps themselves. The kind is kept with
+        the finding, not decided again when the button is pressed."""
+        self.win.updates = {}
+        self.win.update_btn = Recording()
+        self.win.update_label = Recording()
+        self.win.offer_update(self.app_component(), "newer than what runs",
+                              "/home/furios/clone_dir", "reinstall")
+        waiting = self.win.updates["misc-de"]
+        self.assertEqual("reinstall", waiting["mode"])
+        self.assertEqual("/home/furios/clone_dir", waiting["path"])
 
     def test_a_clone_newer_than_the_program_is_offered_as_a_reinstall(self):
         """The git question is the wrong one for this component: the clone on
@@ -2252,7 +2388,7 @@ class TheWindow(unittest.TestCase):
             self.win.check_app_program(comp)
         finally:
             switcher.components.clone_elsewhere = real
-        self.assertEqual("reinstall", self.win.comp_rows["misc-de"]["mode"])
+        self.assertEqual("reinstall", self.win.updates["misc-de"]["mode"])
         self.assertEqual(True, self.win.update_btn.visible)
 
     def test_a_program_that_matches_its_clone_is_not_offered(self):
@@ -2280,23 +2416,33 @@ class TheWindow(unittest.TestCase):
         self.assertTrue(any(b.endswith("install.sh") for b in commands), commands)
         self.assertEqual("sudo -k", commands[-1])
 
-    def test_an_updated_app_offers_the_restart_it_needs(self):
-        """The new program is on disk and this window is still the old one.
-        Every other tool takes effect where it stands; this one cannot."""
-        recorder.reset()
-        self.win.live["app"] = "/usr/local/bin/misc-de"
+    def test_a_finished_batch_restarts_without_asking_again(self):
+        """The new program is on disk and this window is the old one. It was
+        asked in the dialog - "Update and restart" - so asking a second time
+        would be asking twice for one answer."""
+        self.win.updates = {"x": {}}
         self.win.update_btn = Recording()
-        self.win.update_btn.visible = True
-        self.win.component_done(self.app_component(), True, "")
-        heads = [str(c[2].get("heading", "")) for c in recorder.calls
-                  if c[0] == "Adw.AlertDialog"]
-        self.assertIn("Updated", heads)
-        self.assertEqual(False, self.win.update_btn.visible,
-                         "the icon outlived the offer it carried")
-        answers = [c[1] for c in recorder.calls
-                     if c[0].endswith("add_response()") and c[1]]
-        self.assertTrue(any("Restart now" in str(a) for a in answers),
-                        answers)
+        self.win.update_label = Recording()
+        started = self.catch_execv()
+        self.win.updates_done(True, "")
+        self.assertEqual(1, len(started), "nothing was restarted")
+        self.assertEqual({}, self.win.updates)
+        self.assertEqual(False, self.win.update_btn.visible)
+
+    def test_a_batch_that_failed_restarts_nothing_and_keeps_the_offer(self):
+        """Half of them may be in. Restarting on top of that would hide the
+        failure behind a window that looks new."""
+        comp = self.component()
+        self.win.updates = {comp["tool"]: {"comp": comp, "words": "x",
+                                           "path": "/tmp/x", "mode": "update"}}
+        self.win.update_btn = Recording()
+        self.win.update_label = Recording()
+        started = self.catch_execv()
+        self.win.updates_done(False, "sudo: 1 incorrect password attempt")
+        self.assertEqual([], started, "a failed batch restarted anyway")
+        self.assertIn(comp["tool"], self.win.updates)
+        self.assertEqual(True, self.win.update_btn.visible)
+        self.assertTrue(any("Could not" in t for t in self.toast_texts()))
 
     def test_the_restart_replaces_this_process_instead_of_starting_a_second(self):
         """A second instance hands its activation to the one already running -
@@ -2394,18 +2540,16 @@ class TheWindow(unittest.TestCase):
         argv = self.ran[0][0]
         self.assertIn("/usr/local/bin/gpsctl", argv)
 
-    def test_a_finished_update_takes_the_offer_back_down(self):
-        """The offer it was answering has just been taken; leaving it up says
-        there are still commits waiting, and there are none."""
+    def test_a_tool_that_was_already_there_says_so(self):
+        """component_done is the single-install path now - the tab that
+        offers to fetch a missing tool. Reached with the tool already
+        present, there is nothing to swap in and nothing to promise."""
         comp = self.component("modemctl") if MODEMCTL else None
         if comp is None:
-            self.skipTest("no modemctl here, so no page with an update offer")
-        group = Recording()
-        self.win.comp_rows[comp["tool"]] = {"group": group,
-                                            "state": Recording()}
+            self.skipTest("no modemctl here")
+        self.win.comp_rows[comp["tool"]] = {"state": Recording()}
         recorder.reset()
         self.win.component_done(comp, True, "")
-        self.assertEqual(False, group.visible)
         self.assertTrue(any("up to date" in t for t in self.toast_texts()))
 
     def test_an_install_that_leaves_nothing_behind_says_so(self):
@@ -2441,17 +2585,21 @@ class TheWindow(unittest.TestCase):
     # --- the update offer at the foot of a page ----------------------------
 
     def lines_for(self, comp):
-        rows = {"group": Recording(), "state": Recording(),
-                  "button": Recording()}
-        self.win.comp_rows[comp["tool"]] = rows
-        return rows
+        """The window's own record of what is waiting, emptied first.
+
+        There are no per-tab update groups any more: one place collects what
+        every repository has to say and the header counts it."""
+        self.win.updates = {}
+        self.win.update_btn = Recording()
+        self.win.update_label = Recording()
+        return self.win.updates
 
     def test_an_update_is_offered_only_once_somebody_has_looked(self):
-        """A group that is always there says nothing, and an app that offers
+        """A count that is always there says nothing, and an app that offers
         an update it never checked for is worse than one that offers none."""
         comp = self.component()
         rows = self.lines_for(comp)
-        self.assertIsNone(rows["group"].revealed)
+        self.assertEqual({}, rows)
         self.ran.clear()
         self.win.check_component(comp, "/tmp/clone_dir")
         argv, done, _on_line, _kw = self.ran.pop(0)
@@ -2460,9 +2608,8 @@ class TheWindow(unittest.TestCase):
         argv, done, _on_line, _kw = self.ran.pop(0)
         self.assertIn("rev-list", argv)
         done(True, "4\n")
-        self.assertTrue(rows["group"].visible)
-        self.assertIn("4 new commit", rows["state"].subtitle)
-        self.assertIn("/tmp/clone_dir", rows["state"].subtitle)
+        self.assertIn("4 new commit", rows[comp["tool"]]["words"])
+        self.assertEqual("/tmp/clone_dir", rows[comp["tool"]]["path"])
 
     def test_a_clone_that_is_current_offers_nothing(self):
         comp = self.component()
@@ -2473,7 +2620,7 @@ class TheWindow(unittest.TestCase):
         done(True, "")
         _argv, done, _on_line, _kw = self.ran.pop(0)
         done(True, "0\n")
-        self.assertIsNone(rows["group"].visible)
+        self.assertEqual({}, rows, "a check that found nothing offered something")
 
     def test_a_check_that_fails_offers_nothing_either(self):
         """No network is not "there is an update", and it is not "up to
@@ -2485,7 +2632,7 @@ class TheWindow(unittest.TestCase):
         _argv, done, _on_line, _kw = self.ran.pop(0)
         done(False, "could not resolve host")
         self.assertEqual([], self.ran)
-        self.assertIsNone(rows["group"].visible)
+        self.assertEqual({}, rows, "a check that found nothing offered something")
 
     def test_a_clone_somebody_else_keeps_is_read_and_never_written(self):
         """ls-remote asks the server, rev-parse reads the clone. A fetch would
@@ -2500,8 +2647,9 @@ class TheWindow(unittest.TestCase):
         argv, done, _on_line, _kw = self.ran.pop(0)
         self.assertIn("rev-parse", argv)
         done(True, "def456")
-        self.assertTrue(rows["group"].visible)
-        self.assertIn("/home/furios/Projekte/eigen", rows["state"].subtitle)
+        self.assertIn(comp["tool"], rows)
+        self.assertEqual("/home/furios/Projekte/eigen",
+                         rows[comp["tool"]]["path"])
 
     def test_a_foreign_clone_that_matches_the_server_is_left_in_peace(self):
         comp = self.component()
@@ -2512,7 +2660,7 @@ class TheWindow(unittest.TestCase):
         done(True, "abc123\tHEAD")
         _argv, done, _on_line, _kw = self.ran.pop(0)
         done(True, "abc123\n")
-        self.assertIsNone(rows["group"].visible)
+        self.assertEqual({}, rows, "a check that found nothing offered something")
 
     def test_no_answer_from_the_server_is_not_an_update(self):
         comp = self.component()
@@ -2523,7 +2671,7 @@ class TheWindow(unittest.TestCase):
         done(False, "could not resolve host")
         _argv, done, _on_line, _kw = self.ran.pop(0)
         done(True, "abc123")
-        self.assertIsNone(rows["group"].visible)
+        self.assertEqual({}, rows, "a check that found nothing offered something")
 
     def test_our_own_clone_is_the_one_that_gets_fetched(self):
         """Where we cloned ourselves, a fetch is ours to run - and counting
@@ -2768,11 +2916,11 @@ class TheWindow(unittest.TestCase):
         self.assertEqual([], self.ran)
         win._loading = False
 
-    def test_a_tool_that_did_not_answer_is_not_shown_as_a_position(self):
+    def test_a_tool_that_did_not_answer_is_not_shown_as_a_reading(self):
         win = self.switches_win()
         win.on_switches_status(False, "")
-        self.assertIn("did not answer", win.srow_cam.subtitle)
-        self.assertIn("did not answer", win.srow_net.subtitle)
+        self.assertIn("did not answer", win.srow_cam_hal.subtitle)
+        self.assertIn("did not answer", win.srow_cams.subtitle)
 
     def test_an_unfetched_camera_list_says_how_to_fetch_it(self):
         """The list needs root once. Until then the row must not imply that
@@ -2914,16 +3062,29 @@ class TheWindow(unittest.TestCase):
         win.on_gps_profile(True, "recorded: shipped\nactual:   shipped\n")
         self.assertIn("carrier's IP address", win.gps_row.subtitle)
 
-    def test_the_location_group_carries_no_essay(self):
+    def test_the_fix_group_carries_no_essay(self):
         """The switch's own subtitle says what on and off mean; the paragraph
         above it said the same thing a third time."""
         self.gps_win()                         # skips when there is no page
         recorder.reset()
         switcher.Window(switcher.Adw.Application())
         place = [c for c in recorder.calls if c[0] == "Adw.PreferencesGroup"
-               and c[2].get("title") == "Location"]
-        self.assertTrue(place, "no Location group")
+               and c[2].get("title") == "GPS fix"]
+        self.assertTrue(place, "no GPS fix group")
         self.assertNotIn("description", place[0][2])
+
+    def test_beacondb_sits_under_the_fix_and_not_above_it(self):
+        """Two directions, and the page is read top down: the fix decides what
+        this phone accepts, contributing decides what it hands out. The switch
+        somebody opened the tab for comes first."""
+        self.gps_win()                         # skips when there is no page
+        recorder.reset()
+        switcher.Window(switcher.Adw.Application())
+        titles = [str(c[1][0].title) for c in recorder.calls
+                  if c[0] == "Adw.PreferencesPage.add()" and c[1]]
+        self.assertIn("GPS fix", titles)
+        self.assertLess(titles.index("GPS fix"),
+                        titles.index("Contribute to beaconDB"), titles)
 
     def test_the_filter_being_on_reads_as_on(self):
         win = self.gps_win()

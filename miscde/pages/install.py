@@ -24,8 +24,8 @@ class InstallPage:
         there, otherwise the one that offers to fetch it."""
         tool = tools._tool_maybe(comp["tool"])
         self.live[comp["key"]] = tool
-        page = (self.build_page_with_update(comp, self.builders[comp["key"]])
-                 if tool else self.build_missing_page(comp))
+        page = (self.builders[comp["key"]]() if tool
+                else self.build_missing_page(comp))
         self.pages[comp["key"]] = page
         self.stack.add_titled_with_icon(
             page, comp["key"], comp["page"], comp["icon"])
@@ -117,38 +117,36 @@ class InstallPage:
         page.add(grp)
         return page
 
-    def build_page_with_update(self, comp, build):
-        """The real page, with a way to update what is behind it.
-
-        The group is built hidden and only appears once someone has looked and
-        found something: an "Update" that is always there says nothing, and an
-        app that keeps offering an update it never checked for is worse than
-        one that offers none.
-        """
-        page = build()
-        grp = Adw.PreferencesGroup(title="Update available")
-        grp.set_visible(False)
-        row = Adw.ActionRow(title="What is new", subtitle="…")
-        row.set_subtitle_selectable(True)
-        grp.add(row)
-        btn = self.pill_button("Update")
-        btn.connect("clicked", lambda _b, c=comp: self.ask_component(
-            c, self.comp_rows[c["tool"]].get("mode", "update")))
-        grp.add(btn)
-        self.comp_rows[comp["tool"]] = {"group": grp, "state": row,
-                                        "button": btn}
-        page.add(grp)
-        return page
-
     def check_updates(self):
-        """Ask, once per window, whether any of the installed tools has moved
-        on. Bounded like every other call here - a phone in a tunnel must not
-        be left with a page that says "checking" for ever."""
+        """Ask, once per window, whether anything has moved on - every tool
+        and this app.
+
+        One pass, one answer. Each check reports into self.updates as it
+        comes back, so the count in the header grows while the checks are
+        still running rather than appearing all at once at the end.
+
+        Bounded like every other call here: a phone in a tunnel must not be
+        left with a window that says "checking" for ever.
+        """
+        self.updates = {}
+        self.show_update_count()
         for comp in COMPONENTS:
-            if not tools._tool_maybe(comp["tool"]) or comp["tool"] not in self.comp_rows:
+            if not tools._tool_maybe(comp["tool"]):
                 continue
             self.look_for_update(comp)
         self.check_self_update()
+
+    def show_update_count(self):
+        """The one thing the header says: how many, or nothing at all.
+
+        Nothing at all when there are none - a button that is always there,
+        reading "0 Updates", would be furniture. Its presence is the message.
+        """
+        count = len(self.updates)
+        self.update_label.set_text(
+            "%d Update" % count if count == 1 else "%d Updates" % count)
+        self.update_btn.set_visible(count > 0)
+        self.update_btn.set_sensitive(count > 0 and not self.busy)
 
     def look_for_update(self, comp, other=None):
         """Where an update for this component would come from, in the order
@@ -234,39 +232,16 @@ class InstallPage:
                 "is running", source, "reinstall")
 
     def offer_update(self, comp, words, path, state="update"):
-        """Show the group at the foot of the page, and say where it would
-        pull. The path matters: it may be a clone somebody keeps themselves.
+        """Write down that this one has something waiting, and count it.
 
-        The kind is remembered with it: "update" pulls and installs,
-        "reinstall" only installs what the clone already has.
+        The path matters and is kept: it may be a clone somebody keeps
+        themselves. So is the kind - "update" pulls and installs, "reinstall"
+        only installs what the clone already has, which is the usual answer
+        for this app on this phone.
         """
-        if comp["key"] == "app":
-            return self.offer_self_update(words, path, state)
-        rows = self.comp_rows[comp["tool"]]
-        rows["path"] = path
-        rows["mode"] = state
-        rows["state"].set_subtitle(words + " · " + path)
-        rows["group"].set_visible(True)
-        rows["button"].set_sensitive(not self.busy)
-
-    def offer_self_update(self, words, path, state="update"):
-        """The window has no page of its own, so its offer is the icon in the
-        header bar: it appears, and what it found is in its tooltip.
-
-        Where it would pull from is remembered next to it, exactly as a page's
-        offer remembers it - it may be a clone somebody keeps themselves.
-        """
-        self.comp_rows[SELF["tool"]] = {"path": path, "mode": state}
-        self.update_btn.set_tooltip_text("Update this app: " + words + " · " + path)
-        self.update_btn.set_visible(True)
-        self.update_btn.set_sensitive(not self.busy)
-
-    def ask_self_update(self):
-        """The icon was pressed. Nothing happens yet: this replaces the
-        program somebody is looking at, so it is asked first, in the same
-        words and the same dialog every other component gets."""
-        rows = self.comp_rows.get(SELF["tool"], {})
-        self.ask_component(SELF, rows.get("mode", "update"))
+        self.updates[comp["tool"]] = {"comp": comp, "words": words,
+                                      "path": path, "mode": state}
+        self.show_update_count()
 
     def peek_upstream(self, comp, foreign_path, other=None):
         """Is there something new for a clone we must not touch?
@@ -293,6 +268,144 @@ class InstallPage:
 
         process.run_async(["git", "ls-remote", comp["url"], "HEAD"], upstream_read,
                   timeout=60)
+
+    def ask_updates(self):
+        """The count was pressed: say which, and ask once.
+
+        Once is the point. Before this, four tools with updates meant four
+        dialogs and four passwords for what is one decision - "take what is
+        waiting". The password is asked here and reaches sudo through the
+        same pipe and the same socket a single install uses; it is dropped
+        when the last one is done.
+        """
+        if self.busy or not self.updates:
+            return
+        waiting = list(self.updates.values())
+        lines = ["• %s - %s" % (u["comp"]["tool"], u["words"]) for u in waiting]
+        root = any(u["comp"]["root"] for u in waiting)
+        body = "\n".join(lines) + "\n\n"
+        if root:
+            body += ("Some of them write to /usr/local, so sudo will ask - "
+                     "once, below, for all of them. It goes to sudo and "
+                     "nowhere else, and the ticket is dropped at the end.")
+        else:
+            body += "None of them needs root."
+        body += "\n\nThe app restarts when they are in."
+        eigene = [u for u in waiting
+                  if not u["path"].startswith(CLONE_HOME)]
+        if eigene:
+            body += ("\n\nSome of these are your own clones. With anything "
+                     "uncommitted in one, that one is left alone.")
+
+        dlg = Adw.AlertDialog(
+            heading="%d update%s" % (len(waiting),
+                                     "" if len(waiting) == 1 else "s"),
+            body=body)
+        entry = None
+        if root:
+            entry = Adw.PasswordEntryRow(title="Your password (for sudo)")
+            grp = Adw.PreferencesGroup()
+            grp.add(entry)
+            dlg.set_extra_child(grp)
+        dlg.add_response("go", "Update and restart")
+        dlg.add_response("cancel", "Cancel")
+        dlg.set_default_response("cancel")
+        dlg.set_close_response("cancel")
+        self._updates_pending = entry
+        dlg.connect("response", self.on_updates_response)
+        dlg.present(self)
+
+    def on_updates_response(self, _dlg, response):
+        entry = self._updates_pending
+        self._updates_pending = None
+        if response != "go":
+            return
+        secret = entry.get_text() if entry is not None else None
+        if entry is not None:
+            entry.set_text("")               # not kept a moment longer
+        self.run_updates(secret)
+
+    def run_updates(self, secret):
+        """Every waiting update, one after the other, under one password.
+
+        One Askpass for the lot rather than one each: it is the socket sudo
+        asks at, and setting it up per tool would mean the password being
+        handed over four times for one decision. Each tool still drops its
+        own ticket at the end of its own steps - that is component_steps'
+        doing and it stays, so a failure half-way leaves no ticket behind.
+        """
+        if self.busy or not self.updates:
+            return
+        waiting = list(self.updates.values())
+        os.makedirs(CLONE_HOME, exist_ok=True)
+        root = any(u["comp"]["root"] for u in waiting)
+        self.askpass = askpass.Askpass(secret) if root else None
+        helper = self.askpass.start() if self.askpass else None
+        if self.askpass is not None and helper is None and self.askpass.error:
+            self.toast("no password helper: " + self.askpass.error)
+
+        rest = []
+        for u in waiting:
+            for schritt in component_steps(u["comp"], u["mode"], secret,
+                                           u["path"], helper):
+                rest.append((u["comp"], schritt))
+        self.set_busy(True)
+        self.update_progress("working …")
+
+        def step(ok=True, out=""):
+            if not ok or not rest:
+                self.updates_done(ok, out)
+                return
+            comp, (argv, stdin, cwd, env) = rest.pop(0)
+            self.update_progress(comp["tool"] + ": " + argv[0])
+            # The installer gets its own patience. A clone or a pull is over
+            # in seconds, but an installer may have to fetch build packages
+            # over a phone connection and compile something afterwards - the
+            # audio one builds an SPA plugin - and a wait that runs out mid
+            # apt-get leaves a half-installed system behind.
+            deadline = 1800 if argv[0].endswith("install.sh") else 600
+            process.run_async(argv, step, timeout=deadline, cwd=cwd,
+                              stdin=stdin, env=env,
+                              on_line=lambda line, c=comp: self.update_progress(
+                                  c["tool"] + ": " + line[:40]))
+
+        step()
+
+    def update_progress(self, words):
+        """Where a running batch reports.
+
+        The header button, because that is where the offer was and there is
+        nowhere else left: the pages have no update groups any more. A window
+        that goes busy for half an hour without a word reads as one that has
+        hung.
+        """
+        self.update_label.set_text(words[:48])
+        self.update_btn.set_tooltip_text(words)
+
+    def updates_done(self, ok, out):
+        """Everything ran, or something did not.
+
+        The socket goes down and the password is forgotten first, before
+        anything can return early - every way out of a batch comes through
+        here, the ones that failed and the one that timed out included.
+        """
+        if getattr(self, "askpass", None) is not None:
+            self.askpass.stop()
+            self.askpass = None
+        self.set_busy(False)
+        if not ok:
+            self.show_update_count()
+            self.toast("Could not install the updates")
+            # A wrong password shows up here as sudo's own words, which say
+            # it better than anything this window could invent.
+            self.report(out or "No output.")
+            return
+        # Nothing is left waiting, and the window that is running is now the
+        # old program - possibly of itself. Restarting is the only way the
+        # new one reaches the screen, and it was asked for in the dialog.
+        self.updates = {}
+        self.show_update_count()
+        self.restart_self()
 
     def ask_component(self, comp, state):
         """Ask before fetching anything, and say exactly what will happen.
@@ -394,15 +507,18 @@ class InstallPage:
         step()
 
     def component_says(self, comp, words):
-        """Where a running fetch reports: the row on the tool's page, or - for
-        the window itself, which has no page - the tooltip of the icon that
-        offered the update. Something has to carry it, and a window that goes
-        busy for two minutes without a word reads as one that has hung."""
+        """Where a single install reports: the row on the tool's own page.
+
+        That page only exists while the tool does not - it is the tab that
+        offers to fetch it. Updates do not come through here at all any more;
+        they are a batch and report in the header. Something has to carry it
+        either way: a window that goes busy for two minutes without a word
+        reads as one that has hung."""
         row = self.comp_rows.get(comp["tool"], {}).get("state")
         if row is not None:
             row.set_subtitle(words)
         else:
-            self.update_btn.set_tooltip_text(words)
+            self.update_progress(words)
 
     def component_done(self, comp, ok, out):
         # First thing, before anything can return early: socket down, helper
@@ -414,21 +530,9 @@ class InstallPage:
             self.askpass = None
         self.set_busy(False)
         if ok and self.live.get(comp["key"]):
-            # An update: the page was already the real one, so nothing is
-            # swapped - what changes is the offer, which has just been taken
-            # and would otherwise go on offering the same commits.
-            group = self.comp_rows.get(comp["tool"], {}).get("group")
-            if group is not None:
-                group.set_visible(False)
-            if comp["key"] == "app":
-                # The icon goes with the offer it carried; it comes back the
-                # next time somebody looks and finds something.
-                self.update_btn.set_visible(False)
-                # The one update that cannot take effect by itself: the new
-                # program is on disk and this window is the old one.
-                self.ask_restart()
-            else:
-                self.toast(comp["tool"] + " is up to date")
+            # Already there before this ran - so this was not a fetch of
+            # something missing. Nothing to swap in; say so and stop.
+            self.toast(comp["tool"] + " is up to date")
         elif ok:
             # The page first, the words after it: if the tab is already the
             # real one by the time the toast is read, the sentence is a
@@ -462,17 +566,3 @@ class InstallPage:
             os.execv(prog, [prog])
         except OSError as err:                 # then at least say so
             self.toast("Could not restart: " + str(err))
-
-    def ask_restart(self):
-        """An update is on disk; this window is still the old program."""
-        dlg = Adw.AlertDialog(
-            heading="Updated",
-            body="The new version is installed. This window is still running "
-                 "the old one - restarting takes a second.")
-        dlg.add_response("now", "Restart now")
-        dlg.add_response("later", "Later")
-        dlg.set_default_response("now")
-        dlg.set_close_response("later")
-        dlg.connect("response", lambda _d, answer:
-                    self.restart_self() if answer == "now" else None)
-        dlg.present(self)

@@ -12,19 +12,43 @@ from ..components import BATTERY_UNIT
 
 class BatteryPage:
 
-    # What each of the three options switches, and the two thresholds it
-    # owns. (config key, row title, [(slider label, config key, from, to,
-    # step, digits, unit)]).
+    # What each option switches, what its switch says, and the thresholds it
+    # owns. (config key, box heading, switch title, switch subtitle,
+    # [(slider label, config key, from, to, step, digits, unit)]).
+    #
+    # The subtitle is None for all but one. The box heading already says
+    # which state this is about and the switch says what happens in it, so
+    # a line under it would be the same sentence a third time. The
+    # exception is the option that takes something away: that cannot be
+    # read off a switch, so it is said where it is decided.
+    #
+    # One box per option, and the sliders in the box with the switch they
+    # belong to: in a single box the six of them read as one block of
+    # furniture, and which pair belonged to which switch was a thing to work
+    # out rather than to see.
     BATTERY_OPTIONS = (
-        ("charging", "While charging", (
+        ("charging", "While charging", "Colour the icon", None, (
             ("Green", "charge_green_w", 1.0, 12.0, 0.5, 1, "W"),
             ("Amber", "charge_amber_w", 0.5, 11.0, 0.5, 1, "W"))),
-        ("level", "Charge level", (
+        ("level", "Charge level", "Colour the filling", None, (
             ("Amber", "level_amber_pct", 20.0, 95.0, 5.0, 0, "%"),
             ("Red", "level_red_pct", 5.0, 90.0, 5.0, 0, "%"))),
-        ("discharging", "Drain", (
+        ("discharging", "Drain", "Colour the icon", None, (
             ("Amber", "drain_amber_w", 0.5, 8.0, 0.5, 1, "W"),
             ("Red", "drain_red_w", 1.0, 12.0, 0.5, 1, "W"))),
+        # No sliders on these two: there is nothing to set, only whether it
+        # is shown.
+        ("runtime", "Time left", "Instead of the percentage",
+         "how long the battery lasts, as 00:00, in the place the percentage "
+         "stands in - phosh's own switch for it stays on, because that is "
+         "what keeps the place", ()),
+        # Its own switch, not part of the one above: "how long does it last"
+        # and "how long until it is full" are two questions, and somebody may
+        # want one without the other. Off, the percentage stands there while
+        # the cable is in.
+        ("charge_time", "Charging time", "While the cable is in",
+         "how long until full, in the same place - off, the percentage "
+         "shows while charging", ()),
     )
 
     # Which threshold has to stay below which, and by how much.
@@ -41,7 +65,7 @@ class BatteryPage:
         return "%.*f %s" % (digits, value, unit)
 
     def build_battery_page(self):
-        """Three options, and under each the sliders that decide it.
+        """One box per option, and in it the sliders that decide it.
 
         No readings on this page. A watt figure belongs where somebody is
         measuring; here the question is only which colour appears when, and
@@ -56,13 +80,18 @@ class BatteryPage:
         self.batt_scales = {}
         self.batt_rows = []
 
-        # One group for all three, so there is one heading over the lot and
-        # not three unnamed blocks. The sliders still sit under the switch
-        # they belong to: a group takes rows and revealers in the order they
-        # are added.
-        grp = Adw.PreferencesGroup(title="Colour marking")
-        for key, title, sliders in self.BATTERY_OPTIONS:
-            row = Adw.SwitchRow(title=title)
+        # A box of its own for each, headed by what it is. Not one box with
+        # a heading over the lot: that heading named the page rather than
+        # anything a person decides, and the sliders of the third option sat
+        # under the same card as the switch of the first.
+        for key, heading, title, subtitle, sliders in self.BATTERY_OPTIONS:
+            grp = Adw.PreferencesGroup(title=heading)
+            # The subtitle goes in at construction, not afterwards: set
+            # later it is invisible to the test that checks this page says
+            # nothing it does not have to, and that test would go on passing
+            # while the page filled up.
+            row = (Adw.SwitchRow(title=title, subtitle=subtitle) if subtitle
+                   else Adw.SwitchRow(title=title))
             row.connect("notify::active", self.on_battery_option, key)
             grp.add(row)
             self.batt_switches[key] = row
@@ -91,12 +120,13 @@ class BatteryPage:
                 grp.add(srow)
                 row.slider_rows.append(srow)
                 self.batt_scales[ckey] = scale
-        bpage.add(grp)
+            bpage.add(grp)
 
         back, self.batt_restore_btn = self.build_restore_group(
-            "Stops the colouring, takes it out of the next boot, puts your "
-            "own theme and icons back. What the battery reports is "
-            "untouched - that is the kernel's.",
+            "Stops the colouring and the time left, takes them out of the "
+            "next boot, puts your own theme and icons back and the "
+            "percentage with them. What the battery reports is untouched - "
+            "that is the kernel's.",
             self.on_battery_restore)
         bpage.add(back)
         self.batt_rows.append(self.batt_restore_btn)
@@ -126,7 +156,7 @@ class BatteryPage:
         """
         cfg = getattr(self, "batt_cfg", {})
         self._loading = True
-        for key, _title, sliders in self.BATTERY_OPTIONS:
+        for key, _heading, _title, _subtitle, sliders in self.BATTERY_OPTIONS:
             row = self.batt_switches[key]
             an = bool(cfg.get(key)) and getattr(self, "batt_running", True)
             row.set_sensitive(True)

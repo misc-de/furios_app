@@ -20,7 +20,7 @@ class GpsPage:
         """
         gpage = Adw.PreferencesPage()
 
-        grp = Adw.PreferencesGroup(title="Location")
+        grp = Adw.PreferencesGroup(title="GPS fix")
         self.gps_row = Adw.SwitchRow(
             title="Filter active",
             subtitle="reading …",
@@ -53,7 +53,6 @@ class GpsPage:
             title="Sent so far", subtitle="—",
         )
         contribution.add(self.gps_contrib_stats)
-        gpage.add(contribution)
 
         self.gps_progress = Gtk.ProgressBar(show_text=True, text="")
         for m in ("top", "bottom"):
@@ -67,6 +66,7 @@ class GpsPage:
         )
         grp.add(self.gps_revealer)
         gpage.add(grp)
+        gpage.add(contribution)
 
         info = Adw.PreferencesGroup(title="Status")
         self.grow_profile = Adw.ActionRow(title="Profile", subtitle="…")

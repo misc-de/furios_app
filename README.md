@@ -19,9 +19,10 @@ None of them has to be installed. A tab whose tool is missing is still there
 and offers to fetch and install it for you; once that finishes, the tab becomes
 the real one without a restart.
 
-When a newer version of a tool is available, the page offers an update. For the
-app itself, that offer is an icon in the top left of the header bar, and it
-only appears when there is something to take.
+When something newer is waiting - for one of the tools or for the app itself -
+a count appears in the top left of the header bar. Pressing it lists what would
+be taken and asks once: one password for all of them, and the app restarts when
+they are in. With nothing waiting there is no button at all.
 
 ## Install
 
@@ -62,13 +63,17 @@ IP address. "Off" here does not mean "no position": it means the carrier's exit
 node is published as though the phone had been seen there, and every line on
 the page says so.
 
-**Switches** — the three sliders on the case. Camera and cellular are software
-shutdowns; the microphone switch physically cuts the line and is therefore
-invisible to software, which the page states rather than guessing at.
+**Switches** — what the three sliders on the case took down with them. Camera
+and cellular are software shutdowns; the microphone switch physically cuts the
+line and is therefore invisible to software, which the page states rather than
+guessing at. No slider position is shown: the hand on the case already decided
+it, and repeating it back is a reading without a use.
 
-**Battery** — three options: colour while charging (the bolt), colour by
-charge level (the filling), colour an unusual drain (the frame). The
-thresholds are sliders, shown under the option they belong to when it is on.
+**Battery** — five options, each in a box of its own: colour while charging
+(the bolt), colour by charge level (the filling), colour an unusual drain (the
+frame), and the two that put a time where the percentage stands - how long the
+battery lasts, and how long until it is full. The thresholds are sliders,
+shown under the switch they belong to when it is on.
 
 Every page has the same plainly labelled way back to how the phone shipped, and
 asks before it does anything.

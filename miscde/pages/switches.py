@@ -17,8 +17,12 @@ class SwitchesPage:
         kills: a GPIO tells the Android side, which stops a service with signal
         9. The microphone one cuts the line, which is why it is the only one
         the system cannot see at all - and the only one that is beyond doubt.
-        It is therefore also the only one with no reading here: finding out
-        would mean listening, and this page says so instead of guessing.
+
+        No slider position is shown. A page cannot switch what the hand on the
+        case already decided, so repeating the position back was a reading
+        without a use - and next to the microphone, where there is nothing to
+        read, it made the absence look like a fault. What is left is what this
+        page can actually answer: what the switch took down with it.
         """
         spage = Adw.PreferencesPage()
 
@@ -41,18 +45,14 @@ class SwitchesPage:
         spage.add(grp)
 
         cam = Adw.PreferencesGroup(title="1 · Camera")
-        self.srow_cam = Adw.ActionRow(title="Position", subtitle="…")
         self.srow_cam_hal = Adw.ActionRow(title="Camera service", subtitle="…")
         self.srow_cams = Adw.ActionRow(title="Cameras affected", subtitle="…")
-        for row in (self.srow_cam, self.srow_cam_hal, self.srow_cams):
+        for row in (self.srow_cam_hal, self.srow_cams):
             row.set_subtitle_selectable(True)
             cam.add(row)
         spage.add(cam)
 
         net = Adw.PreferencesGroup(title="2 · Network")
-        self.srow_net = Adw.ActionRow(title="Position", subtitle="…")
-        self.srow_net.set_subtitle_selectable(True)
-        net.add(self.srow_net)
         # Shown as a switch like the other two, but fixed on: the Android side
         # stops the RIL before any program here learns the slider moved. The
         # only way to "deselect" it would be to start the modem back up behind
@@ -84,10 +84,15 @@ class SwitchesPage:
         # It cuts the built-in microphones for real, and reading the position
         # would mean opening them - which is what the switch is flipped
         # against. The long version lives in the project's FINDINGS.md.
+        #
+        # Said as what it is rather than as a missing reading: "Position:
+        # not readable" puts the word Position on screen and then takes it
+        # back, which reads as a gap where the other two have an answer.
         self.srow_mic = Adw.ActionRow(
-            title="Position",
-            subtitle="not readable - finding out would mean opening the "
-            "microphone, which is what this switch is against")
+            title="Not controlled by software",
+            subtitle="the slider cuts the line itself - nothing here switches "
+            "it, and reading it would mean opening the microphone, which is "
+            "what it is against")
         self.srow_mic.set_subtitle_selectable(True)
         mic.add(self.srow_mic)
         # For anyone who does want a number: one measurement, asked for by
@@ -118,20 +123,14 @@ class SwitchesPage:
 
     def on_switches_status(self, ok, out):
         if not ok:
-            for row in (self.srow_cam, self.srow_net):
+            for row in (self.srow_cam_hal, self.srow_cams):
                 row.set_subtitle("killswitch-indicator did not answer")
             return
         try:
             data = json.loads(out)
         except ValueError:
-            self.srow_cam.set_subtitle("unreadable answer")
+            self.srow_cam_hal.set_subtitle("unreadable answer")
             return
-
-        def position(value):
-            return {"0": "engaged", "1": "free"}.get(value, "unknown")
-
-        self.srow_cam.set_subtitle(position(data.get("switches", {}).get("cam_switch")))
-        self.srow_net.set_subtitle(position(data.get("switches", {}).get("nwk_switch")))
 
         hal = data.get("camera_hal")
         self.srow_cam_hal.set_subtitle(

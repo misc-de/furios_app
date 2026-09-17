@@ -21,12 +21,12 @@ other page, to say which file the window runs from; and the one thing it was
 there for - taking the next version - does not have to wait behind a tab
 nobody opens.
 
-So it sits in the header bar: **an icon at the top left that only appears when
-there is a newer version.** What was found and where it would come from is in
-its tooltip. Pressing it starts nothing yet, it asks back - the same question
-every other component gets, with the steps that would run and the password
-field for `sudo`. Afterwards the icon is gone again; it was the answer to a
-question that has been answered.
+So it sits in the header bar, and since 17.9.2026 it is not only about this
+app: **a count at the top left that appears when anything is waiting** - the
+app, a tool, or four of them at once. Pressing it starts nothing yet, it asks
+back, with what would be taken and the password field for `sudo`. Afterwards
+the count is gone again; it was the answer to a question that has been
+answered.
 
 (There used to be a "reload" button at the top right. It produced exactly the
 state that was already on screen - the window asks by itself when it opens,
@@ -118,12 +118,21 @@ stops dead without it.
 ## When there is something new in the repo
 
 At start the app looks once whether the installed tools still match the state
-of their repository. If there is something new, a group "Update available"
-appears at the **foot of the page concerned** with what is waiting there and
-an **Update** button - for the app itself the icon at the top left of the
-header bar. If there is nothing - or the question could not be answered
-because the phone has no network at the moment - nothing appears at all. An
-offer that is always there says nothing.
+of their repository. Everything that has something waiting is collected in
+**one place: the count at the top left of the header bar**, which grows while
+the checks are still coming back. If there is nothing - or the question could
+not be answered because the phone has no network at the moment - no button
+appears at all. An offer that is always there says nothing.
+
+Until 17.9.2026 each page carried its own "Update available" group at its
+foot. Five repositories meant five places to look for the same answer, five
+passwords for one evening's updates, and no way to see at a glance whether
+anything was waiting. Pressing the count now lists what it found - one line
+per tool, **named by the tool and never by a URL**: the address pushed the
+only thing the line has to say off the edge of a phone screen, and the name
+already stands at its front. One password covers the batch, each tool still
+drops its own ticket at the end of its own steps, and the app restarts itself
+when they are in.
 
 How it looks depends on who owns the clone:
 
@@ -157,16 +166,28 @@ address. "Off" here does not mean "no position", it means: the position of the
 carrier's exit node is published as though the phone had been seen there. That
 is why every row of that page says what "off" means.
 
-**Switches** - the three sliders on the case. Camera and network are software
-shutdowns (Android stops the service), the microphone switch really cuts the
-line - and is invisible to software for exactly that reason. The page does not
-listen after it: that would mean opening the microphone, and the answer would
-hold only for the seconds of the measurement. It says so.
+**Switches** - what the three sliders on the case took down with them. Camera
+and network are software shutdowns (Android stops the service), the microphone
+switch really cuts the line - and is invisible to software for exactly that
+reason. The page does not listen after it: that would mean opening the
+microphone, and the answer would hold only for the seconds of the measurement.
+It says so.
 
-**Battery** - three options, and nothing else on the page: colour while
+No position is shown for any of the three any more. A page cannot switch what
+the hand on the case already decided, so the reading had no use - and next to
+the microphone, where there is nothing to read, "Position: not readable" put
+the word on screen only to take it back, which made the absence look like a
+fault. The microphone row now says what it is: not controlled by software.
+
+**Battery** - five options, and nothing else on the page: colour while
 charging (the bolt), colour by charge level (the filling), colour an unusual
-drain (the frame). Under each option, revealed with it, the two sliders that
-say when green, amber and red appear. No readings: a watt figure belongs
+drain (the frame), and the two that put a time where the percentage stands -
+how long the battery lasts, and how long until it is full (two questions, so
+two switches: somebody may want one without the other). Each sits in a box of
+its own, headed by what it is about; in a single box the six sliders read as
+one block of furniture and which pair belonged to which switch was a thing to
+work out rather than to see. Under each option, revealed with it, the sliders
+that say when green, amber and red appear. No readings: a watt figure belongs
 where somebody is measuring, and here the only question is which colour
 appears when. A switch is on only when the setting AND the service behind it
 are - an option left on in the file with the daemon stopped would be a switch
