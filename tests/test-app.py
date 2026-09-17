@@ -1422,18 +1422,20 @@ class TheWindow(unittest.TestCase):
         nothing more.
 
         Two exceptions, and they are the reason this is a count rather than
-        an emptiness: both time options take the percentage away, and what a
-        switch gives back in its place cannot be read off the switch. What a
-        box heading and a switch title can say between them gets no
-        subtitle."""
+        an emptiness: the two time options say WHERE the time appears, which
+        is not the same on every phone - a status icon of its own where the
+        phosh plugin is installed, the percentage's place where it is not -
+        and no switch title can carry that. What a box heading and a switch
+        title can say between them gets no subtitle."""
         recorder.reset()
         self.win.build_battery_page()
         subtitles = [str(c[2].get("subtitle")) for c in recorder.calls
                       if c[0] in ("Adw.ActionRow", "Adw.SwitchRow")
                       and c[2].get("subtitle")]
-        self.assertEqual(2, len(subtitles), subtitles)
-        for text in subtitles:
-            self.assertIn("percentage", text)
+        wanted = [sub for _key, _head, _title, sub, _sliders
+                  in switcher.Window.BATTERY_OPTIONS if sub]
+        self.assertEqual(2, len(wanted), "a third option grew a subtitle")
+        self.assertEqual(sorted(wanted), sorted(subtitles))
 
     def test_the_sliders_appear_with_their_option(self):
         """Six sliders at once ask to be studied; this is a page to glance

@@ -38,17 +38,21 @@ class BatteryPage:
             ("Red", "drain_red_w", 1.0, 12.0, 0.5, 1, "W"))),
         # No sliders on these two: there is nothing to set, only whether it
         # is shown.
-        ("runtime", "Time left", "Instead of the percentage",
-         "how long the battery lasts, as 00:00, in the place the percentage "
-         "stands in - phosh's own switch for it stays on, because that is "
-         "what keeps the place", ()),
+        # Where it lands is not this page's decision and not the same on
+        # every phone: with the phosh plugin installed it is a status icon
+        # of its own, without it a strip of ours in the percentage's place.
+        # Said in one clause rather than explained - battctl status has the
+        # long version.
+        ("runtime", "Time left", "Show it in the top bar",
+         "how long the battery lasts, as 00:00 - beside the percentage where "
+         "phosh-battery-time is installed, in its place where it is not", ()),
         # Its own switch, not part of the one above: "how long does it last"
         # and "how long until it is full" are two questions, and somebody may
         # want one without the other. Off, the percentage stands there while
         # the cable is in.
         ("charge_time", "Charging time", "While the cable is in",
-         "how long until full, in the same place - off, the percentage "
-         "shows while charging", ()),
+         "how long until full, in the same place - off, there is no time "
+         "while charging", ()),
     )
 
     # Which threshold has to stay below which, and by how much.
