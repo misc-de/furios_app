@@ -185,8 +185,7 @@ class InstallPage:
         def counted(ok, out):
             behind = behind_count(out) if ok else None
             if behind:
-                self.offer_update(comp, "%d new commit(s) in %s"
-                                  % (behind, comp["url"]), mine)
+                self.offer_update(comp, "%d new commit(s)" % behind, mine)
             elif other:
                 other()
 
@@ -258,7 +257,7 @@ class InstallPage:
                 if other:
                     other()
                 return                         # nothing to say, so nothing said
-            self.offer_update(comp, "something new in " + comp["url"], foreign_path)
+            self.offer_update(comp, "something new on the server", foreign_path)
 
         def upstream_read(ok, out):
             head = (out or "").split()

@@ -2319,6 +2319,7 @@ class TheWindow(unittest.TestCase):
         self.assertIn("misc-de", body)
         self.assertIn(self.component()["tool"], body)
         self.assertIn("9 new commit(s)", body)
+        self.assertNotIn("http", body, "the list names repositories by URL")
         self.assertIn("restarts", body)
         answers = [str(c[1][1]) for c in recorder.calls
                      if c[0].endswith("add_response()") and c[1]]
@@ -2650,6 +2651,36 @@ class TheWindow(unittest.TestCase):
         self.assertIn(comp["tool"], rows)
         self.assertEqual("/home/furios/Projekte/eigen",
                          rows[comp["tool"]]["path"])
+
+    def test_what_is_waiting_is_named_by_its_tool_and_never_by_a_url(self):
+        """The list of updates is read on a phone. A github.com address in
+        every line pushes the one thing it has to say - which tool, how far
+        behind - off the edge, and the line already begins with the name."""
+        comp = self.component()
+        for check in (self.words_from_our_clone, self.words_from_a_foreign_clone):
+            words = check(comp)
+            self.assertNotIn("http", words)
+            self.assertNotIn(comp["url"], words)
+
+    def words_from_our_clone(self, comp):
+        rows = self.lines_for(comp)
+        self.ran.clear()
+        self.win.check_component(comp, "/tmp/clone_dir")
+        _argv, done, _on_line, _kw = self.ran.pop(0)
+        done(True, "")
+        _argv, done, _on_line, _kw = self.ran.pop(0)
+        done(True, "4\n")
+        return rows[comp["tool"]]["words"]
+
+    def words_from_a_foreign_clone(self, comp):
+        rows = self.lines_for(comp)
+        self.ran.clear()
+        self.win.peek_upstream(comp, "/eigen")
+        _argv, done, _on_line, _kw = self.ran.pop(0)
+        done(True, "abc123\tHEAD")
+        _argv, done, _on_line, _kw = self.ran.pop(0)
+        done(True, "def456")
+        return rows[comp["tool"]]["words"]
 
     def test_a_foreign_clone_that_matches_the_server_is_left_in_peace(self):
         comp = self.component()
