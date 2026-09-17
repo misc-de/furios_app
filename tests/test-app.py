@@ -21,6 +21,7 @@ import io
 import json
 import os
 import re
+import shlex
 import shutil as shutil_real
 import subprocess as subprocess_real
 import sys
@@ -3605,6 +3606,63 @@ class SourceDigest(unittest.TestCase):
         self.assertIsNone(switcher.tools.source_digest("/does/not/exist"))
         self.assertIsNone(switcher.tools.source_digest(""))
         self.assertIsNone(self.digest({"README.md": b"no python here"}))
+
+
+class TheInstallerLooksForTools(unittest.TestCase):
+    """install.sh's own lookup, run as bash runs it.
+
+    It is the last thing the installer prints - which of the five tools are
+    not there yet - and on 17.9.2026 it named two that were: the script runs
+    under sudo, so $PATH and $HOME are root's, while killswitch-indicator and
+    battctl need no root and live in the user's own ~/.local/bin. An offer to
+    install what is already installed is worse than no line at all, so the
+    function is extracted from the script and exercised here rather than
+    read and believed.
+    """
+
+    SCRIPT = ROOT / "install.sh"
+
+    def lookup(self):
+        """The block between the markers in install.sh, and nothing else -
+        sourcing the whole script would install the app."""
+        text = self.SCRIPT.read_text()
+        start = text.index("# --- tool lookup")
+        end = text.index("# --- end tool lookup ---")
+        return text[start:end]
+
+    def ask(self, name, home):
+        """have_tool, with `home` standing in for the caller's home."""
+        script = "\n".join([self.lookup(),
+                            "user_home=" + shlex.quote(home),
+                            "have_tool " + shlex.quote(name)])
+        return subprocess_real.run(["bash", "-c", script],
+                                   stdout=subprocess_real.DEVNULL,
+                                   stderr=subprocess_real.DEVNULL).returncode
+
+    def test_a_tool_in_the_callers_own_bin_is_found(self):
+        with tempfile.TemporaryDirectory() as home:
+            bin_dir = os.path.join(home, ".local", "bin")
+            os.makedirs(bin_dir)
+            tool = os.path.join(bin_dir, "battctl")
+            with open(tool, "w") as fh:
+                fh.write("#!/bin/sh\n")
+            os.chmod(tool, 0o755)
+            self.assertEqual(0, self.ask("battctl", home),
+                             "a tool in ~/.local/bin was reported missing")
+
+    def test_a_tool_that_is_nowhere_is_still_missing(self):
+        with tempfile.TemporaryDirectory() as home:
+            self.assertNotEqual(0, self.ask("no-such-tool-here", home))
+
+    def test_the_installer_asks_nothing_the_other_way(self):
+        """Every one of the five goes through have_tool. A single
+        "command -v" left in the list would bring the wrong line back for
+        whichever tool it checks."""
+        text = self.SCRIPT.read_text()
+        for tool in ("audioctl", "modemctl", "gpsctl",
+                     "killswitch-indicator", "battctl"):
+            self.assertNotIn("command -v " + tool, text)
+        self.assertNotIn('command -v "$tool"', text)
 
 
 if __name__ == "__main__":

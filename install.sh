@@ -8,11 +8,28 @@
 set -e
 cd "$(dirname "$0")"
 
+# How a tool is looked for here. Not "command -v": this script runs under
+# sudo, where $PATH and $HOME are root's, while two of the five tools need no
+# root at all and are installed in the user's own ~/.local/bin - so the plain
+# lookup reported them missing and offered to install what was already there.
+# The app's own order (miscde/tools.py, _tool_maybe): the two system
+# directories, then the bin of whoever called this script, $PATH last.
+# --- tool lookup (the tests extract everything down to the end marker) ---
+user_home=$(getent passwd "${SUDO_USER:-$(id -un)}" | cut -d: -f6) || true
+have_tool() {
+    local dir
+    for dir in /usr/local/bin /usr/bin "${user_home:-$HOME}/.local/bin"; do
+        [ -x "$dir/$1" ] && return 0
+    done
+    command -v "$1" >/dev/null
+}
+# --- end tool lookup ---
+
 # audioctl used to be a hard requirement here. It is not one any more: a tab
 # whose tool is missing now says so and offers to fetch it, so the app has
 # something to say on a phone where nothing else is installed yet - and
 # refusing to install would leave somebody with no way to get there at all.
-command -v audioctl >/dev/null || cat <<'HINT'
+have_tool audioctl || cat <<'HINT'
 Note: audioctl is not installed yet. The Audio tab will offer to fetch it
       (github.com/misc-de/furios_pipewire), like the other three tabs do.
 HINT
@@ -50,6 +67,6 @@ echo "Start it directly: misc-de"
 # Every tab exists whether its tool does or not, and the ones without offer to
 # fetch it - so a missing tool is a line about where to get it, not a warning.
 for tool in audioctl modemctl gpsctl killswitch-indicator battctl; do
-    command -v "$tool" >/dev/null \
+    have_tool "$tool" \
         || echo "(no $tool yet - its tab offers to install it)"
 done
