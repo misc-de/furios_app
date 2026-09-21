@@ -110,6 +110,14 @@ class SecurityPage:
         repeating a warning that has stopped applying - which is also why
         this reads secctl's answer rather than carrying the version in the
         app.
+
+        "No fixes are coming" would be the shorter line and it would not be
+        true: FuriLabs does ship new builds of this kernel - furios5 through
+        furios8 within a year - and CIP keeps a 4.19-cip tree with security
+        backports until 2029. What those builds carry is the point: the
+        changelog holds feature backports and MediaTek work, no CVE and no
+        stable merge, and the phone does not run the CIP tree. So a hole
+        found after the end of life stays open here.
         """
         release = kern.get("release") or "unknown"
         if kern.get("maintained"):
@@ -118,10 +126,12 @@ class SecurityPage:
             return
         self.sec_kernel.set_title(release)
         self.sec_kernel.set_subtitle(
-            "%s was the last release of %s - end of life %s. No upstream "
-            "security fixes since then, and none coming: everything on the "
-            "Android side is built against this kernel. Nothing below fixes "
-            "a hole; it takes away the cheap ways to reach one."
+            "%s was the last upstream release of %s - end of life %s. "
+            "FuriLabs still builds this kernel, but what lands there are "
+            "feature and MediaTek backports, not security fixes, and a "
+            "newer one would mean rebuilding binder, hwcomposer and the "
+            "audio HAL against it. Nothing below fixes a hole; it takes "
+            "away the cheap ways to reach one."
             % (kern.get("last_release") or "this version",
                kern.get("series") or "the series", kern.get("eol") or "then"))
 
