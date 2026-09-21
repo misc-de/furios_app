@@ -75,6 +75,7 @@ MODEMCTL = switcher.tools._tool_maybe("modemctl")
 GPSCTL = switcher.tools._tool_maybe("gpsctl")
 KILLSWITCH = switcher.tools._tool_maybe("killswitch-indicator")
 BATTCTL = switcher.tools._tool_maybe("battctl")
+SECCTL = switcher.tools._tool_maybe("secctl")
 
 
 class AppReadsAudioctl(unittest.TestCase):
@@ -216,7 +217,8 @@ class ComponentTable(unittest.TestCase):
                 self.assertTrue(comp["url"].startswith("https://github.com/"))
                 self.assertGreater(len(comp["does"]), 30)
                 self.assertIn(comp["key"],
-                              ("audio", "modem", "gps", "switches", "battery"))
+                              ("audio", "modem", "gps", "switches", "battery",
+                               "security"))
                 self.assertTrue(comp["icon"].endswith("-symbolic"))
 
     def test_a_clone_is_found_by_its_origin_not_by_its_name(self):
@@ -775,7 +777,9 @@ class Recording:
     """A widget that remembers what it was told, and answers what a test set."""
 
     def __init__(self, active=False):
+        self.title = None
         self.subtitle = None
+        self.focus = False
         self.value = 0.0
         self.visible = None
         self.sensitive = True
@@ -786,8 +790,17 @@ class Recording:
         self.revealed = None
         self.tooltip = None
 
+    def set_title(self, text):
+        self.title = text
+
     def set_subtitle(self, text):
         self.subtitle = text
+
+    def has_focus(self):
+        """The security page refuses to overwrite the network somebody is
+        typing into. A stub that always claims focus would hide the refresh
+        entirely, so this answers what a test set."""
+        return self.focus
 
     def set_sensitive(self, value):
         self.sensitive = value
@@ -917,11 +930,13 @@ class TheWindow(unittest.TestCase):
                       "grow_profile", "grow_seen", "grow_health",
                       "gps_contrib", "gps_contrib_stats", "gps_restore_btn"]
         if KILLSWITCH:
-            names += ["sw_row", "sw_persist", "sw_wifi", "sw_bt", "sw_modem",
+            names += ["sw_row", "sw_wifi", "sw_bt", "sw_modem",
                       "srow_cam_hal", "srow_cams", "srow_mic",
                       "sw_restore_btn"]
         if BATTCTL:
             names += ["batt_restore_btn"]
+        if SECCTL:
+            names += ["sec_kernel", "sec_lan", "sec_restore_btn"]
         for name in names:
             setattr(self.win, name, Recording())
         if MODEMCTL:
@@ -931,9 +946,8 @@ class TheWindow(unittest.TestCase):
             self.win.gps_rows = [self.win.gps_row, self.win.gps_persist,
                                  self.win.gps_contrib, self.win.gps_restore_btn]
         if KILLSWITCH:
-            self.win.sw_rows = [self.win.sw_row, self.win.sw_persist,
-                                self.win.sw_wifi, self.win.sw_bt,
-                                self.win.sw_restore_btn]
+            self.win.sw_rows = [self.win.sw_row, self.win.sw_wifi,
+                                self.win.sw_bt, self.win.sw_restore_btn]
         if BATTCTL:
             # The page keeps its controls in two dictionaries, so the
             # stand-ins go in there rather than on attributes.
@@ -947,6 +961,14 @@ class TheWindow(unittest.TestCase):
                     self.win.batt_scales[ckey] = Recording()
             self.win.batt_rows = (list(self.win.batt_switches.values())
                                   + [self.win.batt_restore_btn])
+        if SECCTL:
+            # The three switches live in a dictionary, like the battery
+            # page's, so the stand-ins go in there rather than on attributes.
+            self.win.sec_switches = {key: Recording()
+                                     for key, _t, _s in switcher.Window.PARTS}
+            self.win.sec_rows = (list(self.win.sec_switches.values())
+                                 + [self.win.sec_lan,
+                                    self.win.sec_restore_btn])
         self.ran = []
         self.original = switcher.process.run_async
         # Four fields, not three: the components page passes cwd, stdin and a
@@ -1668,8 +1690,13 @@ class TheWindow(unittest.TestCase):
                     # is installed - same installer, but it can be absent in
                     # the seconds after one that stopped half way.
                     + ((2 + bool(CONTRIB)) if GPSCTL else 0)
-                    # status --json, plus is-active and is-enabled for the unit
-                    + (3 if KILLSWITCH else 0)
+                    # status --json, plus is-active for the daemon. Not
+                    # is-enabled any more: the icons are phosh's plugin list
+                    # and the tool answers for them in the same status.
+                    + (2 if KILLSWITCH else 0)
+                    # one call for the whole security page: status --json
+                    # answers the kernel, all three parts and what listens
+                    + (1 if SECCTL else 0)
                     # the battery page asks the same three questions
                     + (3 if BATTCTL else 0))
         self.assertEqual(expected, len(self.ran))
@@ -1688,15 +1715,19 @@ class TheWindow(unittest.TestCase):
         self.assertEqual(2, len(theirs), theirs)
 
     def test_the_switches_page_asks_for_json_and_for_the_unit(self):
-        """The page needs both: the tool knows the switches, systemd knows
-        whether the indicator runs and whether it survives a boot."""
+        """The page needs both: the tool knows the switches and whether the
+        icons are switched on, systemd knows whether the daemon that acts on
+        the network switch is running."""
         if not KILLSWITCH:
             self.skipTest("killswitch-indicator not installed")
         self.win.refresh()
         calls_ = [" ".join(a[0]) for a in self.ran]
         self.assertTrue(any("status --json" in a for a in calls_), calls_)
         self.assertTrue(any("is-active killswitch-indicator" in a for a in calls_), calls_)
-        self.assertTrue(any("is-enabled killswitch-indicator" in a for a in calls_), calls_)
+        # is-enabled is gone: stopping the daemon does not take the icons
+        # away any more, so the unit answers no question this page asks.
+        self.assertFalse(any("is-enabled killswitch-indicator" in a
+                             for a in calls_), calls_)
 
 
     # --- the switches page -------------------------------------------------
@@ -1713,6 +1744,7 @@ class TheWindow(unittest.TestCase):
 
     JSON = """{
       "switches": {"cam_switch": "0", "nwk_switch": "1"},
+      "icons": true,
       "network_extras": {"wifi": true, "bluetooth": false},
       "radios": {"wifi": true, "bluetooth": null},
       "we_disabled": [],
@@ -1785,22 +1817,26 @@ class TheWindow(unittest.TestCase):
         win.on_extra_wifi(win.sw_wifi, None)
         self.assertEqual(["config", "wifi", "on"], list(self.ran[-1][0][1:]))
 
-    def test_the_indicator_switch_drives_the_user_unit(self):
+    def test_the_indicator_switch_goes_through_the_tool(self):
+        """The icons are a phosh plugin, and the tool owns the shell's list of
+        them - the app must not edit that list itself, because it may hold
+        somebody else's plugin."""
         win = self.switches_win()
         self.ran.clear()
         win._loading = False
         win.sw_row.set_active(False)
         win.on_indicator_switch(win.sw_row, None)
-        self.assertIn("stop", self.ran[-1][0])
-        self.assertIn("killswitch-indicator", self.ran[-1][0])
+        self.assertEqual(["icons", "off"], list(self.ran[-1][0][1:]))
+        self.assertNotIn("gsettings", self.ran[-1][0][0])
 
-    def test_remembering_the_choice_enables_the_unit(self):
+    def test_the_icons_are_read_from_the_tools_own_answer(self):
+        """Not from systemd: stopping the daemon does not take the icons away
+        any more, and a switch that showed the unit would be answering a
+        different question than the one it asks."""
         win = self.switches_win()
-        self.ran.clear()
-        win._loading = False
-        win.sw_persist.set_active(True)
-        win.on_indicator_persist(win.sw_persist, None)
-        self.assertIn("enable", self.ran[-1][0])
+        win.on_switches_status(True, self.JSON)
+        self.assertTrue(win.sw_row.get_active())
+        self.assertIn("top bar", win.sw_row.subtitle)
 
     def test_a_reading_while_loading_does_not_write_anything_back(self):
         """Filling the switches from a status must not look like a user
@@ -1933,7 +1969,8 @@ class TheWindow(unittest.TestCase):
         win = self.without_tool("modemctl", "gpsctl", "killswitch-indicator")
         pages = [c[1] for c in recorder.calls
                   if c[0] == "Adw.ViewStack.add_titled_with_icon()" and c[1]]
-        self.assertEqual(["audio", "modem", "gps", "switches", "battery"],
+        self.assertEqual(["audio", "modem", "gps", "switches", "security",
+                          "battery"],
                          [args[1] for args in pages])
         self.assertIsNotNone(win)
 
@@ -2516,7 +2553,7 @@ class TheWindow(unittest.TestCase):
         # arguments, so the calls are the ones that carry some.
         built = [c[1][1] for c in recorder.calls
                   if c[0] == "Adw.ViewStack.add_titled_with_icon()" and c[1]]
-        self.assertEqual(["gps", "switches", "battery"], built)
+        self.assertEqual(["gps", "switches", "security", "battery"], built)
         # One for the tab being swapped, one for each tab behind it.
         self.assertEqual(len(built), len([c for c in recorder.calls
                                            if c[0] == "Adw.ViewStack.remove()"
@@ -2755,13 +2792,169 @@ class TheWindow(unittest.TestCase):
     # in general. What differs between the pages is the price, and that is
     # what the description says.
 
+    # ---------------------------------------------------------- Security
+    #
+    # The page of a tool that can lock somebody out of their own phone, so
+    # the tests are about two things above all: that a reading never turns
+    # into an action, and that the one value which is this phone's own
+    # cannot be widened by accident.
+
+    def security_win(self):
+        if not SECCTL:
+            self.skipTest("secctl not installed")
+        return self.win
+
+    SEC_JSON = """{
+      "kernel": {"release": "4.19.325-furiphone-radon", "base": "4.19.325",
+                 "series": "4.19", "eol": "2024-12-05",
+                 "last_release": "4.19.325", "maintained": false},
+      "parts": {
+        "sysctl": {"state": "on", "keys": {}},
+        "modules": {"state": "on", "count": 14,
+                    "modules": {"tipc": true, "rds": true, "x25": null}},
+        "firewall": {"state": "on", "live": true, "lan": "192.168.0.0/24",
+                     "iface": "wlan0"}
+      },
+      "exposure": {"readable": true, "open": [
+        {"proto": "tcp", "addr": "0.0.0.0", "port": "22", "any": true},
+        {"proto": "tcp", "addr": "0.0.0.0", "port": "5355", "any": true},
+        {"proto": "udp", "addr": "0.0.0.0", "port": "5353", "any": true},
+        {"proto": "udp", "addr": "10.0.3.1", "port": "53", "any": false},
+        {"proto": "tcp", "addr": "10.0.3.1", "port": "53", "any": false}
+      ]},
+      "state": "on"
+    }"""
+
+    def test_the_kernel_line_is_the_premise_not_a_banner(self):
+        """Without it the three switches read as ordinary tightening of a
+        healthy system, and somebody could reasonably switch them off for
+        convenience."""
+        win = self.security_win()
+        win.on_security_status(True, self.SEC_JSON)
+        self.assertIn("4.19.325", win.sec_kernel.title)
+        self.assertIn("end of life", win.sec_kernel.subtitle)
+
+    def test_a_maintained_kernel_stops_the_warning(self):
+        """A phone that one day boots something current must not keep
+        repeating a warning that has stopped being true - which is why this
+        reads secctl's answer instead of carrying the version in the app."""
+        win = self.security_win()
+        win.on_security_status(True, self.SEC_JSON.replace(
+            '"maintained": false', '"maintained": true'))
+        self.assertNotIn("end of life", win.sec_kernel.subtitle)
+
+    def test_filling_the_page_writes_nothing_back(self):
+        """set_active fires notify::active. Without the guard, reading the
+        state would switch the thing being read."""
+        win = self.security_win()
+        self.ran.clear()
+        win.on_security_status(True, self.SEC_JSON)
+        self.assertEqual([], self.ran)
+
+    def test_each_switch_asks_secctl_for_its_own_part(self):
+        win = self.security_win()
+        win._loading = False
+        win.busy = False
+        for key in ("sysctl", "modules", "firewall"):
+            # Reset per part: the handler locks the window while the helper
+            # runs, and a second switch thrown while it is locked is
+            # deliberately ignored.
+            win.busy = False
+            self.ran.clear()
+            row = win.sec_switches[key]
+            row.set_active(True)
+            win.on_security_switch(row, None, key)
+            argv = self.ran[0][0]
+            self.assertEqual(argv[-3:], ["set", key, "on"])
+            self.assertIn("secctl", argv[-4])
+
+    def test_a_switch_off_reverts_that_part(self):
+        win = self.security_win()
+        win._loading = False
+        win.busy = False
+        row = win.sec_switches["firewall"]
+        row.set_active(False)
+        self.ran.clear()
+        win.on_security_switch(row, None, "firewall")
+        self.assertEqual(self.ran[0][0][-3:], ["set", "firewall", "off"])
+
+    def test_the_firewall_says_what_it_is_still_missing(self):
+        """It refuses to come up without a home network, and the row has to
+        say that before somebody presses a switch that cannot work."""
+        win = self.security_win()
+        win.on_security_status(True, self.SEC_JSON.replace(
+            '"lan": "192.168.0.0/24"', '"lan": ""'))
+        self.assertIn("home network",
+                      win.sec_switches["firewall"].subtitle)
+
+    def test_the_home_network_is_never_widened_by_an_empty_entry(self):
+        """An empty field is somebody clearing it, not somebody asking for
+        "any" - and the one value that decides who may reach SSH must not be
+        set from nothing."""
+        win = self.security_win()
+        win.busy = False
+        win.sec_lan.set_text("   ")
+        self.ran.clear()
+        win.on_security_lan(win.sec_lan)
+        self.assertEqual([], self.ran)
+
+    def test_the_home_network_is_handed_over_as_typed(self):
+        """secctl validates it as CIDR and refuses anything else, so the app
+        does not second-guess the text - it passes it and reports what comes
+        back."""
+        win = self.security_win()
+        win.busy = False
+        win.sec_lan.set_text("10.1.2.0/24")
+        self.ran.clear()
+        win.on_security_lan(win.sec_lan)
+        self.assertEqual(self.ran[0][0][-2:], ["lan", "10.1.2.0/24"])
+
+    def test_a_refusal_is_shown_with_its_reason(self):
+        """The firewall's refusal is a sentence, not an error code, and it is
+        the one thing somebody needs in order to act."""
+        win = self.security_win()
+        recorder.reset()
+        win.after_security(False, "The firewall needs to know which network",
+                           "firewall", "on")
+        bodies = [str(c[2].get("body", "")) for c in recorder.calls
+                  if c[0] == "Adw.AlertDialog"]
+        self.assertTrue(any("which network" in b for b in bodies), bodies)
+
+    def test_the_listening_list_is_capped(self):
+        """A phone screen, and the list is here to make a point rather than
+        be an inventory."""
+        win = self.security_win()
+        win.on_security_status(True, self.SEC_JSON)
+        self.assertEqual(5, len(win.sec_open_rows))
+        self.assertIn("and 1 more", win.sec_open_rows[-1].title)
+
+    def test_an_open_port_says_whether_the_chain_covers_it(self):
+        win = self.security_win()
+        win.on_security_status(True, self.SEC_JSON)
+        self.assertIn("only from the home network", win.sec_open_rows[0].subtitle)
+        win.on_security_status(True, self.SEC_JSON.replace(
+            '"firewall": {"state": "on"', '"firewall": {"state": "off"'))
+        self.assertIn("mobile included", win.sec_open_rows[0].subtitle)
+
+    def test_the_way_back_takes_all_three(self):
+        win = self.security_win()
+        win.busy = False
+        self.ran.clear()
+        win.on_security_restore(None)
+        self.assertEqual(self.ran[0][0][-2:], ["revert", "all"])
+
+    def test_a_tool_that_did_not_answer_is_not_shown_as_a_reading(self):
+        win = self.security_win()
+        win.on_security_status(False, "")
+        self.assertIn("did not answer", win.sec_kernel.title)
+
     def test_every_page_offers_the_same_way_back(self):
         """Counted, not named: adding a page must not quietly add a fifth
         shape of this."""
         recorder.reset()
         switcher.Window(switcher.Adw.Application())
         expected = (1 + bool(MODEMCTL) + bool(GPSCTL)
-                    + bool(KILLSWITCH) + bool(BATTCTL))
+                    + bool(KILLSWITCH) + bool(BATTCTL) + bool(SECCTL))
         buttons = [c for c in recorder.calls if c[0] == "Gtk.Button"
                    and c[2].get("label") == switcher.Window.RESTORE_LABEL]
         groups = [c for c in recorder.calls if c[0] == "Adw.PreferencesGroup"
@@ -2786,7 +2979,7 @@ class TheWindow(unittest.TestCase):
                  for c in recorder.calls if c[0] == "Adw.PreferencesGroup"
                  and c[2].get("title") == switcher.Window.RESTORE_TITLE}
         expected = (1 + bool(MODEMCTL) + bool(GPSCTL)
-                    + bool(KILLSWITCH) + bool(BATTCTL))
+                    + bool(KILLSWITCH) + bool(BATTCTL) + bool(SECCTL))
         self.assertEqual(expected, len(texts))
 
     def test_a_way_back_asks_before_it_acts(self):
@@ -2845,20 +3038,21 @@ class TheWindow(unittest.TestCase):
         self.assertIn("IP position", str(win.toasts.text))
 
     def test_the_switches_way_back_undoes_what_this_page_added(self):
-        """Three commands, because two owners: the tool holds the extra
-        radios, systemd holds the unit. The sliders are not among them - they
-        are hardware and nothing here reaches them."""
+        """Four commands, because two owners: the tool holds the extra radios
+        and the shell's plugin list, systemd holds the unit. The sliders are
+        not among them - they are hardware and nothing here reaches them."""
         win = self.switches_win()
         self.ran.clear()
         win.busy = False
         win.on_switches_restore(None)
         ran = []
-        for _ in range(3):
+        for _ in range(4):
             argv, done, _on_line, _kw = self.ran.pop(0)
             ran.append(" ".join(argv))
             done(True, "")
         self.assertTrue(any("config wifi off" in c for c in ran), ran)
         self.assertTrue(any("config bluetooth off" in c for c in ran), ran)
+        self.assertTrue(any("icons off" in c for c in ran), ran)
         self.assertTrue(any("disable --now killswitch-indicator" in c
                             for c in ran), ran)
 
@@ -2916,27 +3110,30 @@ class TheWindow(unittest.TestCase):
         win.on_gps_restored(False, "gpsctl: no")
         self.assertIn("Could not", str(win.toasts.text))
 
-    def test_the_indicator_rows_read_what_systemd_answers(self):
-        """"active" and "enabled" are systemd's words, and they are the whole
-        answer - anything else means not running, not remembered."""
+    def test_a_stopped_daemon_is_said_where_it_would_act(self):
+        """"active" is systemd's word and the whole answer. The daemon draws
+        nothing any more - it is what takes the extra radios down - so a
+        stopped one has to show up on those rows, or the page promises
+        something the phone will not do."""
         win = self.switches_win()
         win.on_indicator_active(True, "active\n")
-        self.assertTrue(win.sw_row.get_active())
-        self.assertEqual("running", win.sw_row.subtitle)
+        win.on_switches_status(True, self.JSON)
+        self.assertNotIn("not running", win.sw_wifi.subtitle)
         win.on_indicator_active(True, "failed\n")
-        self.assertFalse(win.sw_row.get_active())
-        self.assertEqual("not running", win.sw_row.subtitle)
-        # is-enabled exits non-zero for a disabled unit, so a failed call is
-        # an answer here, not an error.
-        win.on_indicator_enabled(True, "enabled\n")
-        self.assertTrue(win.sw_persist.get_active())
-        win.on_indicator_enabled(False, "disabled\n")
-        self.assertFalse(win.sw_persist.get_active())
+        self.assertIn("not running", win.sw_wifi.subtitle)
+        self.assertIn("currently on", win.sw_wifi.subtitle)
 
-    def test_a_unit_that_would_not_start_says_so(self):
+    def test_icons_that_could_not_be_switched_say_so(self):
         win = self.switches_win()
-        win.after_indicator(False, "", "start")
-        self.assertIn("Could not start", str(win.toasts.text))
+        win.after_indicator(False, "", "on")
+        self.assertIn("Could not switch the icons on", str(win.toasts.text))
+
+    def test_switching_the_icons_on_says_when_they_appear(self):
+        """The one surprise about this switch: phosh looks for new plugins
+        only when it starts."""
+        win = self.switches_win()
+        win.after_indicator(True, "", "on")
+        self.assertIn("next boot", str(win.toasts.text))
 
     def test_filling_the_switches_page_writes_nothing_back(self):
         """The rows are set from what was read; without the guard each of
@@ -2945,7 +3142,6 @@ class TheWindow(unittest.TestCase):
         win._loading = True
         self.ran.clear()
         win.on_indicator_switch(win.sw_row, None)
-        win.on_indicator_persist(win.sw_persist, None)
         win.set_extra("wifi", win.sw_wifi)
         self.assertEqual([], self.ran)
         win._loading = False

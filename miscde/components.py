@@ -89,6 +89,18 @@ COMPONENTS = [
         "needs": phone_has_switches,
     },
     {
+        "tool": "secctl",
+        "page": "Security",
+        "key": "security",
+        "icon": "security-high-symbolic",
+        "url": "https://github.com/misc-de/furios_security",
+        "dir": "furios_security",
+        "root": True,
+        "does": "the kernel is 4.19 and past end of life, so the routes to "
+                "it get closed instead: unprivileged BPF, modules that load "
+                "themselves, and SSH reachable over mobile",
+    },
+    {
         "tool": "battctl",
         "page": "Battery",
         "key": "battery",

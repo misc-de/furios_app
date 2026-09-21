@@ -27,11 +27,12 @@ from .pages.battery import BatteryPage
 from .pages.gps import GpsPage
 from .pages.install import InstallPage
 from .pages.modem import ModemPage
+from .pages.security import SecurityPage
 from .pages.switches import SwitchesPage
 
 
 class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
-             InstallPage, Adw.ApplicationWindow):
+             SecurityPage, InstallPage, Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title="misc-de")
         self.set_default_size(360, 480)
@@ -71,6 +72,7 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         self.gps_ok = True
         self.gps_rows = []
         self.batt_rows = []
+        self.sec_rows = []
 
         toolbar = Adw.ToolbarView()
         header = Adw.HeaderBar()
@@ -206,6 +208,7 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         self.gps_rows = []
         self.sw_rows = []
         self.batt_rows = []
+        self.sec_rows = []
         self.comp_rows = {}
         # Kept, not local: a tool fetched from the components page gets its
         # real page built right there, and that needs the same builder.
@@ -213,7 +216,8 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
                       "modem": self.build_modem_page,
                       "gps": self.build_gps_page,
                       "switches": self.build_switches_page,
-                      "battery": self.build_battery_page}
+                      "battery": self.build_battery_page,
+                      "security": self.build_security_page}
         # One source of truth for "is this tool here", written down while the
         # pages are built and read by refresh() and by every handler
         # afterwards. Asked twice - once here, once from a module constant -
@@ -332,10 +336,11 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         if self.live.get("switches"):
             process.run_async([self.live["switches"], "status", "--json"],
                       self.on_switches_status)
+            # Not a switch of its own any more: the icons are phosh's plugin
+            # now, and this daemon is only what acts on the network switch.
+            # The Network rows say it when it is not running.
             process.run_async(["systemctl", "--user", "is-active",
                        "killswitch-indicator"], self.on_indicator_active)
-            process.run_async(["systemctl", "--user", "is-enabled",
-                       "killswitch-indicator"], self.on_indicator_enabled)
         if self.live.get("battery"):
             process.run_async([self.live["battery"], "status", "--json"],
                       self.on_battery_status)
@@ -343,6 +348,14 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
                       self.on_battery_active)
             process.run_async(["systemctl", "--user", "is-enabled", BATTERY_UNIT],
                       self.on_battery_enabled)
+        if self.live.get("security"):
+            # One call for the whole page, and it needs no root: what is
+            # configured, what the kernel says its values are, and what
+            # listens. The one thing it cannot see unprivileged is whether
+            # the table is loaded THIS second, and the page says so in those
+            # words rather than guessing.
+            process.run_async([self.live["security"], "status", "--json"],
+                      self.on_security_status)
 
     def pulse_start(self, text):
         self.progress.set_text(text)
@@ -386,6 +399,8 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
             row.set_sensitive(not busy)
         # Same for the battery page: its rows exist only when battctl does.
         for row in self.batt_rows:
+            row.set_sensitive(not busy)
+        for row in self.sec_rows:
             row.set_sensitive(not busy)
         # Install and Update belong here for the same reason everything else
         # does: ONE hand on the sensitivity. run_component used to switch them
