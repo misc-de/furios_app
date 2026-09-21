@@ -24,22 +24,15 @@ class SecurityPage:
     )
 
     def build_security_page(self):
-        """What is switched on, what is exposed, and the one number that says
-        why the page exists at all.
+        """What is switched on, and what is exposed.
 
-        The kernel line is at the top and is not a warning banner: it is the
-        premise. Without it the three switches look like ordinary tightening
-        of a healthy system, and somebody could reasonably turn them off
-        again for convenience. With it they read as what they are - the only
-        thing available when the fixes have stopped coming.
+        No kernel line. The version and its end of life were at the top as
+        the premise for the three switches, and they took a paragraph to
+        say something nobody can act on from here - the switches are worth
+        having on any phone, whatever kernel it boots. It is still in
+        `secctl status` for anyone who wants the reasoning.
         """
         page = Adw.PreferencesPage()
-
-        kern = Adw.PreferencesGroup(title="Kernel")
-        self.sec_kernel = Adw.ActionRow(title="reading …", subtitle="")
-        self.sec_kernel.set_subtitle_selectable(True)
-        kern.add(self.sec_kernel)
-        page.add(kern)
 
         # One group, not two, and no paragraph under the heading: a group
         # with a description draws its title higher than one without, and a
@@ -90,50 +83,33 @@ class SecurityPage:
 
     def on_security_status(self, ok, out):
         if not ok:
-            self.sec_kernel.set_title("secctl did not answer")
+            self.say_security_unread("secctl did not answer")
             return
         try:
             data = json.loads(out)
         except ValueError:
-            self.sec_kernel.set_title("unreadable answer")
+            self.say_security_unread("unreadable answer")
             return
 
-        self.say_security_kernel(data.get("kernel", {}))
         self.say_security_parts(data.get("parts", {}))
         self.say_security_open(data.get("exposure", {}),
                                data.get("parts", {}).get("firewall", {}))
 
-    def say_security_kernel(self, kern):
-        """The premise, in two lines, and only while it is true.
+    def say_security_unread(self, why):
+        """A reading that did not happen, said on the rows that are readings.
 
-        A phone that one day boots a maintained kernel says so instead of
-        repeating a warning that has stopped applying - which is also why
-        this reads secctl's answer rather than carrying the version in the
-        app.
-
-        "No fixes are coming" would be the shorter line and it would not be
-        true: FuriLabs does ship new builds of this kernel - furios5 through
-        furios8 within a year - and CIP keeps a 4.19-cip tree with security
-        backports until 2029. What those builds carry is the point: the
-        changelog holds feature backports and MediaTek work, no CVE and no
-        stable merge, and the phone does not run the CIP tree. So a hole
-        found after the end of life stays open here.
+        Silence would be the dangerous answer here: three switches sitting
+        at off look exactly like a phone with nothing switched on, and this
+        page is where somebody checks that. So every row that means "this is
+        what secctl reported" says instead that secctl reported nothing.
         """
-        release = kern.get("release") or "unknown"
-        if kern.get("maintained"):
-            self.sec_kernel.set_title(release)
-            self.sec_kernel.set_subtitle("still receiving upstream fixes")
-            return
-        self.sec_kernel.set_title(release)
-        self.sec_kernel.set_subtitle(
-            "%s was the last upstream release of %s - end of life %s. "
-            "FuriLabs still builds this kernel, but what lands there are "
-            "feature and MediaTek backports, not security fixes, and a "
-            "newer one would mean rebuilding binder, hwcomposer and the "
-            "audio HAL against it. Nothing below fixes a hole; it takes "
-            "away the cheap ways to reach one."
-            % (kern.get("last_release") or "this version",
-               kern.get("series") or "the series", kern.get("eol") or "then"))
+        for row in self.sec_switches.values():
+            row.set_subtitle(why)
+        for row in self.sec_open_rows:
+            self.sec_open.remove(row)
+        self.sec_open_rows = []
+        self.sec_open_empty.set_title(why)
+        self.sec_open_empty.set_visible(True)
 
     def say_security_parts(self, parts):
         # _loading, the way every other page here does it: set_active fires

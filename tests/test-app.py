@@ -936,7 +936,7 @@ class TheWindow(unittest.TestCase):
         if BATTCTL:
             names += ["batt_restore_btn"]
         if SECCTL:
-            names += ["sec_kernel", "sec_lan", "sec_restore_btn"]
+            names += ["sec_lan", "sec_restore_btn"]
         for name in names:
             setattr(self.win, name, Recording())
         if MODEMCTL:
@@ -2825,23 +2825,15 @@ class TheWindow(unittest.TestCase):
       "state": "on"
     }"""
 
-    def test_the_kernel_line_is_the_premise_not_a_banner(self):
-        """Without it the three switches read as ordinary tightening of a
-        healthy system, and somebody could reasonably switch them off for
-        convenience."""
+    def test_the_page_says_nothing_about_the_kernel_version(self):
+        """It was a paragraph nobody can act on from this page, and it is
+        gone. secctl still reports it; the tab does not."""
         win = self.security_win()
         win.on_security_status(True, self.SEC_JSON)
-        self.assertIn("4.19.325", win.sec_kernel.title)
-        self.assertIn("end of life", win.sec_kernel.subtitle)
-
-    def test_a_maintained_kernel_stops_the_warning(self):
-        """A phone that one day boots something current must not keep
-        repeating a warning that has stopped being true - which is why this
-        reads secctl's answer instead of carrying the version in the app."""
-        win = self.security_win()
-        win.on_security_status(True, self.SEC_JSON.replace(
-            '"maintained": false', '"maintained": true'))
-        self.assertNotIn("end of life", win.sec_kernel.subtitle)
+        said = [str(row.subtitle) for row in win.sec_switches.values()]
+        said += [str(win.sec_open_empty.title)]
+        self.assertEqual([], [s for s in said
+                              if "4.19" in s or "end of life" in s])
 
     def test_filling_the_page_writes_nothing_back(self):
         """set_active fires notify::active. Without the guard, reading the
@@ -2944,9 +2936,20 @@ class TheWindow(unittest.TestCase):
         self.assertEqual(self.ran[0][0][-2:], ["revert", "all"])
 
     def test_a_tool_that_did_not_answer_is_not_shown_as_a_reading(self):
+        """Three switches at off is what a phone with nothing switched on
+        looks like, so a failed reading has to say so on the rows that are
+        readings - there is no kernel line left to carry the message."""
         win = self.security_win()
         win.on_security_status(False, "")
-        self.assertIn("did not answer", win.sec_kernel.title)
+        for row in win.sec_switches.values():
+            self.assertIn("did not answer", str(row.subtitle))
+        self.assertIn("did not answer", str(win.sec_open_empty.title))
+
+    def test_an_unreadable_answer_says_so_the_same_way(self):
+        win = self.security_win()
+        win.on_security_status(True, "not json at all")
+        for row in win.sec_switches.values():
+            self.assertIn("unreadable", str(row.subtitle))
 
     def test_every_page_offers_the_same_way_back(self):
         """Counted, not named: adding a page must not quietly add a fifth
