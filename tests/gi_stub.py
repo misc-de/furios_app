@@ -18,6 +18,14 @@ import sys
 import types
 
 
+# Every name the stub was ever asked for, across the whole run, and unlike
+# the recorder below this is never reset. The stub answers to anything, so a
+# method that libadwaita does not have passes every test in this file; what
+# this set is for is tests/widgets-live.py, which holds the names against the
+# real PyGObject afterwards.
+everything = set()
+
+
 class Recorder:
     """Every call anything on the stub receives, in order."""
 
@@ -26,6 +34,7 @@ class Recorder:
 
     def add(self, what, args, kwargs):
         self.calls.append((what, args, kwargs))
+        everything.add(what)
 
     def of(self, what):
         return [c for c in self.calls if c[0] == what]

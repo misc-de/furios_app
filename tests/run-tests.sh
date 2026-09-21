@@ -19,7 +19,17 @@ run() {
     if "$@"; then :; else FAILED=$((FAILED + 1)); fi
 }
 
-run "the app, and its seams towards the tools" python3 "$HERE/test-app.py"
+# The dump is what the stub was asked for; widgets-live.py below holds those
+# names against the real libraries, which the stub itself cannot do.
+CALLS=$(mktemp)
+trap 'rm -f "$CALLS"' EXIT
+MISCDE_WIDGET_CALLS="$CALLS" run "the app, and its seams towards the tools" \
+    python3 "$HERE/test-app.py"
+
+# Needs the REAL PyGObject, and so a process of its own - same reason as the
+# askpass test below. No display: it looks methods up, it builds nothing.
+run "the widget calls, against the real libraries" \
+    python3 "$HERE/widgets-live.py" "$CALLS"
 
 # Separate process on purpose: this one needs the REAL GLib, and test-app.py
 # has replaced PyGObject in its own. Add --with-sudo to also ask the real

@@ -38,7 +38,6 @@ class SecurityPage:
         kern = Adw.PreferencesGroup(title="Kernel")
         self.sec_kernel = Adw.ActionRow(title="reading …", subtitle="")
         self.sec_kernel.set_subtitle_selectable(True)
-        self.sec_kernel.set_subtitle_wrap(True)
         kern.add(self.sec_kernel)
         page.add(kern)
 
@@ -197,7 +196,6 @@ class SecurityPage:
                 subtitle=("reachable only from the home network"
                           if on else "reachable from every network this "
                           "phone joins, mobile included"))
-            row.set_subtitle_wrap(True)
             self.sec_open.add(row)
             self.sec_open_rows.append(row)
         if len(open_ports) > 4:

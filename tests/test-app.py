@@ -3873,4 +3873,11 @@ if __name__ == "__main__":
         if isinstance(obj, type) and issubclass(obj, unittest.TestCase):
             suite.addTests(loader.loadTestsFromTestCase(obj))
     result = unittest.TextTestRunner(verbosity=2).run(suite)
+    # What the stub was asked for, for the process that has the real
+    # PyGObject to check it against. Written even when tests failed: a wrong
+    # method name is worth naming in the same run that found the failure.
+    dump = os.environ.get("MISCDE_WIDGET_CALLS")
+    if dump:
+        with open(dump, "w") as fh:
+            fh.write("\n".join(sorted(gi_stub.everything)) + "\n")
     sys.exit(0 if result.wasSuccessful() else 1)
