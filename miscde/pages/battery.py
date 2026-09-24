@@ -128,9 +128,8 @@ class BatteryPage:
 
         back, self.batt_restore_btn = self.build_restore_group(
             "Stops the colouring and the time left, takes them out of the "
-            "next boot, puts your own theme and icons back and the "
-            "percentage with them. What the battery reports is untouched - "
-            "that is the kernel's.",
+            "next boot and out of the top bar. What the battery reports is "
+            "untouched - that is the kernel's.",
             self.on_battery_restore)
         bpage.add(back)
         self.batt_rows.append(self.batt_restore_btn)
@@ -199,7 +198,7 @@ class BatteryPage:
                           BATTERY_UNIT])
         elif not any(r.get_active() for r in self.batt_switches.values()):
             # Nothing left to colour: the daemon goes, and with it the
-            # theme it set.
+            # colour and the time it wrote.
             steps.append(["systemctl", "--user", "disable", "--now",
                           BATTERY_UNIT])
         self.run_chain(steps, lambda ok, out: self.after_battery(
@@ -254,9 +253,9 @@ class BatteryPage:
     def on_battery_restore(self, _btn):
         """The service first, then the tool.
 
-        In that order on purpose: battctl restore puts the theme and the
-        icons back and deletes what it generated, and a daemon still
-        running would write both again within the minute.
+        In that order on purpose: battctl restore takes the colour, the
+        time and the widget out of the bar, and a daemon still running
+        would put them back within the minute.
         """
         if self.busy:
             return
@@ -268,7 +267,7 @@ class BatteryPage:
 
     def on_battery_restored(self, ok, out):
         if ok:
-            self.toast("Shipped state - your own theme, no colouring")
+            self.toast("Shipped state - no colouring")
         else:
             self.toast("Could not restore the shipped state")
             self.report(out or "No output.")

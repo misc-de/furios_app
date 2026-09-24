@@ -1609,9 +1609,9 @@ class TheWindow(unittest.TestCase):
         self.assertIn("Could not change", str(self.win.toasts.text))
 
     def test_the_way_back_stops_the_service_before_it_cleans_up(self):
-        """In that order: battctl restore puts the theme and the icons back
-        and deletes what it generated, and a daemon still running would
-        write both again within the minute."""
+        """In that order: battctl restore takes the colour, the time and
+        the widget out of the bar, and a daemon still running would put
+        them back within the minute."""
         self.ran.clear()
         self.win.busy = False
         self.win.on_battery_restore(None)
