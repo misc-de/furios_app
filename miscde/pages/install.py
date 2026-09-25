@@ -13,6 +13,7 @@ import sys
 from gi.repository import Adw, Gtk
 
 from .. import askpass, components, process, tools
+from .other import TAB as OTHER_TAB
 from ..components import (CLONE_HOME, COMPONENTS, SELF, behind_count,
                          clone_path, component_steps, installer_said,
                          source_steps)
@@ -49,17 +50,19 @@ class InstallPage:
             return False                       # already real, or still absent
         keys = [c["key"] for c in COMPONENTS]
         after = COMPONENTS[keys.index(comp["key"]):]
-        for c in after:
-            if self.pages.get(c["key"]) is not None:
-                self.stack.remove(self.pages[c["key"]])
+        # The Other tab sits behind all of them and has to go back last.
+        tail = [(c["key"], c["page"], c["icon"]) for c in after[1:]]
+        tail.append(OTHER_TAB)
+        for key in [c["key"] for c in after] + [OTHER_TAB[0]]:
+            if self.pages.get(key) is not None:
+                self.stack.remove(self.pages[key])
         self.build_component_page(comp)
-        for c in after[1:]:
+        for key, title, icon in tail:
             # A tab that was never built has nothing to put back - the
             # Switches one is absent on a phone without the hardware.
-            if self.pages.get(c["key"]) is None:
+            if self.pages.get(key) is None:
                 continue
-            self.stack.add_titled_with_icon(
-                self.pages[c["key"]], c["key"], c["page"], c["icon"])
+            self.stack.add_titled_with_icon(self.pages[key], key, title, icon)
         # The tab somebody was standing on went out with the swap, so say
         # where to stand now: on the page they just installed.
         self.stack.set_visible_child_name(comp["key"])

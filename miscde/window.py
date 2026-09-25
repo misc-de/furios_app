@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 """The window itself: the frame, the tabs, and what is the same on every page.
 
-Window is assembled from the five pages and the installer rather than
+Window is assembled from the pages and the installer rather than
 holding them. They are mixins and not widgets of their own because
 they share one thing that cannot be split: `self`. A page reads
 `self.live` to know whether its tool is there, calls `self.set_busy`
@@ -15,7 +15,7 @@ does.
 What decides where a method goes is the page it speaks for. What is
 left here is what every page uses: the busy state, the progress bar,
 the toast, the way back, and refresh(), which asks every tool at once
-and is the only method that knows about all five."""
+and is the only method that knows about all of them."""
 
 from gi.repository import Adw, GLib, Gtk
 
@@ -27,12 +27,14 @@ from .pages.battery import BatteryPage
 from .pages.gps import GpsPage
 from .pages.install import InstallPage
 from .pages.modem import ModemPage
+from .pages.other import TAB as OTHER_TAB, OtherPage
 from .pages.security import SecurityPage
 from .pages.switches import SwitchesPage
 
 
 class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
-             SecurityPage, InstallPage, Adw.ApplicationWindow):
+             SecurityPage, OtherPage, InstallPage,
+             Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title="misc-de")
         self.set_default_size(360, 480)
@@ -236,6 +238,10 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
             if not comp.get("needs", lambda: True)():
                 continue
             self.build_component_page(comp)
+        # Last, and not one of COMPONENTS: nothing to install, so it never
+        # shows an offer and always has its real page.
+        self.pages[OTHER_TAB[0]] = self.build_other_page()
+        self.stack.add_titled_with_icon(self.pages[OTHER_TAB[0]], *OTHER_TAB)
 
         # Directly under the header, not at the foot of the window: the tabs
         # belong with the title of what they switch, and down there they sat

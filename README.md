@@ -75,6 +75,12 @@ frame), and the two that put a time where the percentage stands - how long the
 battery lasts, and how long until it is full. The thresholds are sliders,
 shown under the switch they belong to when it is on.
 
+**Other** — small things with no tool behind them, written by the app itself
+as you. For now one switch: hide the search field in phosh's app overview. It
+adds a marked block to `~/.config/gtk-3.0/gtk.css` and takes exactly that
+block out again; anything else in the file stays. phosh reads the file once at
+start, so it shows after the next login.
+
 Every page has the same plainly labelled way back to how the phone shipped, and
 asks before it does anything.
 

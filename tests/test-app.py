@@ -61,6 +61,9 @@ def load(path, name):
 # page that calls process.run_async, and the test would pass while measuring
 # nothing at all.
 sys.path.insert(0, str(ROOT))
+# The Other page reads and writes ~/.config/gtk-3.0/gtk.css. Nothing in here
+# may touch the real one.
+os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp(prefix="miscde-test-")
 switcher = importlib.import_module("miscde")
 
 
@@ -1970,7 +1973,7 @@ class TheWindow(unittest.TestCase):
         pages = [c[1] for c in recorder.calls
                   if c[0] == "Adw.ViewStack.add_titled_with_icon()" and c[1]]
         self.assertEqual(["audio", "modem", "gps", "switches", "security",
-                          "battery"],
+                          "battery", "other"],
                          [args[1] for args in pages])
         self.assertIsNotNone(win)
 
@@ -2553,7 +2556,10 @@ class TheWindow(unittest.TestCase):
         # arguments, so the calls are the ones that carry some.
         built = [c[1][1] for c in recorder.calls
                   if c[0] == "Adw.ViewStack.add_titled_with_icon()" and c[1]]
-        self.assertEqual(["gps", "switches", "security", "battery"], built)
+        # Other has no tool and is not in COMPONENTS, but it sits behind
+        # them all and has to be put back last too.
+        self.assertEqual(["gps", "switches", "security", "battery", "other"],
+                         built)
         # One for the tab being swapped, one for each tab behind it.
         self.assertEqual(len(built), len([c for c in recorder.calls
                                            if c[0] == "Adw.ViewStack.remove()"
@@ -3593,6 +3599,78 @@ class TheWindow(unittest.TestCase):
         app = switcher.App()
         app.props.active_window = None
         app.do_activate()
+
+
+
+class HidesTheSearchField(unittest.TestCase):
+    """The Other page's one switch, against a gtk.css of its own."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.css = os.path.join(self.dir, "gtk-3.0", "gtk.css")
+        self.other = switcher.pages.other
+
+    def write(self, text):
+        os.makedirs(os.path.dirname(self.css), exist_ok=True)
+        Path(self.css).write_text(text)
+
+    def test_on_and_off_leave_somebodys_own_rules_alone(self):
+        own = "window { color: red; }\n"
+        self.write(own)
+        self.other.set_search_hidden(True, self.css)
+        self.assertTrue(self.other.search_hidden(self.css))
+        self.assertTrue(Path(self.css).read_text().startswith(own))
+        self.other.set_search_hidden(False, self.css)
+        self.assertFalse(self.other.search_hidden(self.css))
+        self.assertEqual(own, Path(self.css).read_text())
+
+    def test_switching_on_twice_writes_one_block(self):
+        self.other.set_search_hidden(True, self.css)
+        self.other.set_search_hidden(True, self.css)
+        self.assertEqual(1, Path(self.css).read_text().count(self.other.BEGIN))
+
+    def test_a_file_holding_only_our_block_goes_away(self):
+        self.other.set_search_hidden(True, self.css)
+        self.other.set_search_hidden(False, self.css)
+        self.assertFalse(os.path.exists(self.css))
+
+    def test_off_on_a_missing_file_creates_nothing(self):
+        self.other.set_search_hidden(False, self.css)
+        self.assertFalse(os.path.exists(self.css))
+
+    def test_the_hand_written_rule_counts_and_is_removed(self):
+        """Written before the switch existed: a header and no end marker."""
+        self.write("/* Hide phosh app grid search (misc-de) */\n"
+                   ".phosh-search-bar-box,\n.phosh-search-bar {\n"
+                   "  opacity: 0;\n}\n")
+        self.assertTrue(self.other.search_hidden(self.css))
+        self.other.set_search_hidden(False, self.css)
+        self.assertFalse(os.path.exists(self.css))
+
+    def test_the_switch_writes_and_a_failure_puts_it_back(self):
+        win = switcher.Window(switcher.Adw.Application())
+        # On the class: the stub keeps instance attributes in a dict of its
+        # own, so one set on win never shadows the method.
+        said = []
+        self.enterContext(mock.patch.object(switcher.Window, "toast",
+                                            lambda self, text: None))
+        self.enterContext(mock.patch.object(switcher.Window, "report",
+                                            lambda self, text: said.append(text)))
+        row = Recording()
+        row.set_active(True)
+        win._loading = False
+        path = self.other.gtk_css_path()
+        win.on_search_hidden(row, None)
+        self.assertTrue(self.other.search_hidden(path))
+        row.set_active(False)
+        win.on_search_hidden(row, None)
+        self.assertFalse(self.other.search_hidden(path))
+        with mock.patch.object(self.other, "set_search_hidden",
+                               side_effect=PermissionError("denied")):
+            row.set_active(True)
+            win.on_search_hidden(row, None)
+        self.assertFalse(row.get_active())
+        self.assertTrue(said)
 
 
 class BluetoothPowersave(unittest.TestCase):
