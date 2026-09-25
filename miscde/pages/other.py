@@ -6,6 +6,7 @@ Everything on the other tabs is a repository with an installer behind it.
 What lives here is a line of configuration this window can write itself,
 as the user, and take back the same way."""
 
+import configparser
 import glob
 import os
 import re
@@ -142,6 +143,41 @@ def set_dock_enabled(on, settings):
     settings.set_strv(PLUGINS_KEY, names)
 
 
+# The plugin's one setting: every folder in a single row that scrolls
+# sideways. A key file the plugin watches while the dock stands, so it takes
+# effect at once. Off is no file at all - rows are the plugin's default.
+DOCK_CONFIG = "furios-folder-dock.conf"
+
+
+def dock_config_path():
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    return os.path.join(base, DOCK_CONFIG)
+
+
+def dock_one_row(path=None):
+    parser = configparser.ConfigParser()
+    try:
+        parser.read(path or dock_config_path(), encoding="utf-8")
+        return parser.getboolean("dock", "one-row", fallback=False)
+    except (configparser.Error, ValueError):
+        return False
+
+
+def set_dock_one_row(on, path=None):
+    path = path or dock_config_path()
+    if not on:
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+        return
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".misc-de.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write("[dock]\none-row=true\n")
+    os.replace(tmp, path)
+
+
 class OtherPage:
     def build_other_page(self):
         page = Adw.PreferencesPage()
@@ -175,10 +211,34 @@ class OtherPage:
             self._loading = False
         self.dock_row.connect("notify::active", self.on_dock_enabled)
         grp.add(self.dock_row)
+
+        self.row_row = Adw.SwitchRow(
+            title="Folders in one row",
+            subtitle="Scrolls sideways instead of growing upwards")
+        self._loading = True
+        self.row_row.set_active(dock_one_row())
+        self._loading = False
+        self.row_row.set_sensitive(self.dock_row.get_active())
+        self.row_row.connect("notify::active", self.on_dock_one_row)
+        grp.add(self.row_row)
         page.add(grp)
         return page
 
+    def on_dock_one_row(self, row, _pspec):
+        if self._loading:
+            return
+        want = row.get_active()
+        try:
+            set_dock_one_row(want)
+        except OSError as e:
+            self._loading = True
+            row.set_active(not want)
+            self._loading = False
+            self.report("Could not write %s:\n%s" % (dock_config_path(), e))
+
     def on_dock_enabled(self, row, _pspec):
+        if hasattr(self, "row_row"):
+            self.row_row.set_sensitive(row.get_active())
         if self._loading or self.dock_settings is None:
             return
         set_dock_enabled(row.get_active(), self.dock_settings)

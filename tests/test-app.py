@@ -3724,6 +3724,27 @@ class PinsTheFolders(unittest.TestCase):
     def test_no_schema_means_off(self):
         self.assertFalse(self.other.dock_enabled(None))
 
+    def test_one_row_is_a_key_file_the_plugin_reads(self):
+        path = self.other.dock_config_path()
+        self.assertTrue(path.startswith(os.environ["XDG_CONFIG_HOME"]))
+        self.assertFalse(self.other.dock_one_row())
+        self.other.set_dock_one_row(True)
+        # The exact group and key the plugin's GKeyFile looks up.
+        self.assertEqual("[dock]\none-row=true\n", Path(path).read_text())
+        self.assertTrue(self.other.dock_one_row())
+        self.other.set_dock_one_row(False)
+        self.assertFalse(os.path.exists(path))
+        self.other.set_dock_one_row(False)
+        self.assertFalse(self.other.dock_one_row())
+
+    def test_a_broken_file_reads_as_rows(self):
+        path = self.other.dock_config_path()
+        Path(path).write_text("one-row=true\n")
+        try:
+            self.assertFalse(self.other.dock_one_row())
+        finally:
+            os.remove(path)
+
 
 class BluetoothPowersave(unittest.TestCase):
     """The switch that decides whether Bluetooth survives a dark screen.
