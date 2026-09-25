@@ -71,7 +71,7 @@ it, and repeating it back is a reading without a use.
 
 **Battery** — five options, each in a box of its own: colour while charging
 (the bolt), colour by charge level (the filling), colour an unusual drain (the
-frame), and the two that put a time where the percentage stands - how long the
+frame), and the two that put a time beside the battery icon - how long the
 battery lasts, and how long until it is full. The thresholds are set with
 - and +, one step per tap, and shown under the switch they belong to when it
 is on. They were sliders, and scrolling the page with a finger moved them.
