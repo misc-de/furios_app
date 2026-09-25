@@ -62,11 +62,45 @@ class BatteryPage:
 
     @staticmethod
     def threshold_text(value, digits, unit):
-        """The number on the slider, with what it is measured in.
+        """The number between - and +, with what it is measured in.
 
         Watts and percent in the same column of controls, and no sentence
-        anywhere to say which is which - so each slider carries its unit."""
+        anywhere to say which is which - so each threshold carries its
+        unit."""
         return "%.*f %s" % (digits, value, unit)
+
+    def build_stepper(self, adj, low, high, digits, unit):
+        """- value + for one threshold, one step per tap.
+
+        Not a slider: on the phone the page is scrolled with the same finger,
+        and a swipe that began on a slider moved it - every threshold on the
+        page shifted while somebody only wanted to get past them. A button
+        acts on a tap alone; a swipe that starts on it belongs to the
+        scrolling and changes nothing.
+        """
+        box = Gtk.Box(spacing=6, valign=Gtk.Align.CENTER)
+        minus = Gtk.Button(icon_name="list-remove-symbolic",
+                           tooltip_text="Lower")
+        plus = Gtk.Button(icon_name="list-add-symbolic",
+                          tooltip_text="Higher")
+        value = Gtk.Label(width_chars=7)
+        for btn in (minus, plus):
+            btn.add_css_class("circular")
+            btn.add_css_class("flat")
+        minus.connect("clicked", lambda _b: adj.set_value(
+            adj.get_value() - adj.get_step_increment()))
+        plus.connect("clicked", lambda _b: adj.set_value(
+            adj.get_value() + adj.get_step_increment()))
+
+        def show(v):
+            value.set_label(self.threshold_text(v, digits, unit))
+            minus.set_sensitive(v > low)
+            plus.set_sensitive(v < high)
+        adj.connect("value-changed", lambda a: show(a.get_value()))
+        show(low)
+        for w in (minus, value, plus):
+            box.append(w)
+        return box
 
     def build_battery_page(self):
         """One box per option, and in it the sliders that decide it.
@@ -103,18 +137,11 @@ class BatteryPage:
 
             row.slider_rows = []
             for label, ckey, low, high, step, digits, unit in sliders:
-                scale = Gtk.Scale.new_with_range(
-                    Gtk.Orientation.HORIZONTAL, low, high, step)
-                scale.set_digits(digits)
-                scale.set_draw_value(True)
-                scale.set_format_value_func(
-                    lambda _s, v, d=digits, u=unit:
-                    self.threshold_text(v, d, u))
-                scale.set_hexpand(True)
-                scale.set_size_request(190, -1)
-                scale.connect("value-changed", self.on_battery_slider, ckey)
+                scale = Gtk.Adjustment(value=low, lower=low, upper=high,
+                                       step_increment=step)
                 srow = Adw.ActionRow(title=label)
-                srow.add_suffix(scale)
+                srow.add_suffix(self.build_stepper(scale, low, high, digits, unit))
+                scale.connect("value-changed", self.on_battery_slider, ckey)
                 srow.set_visible(False)
                 # Into the group as a row of its own, not into a revealer:
                 # a PreferencesGroup sorts everything that is not a row to
@@ -212,7 +239,7 @@ class BatteryPage:
 
     def on_battery_slider(self, scale, key):
         """A threshold moved. Written after a moment's quiet, not on every
-        pixel of the drag - and the other threshold of the pair is pushed
+        tap of a run of them - and the other threshold of the pair is pushed
         out of the way rather than refused, because battctl will not take a
         pair that crosses."""
         if getattr(self, "_loading", False):

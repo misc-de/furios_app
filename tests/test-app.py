@@ -1464,6 +1464,23 @@ class TheWindow(unittest.TestCase):
         self.assertEqual(2, len(wanted), "a third option grew a subtitle")
         self.assertEqual(sorted(wanted), sorted(subtitles))
 
+    def test_the_thresholds_move_only_on_a_tap(self):
+        """Not sliders: on the phone the page is scrolled with the same
+        finger, and a swipe that began on a slider moved it - every
+        threshold shifted while somebody only scrolled past (25.9.2026). A
+        button acts on a tap; a swipe that starts on it is the scroll's."""
+        recorder.reset()
+        self.win.build_battery_page()
+        self.assertEqual([], [c[0] for c in recorder.calls
+                              if c[0].startswith("Gtk.Scale")])
+        icons = [c[2].get("icon_name") for c in recorder.calls
+                 if c[0] == "Gtk.Button"]
+        n = sum(len(sl) for _k, _h, _t, _s, sl
+                in switcher.Window.BATTERY_OPTIONS)
+        self.assertEqual(6, n)
+        self.assertEqual(n, icons.count("list-remove-symbolic"))
+        self.assertEqual(n, icons.count("list-add-symbolic"))
+
     def test_the_sliders_appear_with_their_option(self):
         """Six sliders at once ask to be studied; this is a page to glance
         at. They are rows of the same group, hidden and shown - a revealer
