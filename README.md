@@ -2,7 +2,9 @@
 
 A GTK4/libadwaita app for the FuriPhone FLX1 that shows and switches what has
 been repaired on this phone by hand: audio, modem, location, the three
-hardware switches on the case, and what the battery icon is allowed to say.
+hardware switches on the case, and what the battery icon is allowed to say
+(the bolt the charging power, the frame the drain, the filling the charge
+level, and the time left beside it).
 
 It repairs nothing itself. It drives the tools that do, reads their state, and
 says what a decision costs.

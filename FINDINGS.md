@@ -181,13 +181,16 @@ fault. The microphone row now says what it is: not controlled by software.
 
 **Battery** - five options, and nothing else on the page: colour while
 charging (the bolt), colour by charge level (the filling), colour an unusual
-drain (the frame), and the two that put a time where the percentage stands -
+drain (the frame), and the two that put a time beside the battery icon -
 how long the battery lasts, and how long until it is full (two questions, so
 two switches: somebody may want one without the other). Each sits in a box of
 its own, headed by what it is about; in a single box the six sliders read as
 one block of furniture and which pair belonged to which switch was a thing to
-work out rather than to see. Under each option, revealed with it, the sliders
-that say when green, amber and red appear. No readings: a watt figure belongs
+work out rather than to see. Under each option, revealed with it, the
+thresholds (- and +, they were sliders) that say when green, amber and red
+appear. On the one-shape discharge icons above 20 % the drain and the level
+cannot be told apart, and the more urgent colour takes the whole icon -
+battctl decides that, not this page. No readings: a watt figure belongs
 where somebody is measuring, and here the only question is which colour
 appears when. A switch is on only when the setting AND the service behind it
 are - an option left on in the file with the daemon stopped would be a switch

@@ -27,29 +27,26 @@ class BatteryPage:
     # furniture, and which pair belonged to which switch was a thing to work
     # out rather than to see.
     BATTERY_OPTIONS = (
-        ("charging", "While charging", "Colour the icon", None, (
+        ("charging", "While charging", "Colour the bolt", None, (
             ("Green", "charge_green_w", 1.0, 12.0, 0.5, 1, "W"),
             ("Amber", "charge_amber_w", 0.5, 11.0, 0.5, 1, "W"))),
         ("level", "Charge level", "Colour the filling", None, (
             ("Amber", "level_amber_pct", 20.0, 95.0, 5.0, 0, "%"),
             ("Red", "level_red_pct", 5.0, 90.0, 5.0, 0, "%"))),
-        ("discharging", "Drain", "Colour the icon", None, (
+        ("discharging", "Drain", "Colour the frame", None, (
             ("Amber", "drain_amber_w", 0.5, 8.0, 0.5, 1, "W"),
             ("Red", "drain_red_w", 1.0, 12.0, 0.5, 1, "W"))),
         # No sliders on these two: there is nothing to set, only whether it
         # is shown.
-        # Where it lands is not this page's decision and not the same on
-        # every phone: with the phosh plugin installed it is a status icon
-        # of its own, without it a strip of ours in the percentage's place.
-        # Said in one clause rather than explained - battctl status has the
-        # long version.
+        # It is shown by the phosh plugin, left of the battery icon; the
+        # strip that stood in the percentage's place is gone. battctl
+        # status says when the plugin is missing or not loaded yet.
         ("runtime", "Time left", "Show it in the top bar",
-         "how long the battery lasts, as 00:00 - beside the percentage where "
-         "phosh-battery-time is installed, in its place where it is not", ()),
+         "how long the battery lasts, as 00:00, left of the battery icon", ()),
         # Its own switch, not part of the one above: "how long does it last"
         # and "how long until it is full" are two questions, and somebody may
-        # want one without the other. Off, the percentage stands there while
-        # the cable is in.
+        # want one without the other. Off, there is no time while the cable
+        # is in.
         ("charge_time", "Charging time", "While the cable is in",
          "how long until full, in the same place - off, there is no time "
          "while charging", ()),
