@@ -6,10 +6,11 @@ Everything on the other tabs is a repository with an installer behind it.
 What lives here is a line of configuration this window can write itself,
 as the user, and take back the same way."""
 
+import glob
 import os
 import re
 
-from gi.repository import Adw
+from gi.repository import Adw, Gio
 
 # key, title, icon - the same three a component carries for its tab.
 TAB = ("other", "Other", "preferences-other-symbolic")
@@ -91,6 +92,56 @@ def set_search_hidden(hidden, path=None):
     os.replace(tmp, path)
 
 
+# --- folders at the bottom -------------------------------------------------
+#
+# A phosh plugin in furios_misc/phosh-folder-dock does the work; this only
+# puts its name into the list of status icons phosh loads, or takes it out.
+# phosh follows that list while it runs, so both take effect at once - except
+# right after the plugin was installed, because the plugin directory is only
+# scanned when the shell starts.
+DOCK_PLUGIN = "furios-folder-dock"
+PLUGINS_SCHEMA = "mobi.phosh.shell.plugins"
+PLUGINS_KEY = "status-icons"
+# What the plugin leaves behind when the shell did not survive its last
+# attempt; while it is there the plugin does nothing. Switching on removes it.
+DOCK_GUARD = "furios-folder-dock.armed"
+
+
+def dock_installed():
+    return bool(glob.glob("/usr/lib/*/phosh/plugins/%s.plugin" % DOCK_PLUGIN))
+
+
+def plugin_settings():
+    """None where the schema is missing: Gio.Settings on an unknown schema
+    aborts the whole process instead of raising."""
+    source = Gio.SettingsSchemaSource.get_default()
+    if source is None or source.lookup(PLUGINS_SCHEMA, True) is None:
+        return None
+    return Gio.Settings.new(PLUGINS_SCHEMA)
+
+
+def dock_enabled(settings):
+    return settings is not None and DOCK_PLUGIN in settings.get_strv(PLUGINS_KEY)
+
+
+def dock_guard_path():
+    base = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
+    return os.path.join(base, DOCK_GUARD)
+
+
+def set_dock_enabled(on, settings):
+    """Add or remove our name only; every other plugin in the list stays
+    where it is."""
+    names = [n for n in settings.get_strv(PLUGINS_KEY) if n != DOCK_PLUGIN]
+    if on:
+        try:
+            os.remove(dock_guard_path())
+        except FileNotFoundError:
+            pass
+        names.append(DOCK_PLUGIN)
+    settings.set_strv(PLUGINS_KEY, names)
+
+
 class OtherPage:
     def build_other_page(self):
         page = Adw.PreferencesPage()
@@ -107,8 +158,30 @@ class OtherPage:
         self._loading = False
         self.search_row.connect("notify::active", self.on_search_hidden)
         grp.add(self.search_row)
+
+        # Off and closed without the plugin: a switch that only writes a
+        # name phosh cannot find would look like it did something.
+        self.dock_settings = plugin_settings()
+        self.dock_row = Adw.SwitchRow(title="Folders at the bottom")
+        if not dock_installed() or self.dock_settings is None:
+            self.dock_row.set_subtitle(
+                "Needs the phosh-folder-dock plugin from furios_misc")
+            self.dock_row.set_sensitive(False)
+        else:
+            self.dock_row.set_subtitle(
+                "Held in a bar at the bottom edge of the app overview")
+            self._loading = True
+            self.dock_row.set_active(dock_enabled(self.dock_settings))
+            self._loading = False
+        self.dock_row.connect("notify::active", self.on_dock_enabled)
+        grp.add(self.dock_row)
         page.add(grp)
         return page
+
+    def on_dock_enabled(self, row, _pspec):
+        if self._loading or self.dock_settings is None:
+            return
+        set_dock_enabled(row.get_active(), self.dock_settings)
 
     def on_search_hidden(self, row, _pspec):
         if self._loading:

@@ -64,6 +64,8 @@ sys.path.insert(0, str(ROOT))
 # The Other page reads and writes ~/.config/gtk-3.0/gtk.css. Nothing in here
 # may touch the real one.
 os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp(prefix="miscde-test-")
+# And the folder dock's crash mark, which it removes from ~/.cache.
+os.environ["XDG_CACHE_HOME"] = tempfile.mkdtemp(prefix="miscde-test-")
 switcher = importlib.import_module("miscde")
 
 
@@ -3671,6 +3673,56 @@ class HidesTheSearchField(unittest.TestCase):
             win.on_search_hidden(row, None)
         self.assertFalse(row.get_active())
         self.assertTrue(said)
+
+
+
+class FakePluginSettings:
+    def __init__(self, names):
+        self.names = list(names)
+
+    def get_strv(self, key):
+        assert key == "status-icons"
+        return list(self.names)
+
+    def set_strv(self, key, names):
+        assert key == "status-icons"
+        self.names = list(names)
+
+
+class PinsTheFolders(unittest.TestCase):
+    """The folder dock's switch: one name in phosh's status-icons list."""
+
+    def setUp(self):
+        self.other = switcher.pages.other
+
+    def test_on_adds_our_name_and_keeps_the_others(self):
+        s = FakePluginSettings(["furios-killswitch", "furios-battery-time"])
+        self.assertFalse(self.other.dock_enabled(s))
+        self.other.set_dock_enabled(True, s)
+        self.assertEqual(["furios-killswitch", "furios-battery-time",
+                          "furios-folder-dock"], s.names)
+        self.assertTrue(self.other.dock_enabled(s))
+
+    def test_twice_on_is_one_entry_and_off_takes_only_ours(self):
+        s = FakePluginSettings(["furios-killswitch"])
+        self.other.set_dock_enabled(True, s)
+        self.other.set_dock_enabled(True, s)
+        self.assertEqual(1, s.names.count("furios-folder-dock"))
+        self.other.set_dock_enabled(False, s)
+        self.assertEqual(["furios-killswitch"], s.names)
+
+    def test_switching_on_clears_the_crash_mark(self):
+        """While the mark is there the plugin does nothing, so on has to
+        mean: try again."""
+        path = self.other.dock_guard_path()
+        self.assertTrue(path.startswith(os.environ["XDG_CACHE_HOME"]))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        Path(path).write_text("")
+        self.other.set_dock_enabled(True, FakePluginSettings([]))
+        self.assertFalse(os.path.exists(path))
+
+    def test_no_schema_means_off(self):
+        self.assertFalse(self.other.dock_enabled(None))
 
 
 class BluetoothPowersave(unittest.TestCase):
