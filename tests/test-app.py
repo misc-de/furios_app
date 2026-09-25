@@ -3737,6 +3737,19 @@ class PinsTheFolders(unittest.TestCase):
         self.other.set_dock_one_row(False)
         self.assertFalse(self.other.dock_one_row())
 
+    def test_hide_labels_shares_the_file_and_leaves_one_row_alone(self):
+        path = self.other.dock_config_path()
+        self.other.set_dock_one_row(True)
+        self.other.set_dock_setting(self.other.HIDE_LABELS, True)
+        # The exact group and keys the plugin's GKeyFile looks up.
+        self.assertEqual("[dock]\none-row=true\nhide-labels=true\n",
+                         Path(path).read_text())
+        self.other.set_dock_one_row(False)
+        self.assertTrue(self.other.dock_setting(self.other.HIDE_LABELS))
+        self.assertEqual("[dock]\nhide-labels=true\n", Path(path).read_text())
+        self.other.set_dock_setting(self.other.HIDE_LABELS, False)
+        self.assertFalse(os.path.exists(path))
+
     def test_a_broken_file_reads_as_rows(self):
         path = self.other.dock_config_path()
         Path(path).write_text("one-row=true\n")

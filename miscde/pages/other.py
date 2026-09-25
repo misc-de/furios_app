@@ -14,7 +14,7 @@ import re
 from gi.repository import Adw, Gio
 
 # key, title, icon - the same three a component carries for its tab.
-TAB = ("other", "Other", "preferences-other-symbolic")
+TAB = ("other", "Phosh", "preferences-other-symbolic")
 
 # The block goes between two markers, so taking it out again removes exactly
 # what was put in and nothing somebody wrote around it.
@@ -95,7 +95,7 @@ def set_search_hidden(hidden, path=None):
 
 # --- folders at the bottom -------------------------------------------------
 #
-# A phosh plugin in furios_misc/phosh-folder-dock does the work; this only
+# A phosh plugin in furios_phosh/folder-dock does the work; this only
 # puts its name into the list of status icons phosh loads, or takes it out.
 # phosh follows that list while it runs, so both take effect at once - except
 # right after the plugin was installed, because the plugin directory is only
@@ -143,10 +143,14 @@ def set_dock_enabled(on, settings):
     settings.set_strv(PLUGINS_KEY, names)
 
 
-# The plugin's one setting: every folder in a single row that scrolls
-# sideways. A key file the plugin watches while the dock stands, so it takes
-# effect at once. Off is no file at all - rows are the plugin's default.
+# The plugin's settings: every folder in a single row that scrolls sideways,
+# and the apps in the overview without their names. A key file the plugin
+# watches while the dock stands, so both take effect at once. Off is no key,
+# and no key at all is no file - phosh's own look is the plugin's default.
 DOCK_CONFIG = "furios-folder-dock.conf"
+DOCK_GROUP = "dock"
+ONE_ROW = "one-row"
+HIDE_LABELS = "hide-labels"
 
 
 def dock_config_path():
@@ -154,18 +158,30 @@ def dock_config_path():
     return os.path.join(base, DOCK_CONFIG)
 
 
-def dock_one_row(path=None):
+def _dock_settings(path):
+    """The keys that are on, in the file's order; a broken file has none."""
     parser = configparser.ConfigParser()
     try:
-        parser.read(path or dock_config_path(), encoding="utf-8")
-        return parser.getboolean("dock", "one-row", fallback=False)
+        parser.read(path, encoding="utf-8")
+        return [k for k in (ONE_ROW, HIDE_LABELS)
+                if parser.getboolean(DOCK_GROUP, k, fallback=False)]
     except (configparser.Error, ValueError):
-        return False
+        return []
 
 
-def set_dock_one_row(on, path=None):
+def dock_setting(key, path=None):
+    return key in _dock_settings(path or dock_config_path())
+
+
+def set_dock_setting(key, on, path=None):
+    """One key on or off, the other left as it is. Written by hand in the
+    form GKeyFile reads, one line per key that is on."""
     path = path or dock_config_path()
-    if not on:
+    keys = [k for k in _dock_settings(path) if k != key]
+    if on:
+        keys.append(key)
+    keys = [k for k in (ONE_ROW, HIDE_LABELS) if k in keys]
+    if not keys:
         try:
             os.remove(path)
         except FileNotFoundError:
@@ -174,8 +190,16 @@ def set_dock_one_row(on, path=None):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".misc-de.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
-        f.write("[dock]\none-row=true\n")
+        f.write("[%s]\n" % DOCK_GROUP + "".join("%s=true\n" % k for k in keys))
     os.replace(tmp, path)
+
+
+def dock_one_row(path=None):
+    return dock_setting(ONE_ROW, path)
+
+
+def set_dock_one_row(on, path=None):
+    set_dock_setting(ONE_ROW, on, path)
 
 
 class OtherPage:
@@ -201,7 +225,7 @@ class OtherPage:
         self.dock_row = Adw.SwitchRow(title="Folders at the bottom")
         if not dock_installed() or self.dock_settings is None:
             self.dock_row.set_subtitle(
-                "Needs the phosh-folder-dock plugin from furios_misc")
+                "Needs the folder-dock plugin from furios_phosh")
             self.dock_row.set_sensitive(False)
         else:
             self.dock_row.set_subtitle(
@@ -221,15 +245,33 @@ class OtherPage:
         self.row_row.set_sensitive(self.dock_row.get_active())
         self.row_row.connect("notify::active", self.on_dock_one_row)
         grp.add(self.row_row)
+
+        # The plugin does this too - it is the one thing in the shell that
+        # reaches the app buttons - so it needs the dock switched on.
+        self.labels_row = Adw.SwitchRow(
+            title="Hide app names",
+            subtitle="Icons only, like the favorites · folders keep theirs")
+        self._loading = True
+        self.labels_row.set_active(dock_setting(HIDE_LABELS))
+        self._loading = False
+        self.labels_row.set_sensitive(self.dock_row.get_active())
+        self.labels_row.connect("notify::active", self.on_hide_labels)
+        grp.add(self.labels_row)
         page.add(grp)
         return page
 
     def on_dock_one_row(self, row, _pspec):
+        self._set_dock_key(row, ONE_ROW)
+
+    def on_hide_labels(self, row, _pspec):
+        self._set_dock_key(row, HIDE_LABELS)
+
+    def _set_dock_key(self, row, key):
         if self._loading:
             return
         want = row.get_active()
         try:
-            set_dock_one_row(want)
+            set_dock_setting(key, want)
         except OSError as e:
             self._loading = True
             row.set_active(not want)
@@ -237,8 +279,9 @@ class OtherPage:
             self.report("Could not write %s:\n%s" % (dock_config_path(), e))
 
     def on_dock_enabled(self, row, _pspec):
-        if hasattr(self, "row_row"):
-            self.row_row.set_sensitive(row.get_active())
+        for name in ("row_row", "labels_row"):
+            if hasattr(self, name):
+                getattr(self, name).set_sensitive(row.get_active())
         if self._loading or self.dock_settings is None:
             return
         set_dock_enabled(row.get_active(), self.dock_settings)

@@ -75,11 +75,23 @@ frame), and the two that put a time where the percentage stands - how long the
 battery lasts, and how long until it is full. The thresholds are sliders,
 shown under the switch they belong to when it is on.
 
-**Other** — small things with no tool behind them, written by the app itself
-as you. For now one switch: hide the search field in phosh's app overview. It
-adds a marked block to `~/.config/gtk-3.0/gtk.css` and takes exactly that
-block out again; anything else in the file stays. phosh reads the file once at
-start, so it shows after the next login.
+**Phosh** — the look of phosh's app overview, written by the app itself as
+you. Four switches:
+
+- *Hide the search field* adds a marked block to `~/.config/gtk-3.0/gtk.css`
+  and takes exactly that block out again; anything else in the file stays.
+  phosh reads the file once at start, so it shows after the next login.
+- *Folders at the bottom* holds the folders in a bar at the bottom edge,
+  over the apps, which scroll underneath it blurred. It needs the
+  folder-dock plugin from furios_phosh and puts its name into phosh's
+  list of status icons; phosh follows that list at once.
+- *Folders in one row* puts every folder on one line that scrolls sideways.
+- *Hide app names* shows the apps as icons only, the way phosh shows its
+  favorites. Folders keep their names, and so do the apps inside a folder.
+
+The last two are keys in `~/.config/furios-folder-dock.conf`, which the plugin
+watches, so they take effect at once. They need the folders at the bottom
+switched on.
 
 Every page has the same plainly labelled way back to how the phone shipped, and
 asks before it does anything.
