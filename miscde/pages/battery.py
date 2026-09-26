@@ -114,6 +114,11 @@ class BatteryPage:
         self.batt_switches = {}
         self.batt_scales = {}
         self.batt_rows = []
+        # What the file held at the last reading, and the thresholds moved
+        # since then that are still waiting for their quiet moment.
+        self.batt_cfg = None
+        self._batt_pending = set()
+        self._batt_write = 0
 
         # A box of its own for each, headed by what it is. Not one box with
         # a heading over the lot: that heading named the page rather than
@@ -242,10 +247,12 @@ class BatteryPage:
         if getattr(self, "_loading", False):
             return
         self.keep_thresholds_apart(key)
-        if getattr(self, "_batt_write", 0):
+        # Collected, not replaced: a tap on one threshold and then on another
+        # inside the quiet moment used to cancel the first write outright.
+        self._batt_pending.add(key)
+        if self._batt_write:
             GLib.source_remove(self._batt_write)
-        self._batt_write = GLib.timeout_add(
-            400, self.write_battery_threshold, key, scale.get_value())
+        self._batt_write = GLib.timeout_add(400, self.write_battery_thresholds)
 
     def keep_thresholds_apart(self, key):
         """Push the neighbour along instead of refusing the move."""
@@ -261,10 +268,38 @@ class BatteryPage:
                     lower_scale.set_value(upper_scale.get_value() - gap)
                 self._loading = False
 
-    def write_battery_threshold(self, key, value):
+    def write_battery_thresholds(self):
+        """Both thresholds of every pair that moved, in an order battctl takes.
+
+        The neighbour that keep_thresholds_apart pushed along has to reach the
+        file too. Written alone, the moved threshold crosses the neighbour's
+        OLD value, and battctl checks every single write against the whole
+        file: amber from 6.5 to 7 W with green at 7 W was refused with
+        "charge_green_w must be above charge_amber_w" and the page jumped
+        back - the push only ever happened on screen.
+
+        The order keeps every state in between valid. If the upper one rises,
+        it goes first and makes room; if it falls, the lower one has already
+        moved out of its way. A value the file already has is not written.
+        """
         self._batt_write = 0
-        process.run_async([self.live["battery"], "config", key, "%g" % value],
-                  lambda ok, out: self.after_battery(ok, out, "change"))
+        pending, self._batt_pending = self._batt_pending, set()
+        cfg = self.batt_cfg or {}
+        steps = []
+        for low, high, _gap in self.BATTERY_PAIRS:
+            if low not in pending and high not in pending:
+                continue
+            old_high = cfg.get(high)
+            rises = (old_high is None
+                     or self.batt_scales[high].get_value() >= float(old_high))
+            for key in ((high, low) if rises else (low, high)):
+                value = self.batt_scales[key].get_value()
+                if cfg.get(key) is not None and float(cfg[key]) == value:
+                    continue
+                steps.append([self.live["battery"], "config", key, "%g" % value])
+        if steps:
+            self.run_chain(steps, lambda ok, out: self.after_battery(
+                ok, out, "change"))
         return False
 
     def after_battery(self, ok, out, verb):

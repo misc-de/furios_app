@@ -1593,8 +1593,80 @@ class TheWindow(unittest.TestCase):
         self.win.on_battery_slider(self.win.batt_scales["drain_red_w"],
                                    "drain_red_w")
         self.assertEqual([], self.ran)
-        self.win.write_battery_threshold("drain_red_w", 5.0)
+        self.win.write_battery_thresholds()
         self.assertEqual(["config", "drain_red_w", "5"], self.ran[0][0][1:])
+
+    def battctl_accepts(self, cfg):
+        """battctl's own check, run after every single config write."""
+        return (cfg["charge_green_w"] > cfg["charge_amber_w"]
+                and cfg["drain_amber_w"] < cfg["drain_red_w"]
+                and cfg["level_red_pct"] < cfg["level_amber_pct"])
+
+    def replay_into(self, cfg):
+        """Run what was queued, one write at a time, as battctl would."""
+        written = []
+        # Up to the refresh that follows the last write, which is not ours.
+        while self.ran and self.ran[0][0][1:2] == ["config"]:
+            argv, done, _o, _k = self.ran.pop(0)
+            key, value = argv[-2], float(argv[-1])
+            cfg[key] = value
+            written.append(key)
+            done(self.battctl_accepts(cfg), "")
+            self.assertTrue(self.battctl_accepts(cfg),
+                            "battctl refuses %s=%g after %s" % (key, value, written))
+        return written
+
+    FILE = {"charge_amber_w": 3.0, "charge_green_w": 7.0,
+            "drain_amber_w": 3.0, "drain_red_w": 6.0,
+            "level_red_pct": 20.0, "level_amber_pct": 50.0}
+
+    def fill_battery_page(self):
+        self.ran.clear()
+        self.win._loading = False
+        self.win.batt_cfg = dict(self.FILE)
+        for key, value in self.FILE.items():
+            self.win.batt_scales[key].value = value
+
+    def test_a_pushed_neighbour_reaches_the_file_too(self):
+        """Amber up to green's value pushes green along on screen - and only
+        amber used to be written, which battctl refused because it crossed
+        green's OLD value. The push never happened anywhere but the page."""
+        self.fill_battery_page()
+        self.win.batt_scales["charge_amber_w"].value = 7.0
+        self.win.on_battery_slider(self.win.batt_scales["charge_amber_w"],
+                                   "charge_amber_w")
+        self.win.write_battery_thresholds()
+        cfg = dict(self.FILE)
+        written = self.replay_into(cfg)
+        self.assertEqual(["charge_green_w", "charge_amber_w"], written)
+        self.assertEqual((7.0, 7.5), (cfg["charge_amber_w"],
+                                      cfg["charge_green_w"]))
+
+    def test_and_the_same_when_the_upper_one_pushes_down(self):
+        self.fill_battery_page()
+        self.win.batt_scales["level_amber_pct"].value = 20.0
+        self.win.on_battery_slider(self.win.batt_scales["level_amber_pct"],
+                                   "level_amber_pct")
+        self.win.write_battery_thresholds()
+        cfg = dict(self.FILE)
+        self.replay_into(cfg)
+        self.assertEqual((15.0, 20.0), (cfg["level_red_pct"],
+                                        cfg["level_amber_pct"]))
+
+    def test_a_second_threshold_does_not_cancel_the_first(self):
+        """Two taps on two rows inside the quiet moment: the second one's
+        timer used to replace the first one's write."""
+        self.fill_battery_page()
+        self.win.batt_scales["drain_red_w"].value = 6.5
+        self.win.on_battery_slider(self.win.batt_scales["drain_red_w"],
+                                   "drain_red_w")
+        self.win.batt_scales["level_red_pct"].value = 25.0
+        self.win.on_battery_slider(self.win.batt_scales["level_red_pct"],
+                                   "level_red_pct")
+        self.win.write_battery_thresholds()
+        cfg = dict(self.FILE)
+        written = self.replay_into(cfg)
+        self.assertEqual(["drain_red_w", "level_red_pct"], sorted(written))
 
     def test_the_neighbour_is_pushed_along_not_refused(self):
         """battctl will not take a pair that crosses, and a slider that
