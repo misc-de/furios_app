@@ -193,8 +193,23 @@ class SecurityPage:
 
     # ---------------------------------------------------------------- acting
 
+    def no_pkexec(self):
+        """The modem and GPS pages ask this too. Without it argv[0] is None,
+        Gio refuses it with a TypeError rather than a GLib.Error, run_async
+        does not catch that - and set_busy(True) has already happened, so
+        the whole window stayed grey for good."""
+        if tools.PKEXEC:
+            return False
+        self.toast("pkexec is missing - cannot ask for the rights to switch")
+        # The switch has already moved under the finger; put it back to
+        # what secctl says rather than leave it claiming a change.
+        self.refresh()
+        return True
+
     def on_security_switch(self, row, _param, key):
         if getattr(self, "_loading", False) or self.busy:
+            return
+        if self.no_pkexec():
             return
         value = "on" if row.get_active() else "off"
         self.set_busy(True)
@@ -223,7 +238,7 @@ class SecurityPage:
         if self.busy:
             return
         text = entry.get_text().strip()
-        if not text:
+        if not text or self.no_pkexec():
             return
         self.set_busy(True)
         process.run_async(
@@ -239,7 +254,7 @@ class SecurityPage:
         self.refresh()
 
     def on_security_restore(self, _btn):
-        if self.busy:
+        if self.busy or self.no_pkexec():
             return
         self.set_busy(True)
         process.run_async(

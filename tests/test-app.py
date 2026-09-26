@@ -2939,6 +2939,29 @@ class TheWindow(unittest.TestCase):
             self.skipTest("secctl not installed")
         return self.win
 
+    def test_without_pkexec_security_runs_nothing_and_stays_usable(self):
+        """[None, secctl, ...] reached Gio as argv, which raises a TypeError
+        run_async does not catch - after set_busy(True), for good."""
+        win = self.security_win()
+        real = switcher.tools.PKEXEC
+        try:
+            switcher.tools.PKEXEC = None
+            win._loading = False
+            win.busy = False
+            win.sec_lan.text = "192.168.0.0/24"
+            for act in (lambda: win.on_security_switch(
+                            win.sec_switches["sysctl"], None, "sysctl"),
+                        lambda: win.on_security_lan(win.sec_lan),
+                        lambda: win.on_security_restore(None)):
+                self.ran.clear()
+                act()
+                self.assertFalse(win.busy)
+                self.assertFalse([r for r in self.ran if r[0][0] is None],
+                                 "started a command with no program")
+                self.assertIn("pkexec", str(win.toasts.text))
+        finally:
+            switcher.tools.PKEXEC = real
+
     SEC_JSON = """{
       "kernel": {"release": "4.19.325-furiphone-radon", "base": "4.19.325",
                  "series": "4.19", "eol": "2024-12-05",
