@@ -85,14 +85,20 @@ class ModemPage:
         return found
 
     def on_modem_profile(self, ok, out):
-        if not ok:
+        """modemctl prints both lines and THEN exits 1 when the repairs are
+        half in place ("mixed") - the same contract as gpsctl's, and the
+        same answer: whether there was a reading is decided by the reading.
+        Going by the exit code turned the one state this row has words for
+        ("use Repairs active to settle it") into "modemctl did not answer",
+        with the switch that settles it locked."""
+        found = self._keyed(out)
+        recorded, actual = found.get("recorded"), found.get("actual")
+        if not recorded or not actual:
             self.modem_ok = False
             self.modem_row.set_sensitive(False)
             self.mrow_profile.set_subtitle("modemctl did not answer")
             return
         self.modem_ok = True
-        found = self._keyed(out)
-        recorded, actual = found.get("recorded", "?"), found.get("actual", "?")
 
         if actual == "fixed":
             words = "the repairs are in place"

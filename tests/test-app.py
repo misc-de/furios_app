@@ -3435,6 +3435,24 @@ class TheWindow(unittest.TestCase):
         win.on_modem_profile(True, "recorded: fixed\nactual:   mixed\n")
         self.assertIn("half repaired", win.mrow_profile.subtitle)
 
+    def test_half_repaired_is_read_although_modemctl_exits_1(self):
+        """modemctl profile returns 1 for "mixed", after printing it - as
+        its cmd_profile does. The switch that settles it must stay usable."""
+        win = self.modem_win()
+        win.on_modem_profile(False, "recorded: fixed\nactual:   mixed\n"
+                             "  warn  half of the repairs are in place and "
+                             "half are not\n")
+        self.assertIn("half repaired", win.mrow_profile.subtitle)
+        self.assertTrue(win.modem_ok)
+        win.set_busy(False)
+        self.assertTrue(win.modem_row.sensitive)
+
+    def test_no_profile_lines_at_all_is_no_answer(self):
+        win = self.modem_win()
+        win.on_modem_profile(False, "pkexec: not found")
+        self.assertIn("did not answer", win.mrow_profile.subtitle)
+        self.assertFalse(win.modem_row.sensitive)
+
     def test_the_switch_asks_for_the_rights_it_needs(self):
         win = self.modem_win()
         win.modem_persist.active = True
