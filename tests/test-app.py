@@ -1614,7 +1614,8 @@ class TheWindow(unittest.TestCase):
                                    "drain_red_w")
         self.assertEqual([], self.ran)
         self.win.write_battery_thresholds()
-        self.assertEqual(["config", "drain_red_w", "5"], self.ran[0][0][1:])
+        written = [a[1:] for a, _d, _o, _k in self.ran]
+        self.assertIn(["config", "drain_red_w", "5"], written)
 
     def battctl_accepts(self, cfg):
         """battctl's own check, run after every single config write."""
@@ -1672,6 +1673,19 @@ class TheWindow(unittest.TestCase):
         self.replay_into(cfg)
         self.assertEqual((15.0, 20.0), (cfg["level_red_pct"],
                                         cfg["level_amber_pct"]))
+
+    def test_a_refresh_inside_the_quiet_moment_does_not_eat_the_tap(self):
+        """The file's values go back on screen with every refresh; what is
+        written is what was tapped, not what the steppers show by then."""
+        self.fill_battery_page()
+        self.win.batt_scales["drain_red_w"].value = 7.0
+        self.win.on_battery_slider(self.win.batt_scales["drain_red_w"],
+                                   "drain_red_w")
+        self.win.batt_scales["drain_red_w"].value = 6.0     # a refresh
+        self.win.write_battery_thresholds()
+        cfg = dict(self.FILE)
+        self.replay_into(cfg)
+        self.assertEqual(7.0, cfg["drain_red_w"])
 
     def test_a_second_threshold_does_not_cancel_the_first(self):
         """Two taps on two rows inside the quiet moment: the second one's

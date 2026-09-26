@@ -117,7 +117,7 @@ class BatteryPage:
         # What the file held at the last reading, and the thresholds moved
         # since then that are still waiting for their quiet moment.
         self.batt_cfg = None
-        self._batt_pending = set()
+        self._batt_pending = {}
         self._batt_write = 0
 
         # A box of its own for each, headed by what it is. Not one box with
@@ -249,7 +249,13 @@ class BatteryPage:
         self.keep_thresholds_apart(key)
         # Collected, not replaced: a tap on one threshold and then on another
         # inside the quiet moment used to cancel the first write outright.
-        self._batt_pending.add(key)
+        # Both of the pair, at the value they have NOW: a refresh that lands
+        # inside the quiet moment puts the file's values back on screen, and
+        # reading the steppers when the timer fires would then write nothing.
+        for low, high, _gap in self.BATTERY_PAIRS:
+            if key in (low, high):
+                for one in (low, high):
+                    self._batt_pending[one] = self.batt_scales[one].get_value()
         if self._batt_write:
             GLib.source_remove(self._batt_write)
         self._batt_write = GLib.timeout_add(400, self.write_battery_thresholds)
@@ -283,17 +289,16 @@ class BatteryPage:
         moved out of its way. A value the file already has is not written.
         """
         self._batt_write = 0
-        pending, self._batt_pending = self._batt_pending, set()
+        pending, self._batt_pending = self._batt_pending, {}
         cfg = self.batt_cfg or {}
         steps = []
         for low, high, _gap in self.BATTERY_PAIRS:
-            if low not in pending and high not in pending:
+            if low not in pending or high not in pending:
                 continue
             old_high = cfg.get(high)
-            rises = (old_high is None
-                     or self.batt_scales[high].get_value() >= float(old_high))
+            rises = old_high is None or pending[high] >= float(old_high)
             for key in ((high, low) if rises else (low, high)):
-                value = self.batt_scales[key].get_value()
+                value = pending[key]
                 if cfg.get(key) is not None and float(cfg[key]) == value:
                     continue
                 steps.append([self.live["battery"], "config", key, "%g" % value])
