@@ -290,6 +290,7 @@ class BatteryPage:
         ], self.on_battery_restored)
 
     def on_battery_restored(self, ok, out):
+        self.set_busy(False)
         if ok:
             self.toast("Shipped state - no colouring")
         else:

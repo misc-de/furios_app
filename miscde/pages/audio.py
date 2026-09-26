@@ -131,7 +131,7 @@ class AudioPage:
             self.row_server.set_subtitle(server_in_words(server))
             self.row_sinks.set_subtitle(sinks.replace(",", ", ") or "none")
             self.persist_row.set_subtitle("audioctl did not answer")
-            self.set_busy(False)
+            self.set_busy(self.busy)
             return
 
         text = profile_in_words(profile)
@@ -163,7 +163,14 @@ class AudioPage:
             self.persist_row.set_subtitle(
                 f"Off: a reboot returns to {profile_in_words(persistent)}"
             )
-        self.set_busy(False)
+        # Re-applied, not released. This answer arrives from every refresh,
+        # and refreshes run while other things are in flight - a battery
+        # change, the first one at start-up - so releasing here handed the
+        # controls back in the middle of a modem switch or an install, and a
+        # second tap started a second pkexec beside the first. And on a phone
+        # without audioctl it never arrived at all, so every other page's
+        # switch left the window grey for good. Whoever set busy releases it.
+        self.set_busy(self.busy)
 
 
     def on_switch(self, row, _param):
@@ -180,6 +187,7 @@ class AudioPage:
 
     def on_switched(self, ok, out):
         self.pulse_stop()
+        self.set_busy(False)
         if not ok:
             self.toast("Switching failed")
             self.report(out or "No output.")
@@ -202,6 +210,7 @@ class AudioPage:
 
     def on_dmnr_done(self, ok, out):
         self.pulse_stop()
+        self.set_busy(False)
         if not ok:
             self.toast("Could not switch echo suppression")
             self.report(out or "No output.")
@@ -221,6 +230,7 @@ class AudioPage:
 
     def on_rescued(self, ok, out):
         self.pulse_stop()
+        self.set_busy(False)
         self.toast(
             "Shipped state, speaker, 65 %"
             if ok

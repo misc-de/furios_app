@@ -3594,6 +3594,39 @@ class TheWindow(unittest.TestCase):
         self.win.set_busy(False)
         self.assertIn("as shipped", self.win.switch_row.subtitle)
 
+    def test_an_audio_status_does_not_hand_back_controls_mid_switch(self):
+        """Every refresh ends in on_status, and refreshes overlap other work -
+        the one from start-up, the one after a battery change. It used to
+        release busy, which made a running modem switch or install tappable
+        again half way through."""
+        self.win.set_busy(True)
+        self.win.on_status(True, self.PERMANENT)
+        self.assertTrue(self.win.busy)
+        self.assertFalse(self.win.switch_row.sensitive)
+        self.win.on_status(False, "")
+        self.assertTrue(self.win.busy)
+
+    def test_every_finished_action_releases_the_window_itself(self):
+        """Not through audioctl's answer: on a phone without audioctl that
+        answer never comes, and one modem switch left every control grey
+        until the app was restarted."""
+        handlers = ["on_switched", "on_dmnr_done", "on_rescued"]
+        if MODEMCTL:
+            handlers += ["on_modem_switched", "on_modem_restored"]
+        if GPSCTL:
+            handlers += ["on_gps_switched", "on_gps_restored"]
+        if KILLSWITCH:
+            handlers.append("on_switches_restored")
+        if BATTCTL:
+            handlers.append("on_battery_restored")
+        self.win.live["audio"] = None
+        for name in handlers:
+            for ok in (True, False):
+                with self.subTest(handler=name, ok=ok):
+                    self.win.set_busy(True)
+                    getattr(self.win, name)(ok, "")
+                    self.assertFalse(self.win.busy)
+
     def test_the_progress_bar_pulses_rather_than_inventing_a_percentage(self):
         self.win.pulse_start("Switching …")
         self.assertEqual("Switching …", self.win.progress.text)

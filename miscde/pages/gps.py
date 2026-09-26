@@ -168,6 +168,7 @@ class GpsPage:
 
     def on_gps_switched(self, ok, out):
         self.pulse_stop()
+        self.set_busy(False)
         self.gps_revealer.set_reveal_child(False)
         if not ok:
             self.toast("Switching the location filter failed")
@@ -259,6 +260,7 @@ class GpsPage:
 
     def on_gps_restored(self, ok, out):
         self.pulse_stop()
+        self.set_busy(False)
         self.gps_revealer.set_reveal_child(False)
         if ok:
             # Again not a neutral "done" - what was switched off is the part

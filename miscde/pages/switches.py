@@ -241,6 +241,7 @@ class SwitchesPage:
         ], self.on_switches_restored)
 
     def on_switches_restored(self, ok, out):
+        self.set_busy(False)
         if ok:
             self.toast("Shipped state - no icons, and the switch takes only "
                        "the modem")

@@ -165,6 +165,7 @@ class ModemPage:
 
     def on_modem_restored(self, ok, out):
         self.pulse_stop()
+        self.set_busy(False)
         self.modem_revealer.set_reveal_child(False)
         if ok:
             self.toast("Shipped state - no network without Wi-Fi")
@@ -175,6 +176,7 @@ class ModemPage:
 
     def on_modem_switched(self, ok, out):
         self.pulse_stop()
+        self.set_busy(False)
         self.modem_revealer.set_reveal_child(False)
         if not ok:
             # A refusal from polkit looks like any other failure from here, and
