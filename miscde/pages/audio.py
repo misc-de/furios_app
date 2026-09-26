@@ -8,7 +8,7 @@ here is everything that happens after somebody touches it."""
 
 from gi.repository import Adw
 
-from .. import process, tools
+from .. import askpass, components, process, tools
 from ..tools import DMNR
 from ..words import profile_in_words, server_in_words
 
@@ -199,24 +199,90 @@ class AudioPage:
     def on_dmnr(self, row, _param):
         if self._syncing or self.busy:
             return
-        self.set_busy(True)
-        self.pulse_start("Switching echo suppression …")
         # The same reading of the persist switch as the stack switch above:
         # "set" is now and after the next reboot, the bare word is now only.
         wanted = "on" if row.get_active() else "off"
-        argv = [tools._tool_maybe(DMNR) or DMNR]
-        argv += ["set", wanted] if self.persist_row.get_active() else [wanted]
-        process.run_async(argv, self.on_dmnr_done, on_line=self.on_progress_line)
+        self._dmnr_args = (["set", wanted] if self.persist_row.get_active()
+                           else [wanted])
+        self.apply_dmnr()
 
-    def on_dmnr_done(self, ok, out):
+    def apply_dmnr(self, secret=None):
+        """Run the helper, and with a password when sudo wants one.
+
+        The helper is a script with its own sudo lines - bind mounts, the
+        modem's tuning memory - and it runs as this user, not under sudo: it
+        restarts the user's audio stack at the end, which root cannot reach.
+        So there is no "sudo -S" in front of it to pipe a password into. On
+        a phone whose sudoers asks for nothing that never mattered; with a
+        password its first sudo had no terminal to ask at, and the switch
+        failed. Same answer as the installers: the password goes to sudo
+        through the askpass socket, never through argv or a file."""
+        argv = [tools._tool_maybe(DMNR) or DMNR] + list(self._dmnr_args)
+        env = None
+        if secret is not None:
+            self._dmnr_askpass = askpass.Askpass(secret)
+            helper = self._dmnr_askpass.start()
+            if helper is None:
+                self.toast("no password helper: " +
+                           str(self._dmnr_askpass.error))
+                self._dmnr_askpass = None
+                self.refresh()
+                return
+            env = components.installer_env(helper)
+        self.set_busy(True)
+        self.pulse_start("Switching echo suppression …")
+        process.run_async(argv,
+                          lambda ok, out: self.on_dmnr_done(
+                              ok, out, asked=secret is not None),
+                          on_line=self.on_progress_line, env=env)
+
+    def on_dmnr_done(self, ok, out, asked=False):
         self.pulse_stop()
         self.set_busy(False)
+        if getattr(self, "_dmnr_askpass", None) is not None:
+            self._dmnr_askpass.stop()
+            self._dmnr_askpass = None
+        # The helper checks first whether sudo can be asked at all and stops
+        # before changing anything, so this is a question, not a half-done
+        # switch. Asked once: a wrong password is a failure to report.
+        if not ok and not asked and needs_a_password(out):
+            self.ask_dmnr_password()
+            return
         if not ok:
             self.toast("Could not switch echo suppression")
             self.report(out or "No output.")
         else:
             self.toast("Echo suppression changed - try a call")
         self.refresh()
+
+    def ask_dmnr_password(self):
+        entry = Adw.PasswordEntryRow(title="Your password (for sudo)")
+        group = Adw.PreferencesGroup()
+        group.add(entry)
+        dlg = Adw.AlertDialog(
+            heading="Echo suppression",
+            body="This lays tuning files over the vendor's and opens the "
+                 "modem's tuning memory to the audio group, so sudo asks for "
+                 "a password. It goes to sudo and nowhere else.")
+        dlg.set_extra_child(group)
+        dlg.add_response("go", "Switch")
+        dlg.add_response("cancel", "Cancel")
+        dlg.set_default_response("cancel")
+        dlg.set_close_response("cancel")
+        self._dmnr_pending = entry
+        dlg.connect("response", self.on_dmnr_password)
+        dlg.present(self)
+
+    def on_dmnr_password(self, _dlg, response):
+        entry, self._dmnr_pending = self._dmnr_pending, None
+        secret = entry.get_text() if entry is not None else None
+        if entry is not None:
+            entry.set_text("")               # not kept a moment longer
+        if response != "go" or secret is None:
+            # Cancelled: the row goes back to what the helper reports.
+            self.refresh()
+            return
+        self.apply_dmnr(secret)
 
     def on_rescue(self, _btn):
         if self.busy:

@@ -1271,6 +1271,57 @@ class TheWindow(unittest.TestCase):
         self.win.on_dmnr(self.win.dmnr_row, None)
         self.assertEqual("off", self.ran[0][0][1])
 
+    def test_the_echo_switch_asks_for_a_password_when_sudo_wants_one(self):
+        """Without a sudoers rule that asks for nothing, the helper's first
+        sudo had no terminal and the switch simply failed."""
+        asked = []
+        patch = mock.patch.object(type(self.win), "ask_dmnr_password",
+                                  lambda _self: asked.append(True))
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.win.dmnr_row.active = True
+        self.win.on_dmnr(self.win.dmnr_row, None)
+        self.assertIsNone(self.ran[0][3].get("env"),
+                          "the first try asks nobody for anything")
+        self.win.on_dmnr_done(False, "sudo: a terminal is required to read "
+                              "the password; either use the -S option to "
+                              "read from standard input or configure an "
+                              "askpass helper")
+        self.assertEqual([True], asked)
+        self.assertNotIn("Could not", str(self.win.toasts.text))
+
+    def test_the_password_reaches_the_helper_through_askpass_only(self):
+        started = []
+
+        class FakeAskpass:
+            def __init__(self, secret):
+                started.append(secret)
+                self.error = None
+                self.stopped = False
+
+            def start(self):
+                return "/run/user/0/askpass-helper"
+
+            def stop(self):
+                started.append("stopped")
+
+        audio = importlib.import_module("miscde.pages.audio")
+        patch = mock.patch.object(audio.askpass, "Askpass", FakeAskpass)
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.win._dmnr_args = ["set", "on"]
+        self.win.apply_dmnr("hunter2")
+        argv, done, _line, kw = self.ran[0]
+        self.assertNotIn("hunter2", " ".join(argv))
+        self.assertIsNone(kw.get("stdin"))
+        self.assertEqual("/run/user/0/askpass-helper",
+                         kw["env"]["SUDO_ASKPASS"])
+        self.assertEqual(["set", "on"], argv[1:])
+        # A wrong password is reported, not asked for again and again.
+        done(False, "sudo: 1 incorrect password attempt; askpass")
+        self.assertIn("Could not", str(self.win.toasts.text))
+        self.assertEqual(["hunter2", "stopped"], started)
+
     def test_the_echo_switch_is_ignored_while_busy(self):
         self.win.busy = True
         self.win.on_dmnr(self.win.dmnr_row, None)

@@ -70,6 +70,9 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         # Which Bluetooth powersave change is waiting for a password, with the
         # entry it would come from.
         self._btsave_pending = (None, None)
+        self._dmnr_pending = None
+        self._dmnr_askpass = None
+        self._dmnr_args = []
         self.modem_ok = True
         self.gps_ok = True
         self.gps_rows = []
