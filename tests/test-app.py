@@ -2773,8 +2773,8 @@ class TheWindow(unittest.TestCase):
         self.assertEqual({}, rows, "a check that found nothing offered something")
 
     def test_a_clone_somebody_else_keeps_is_read_and_never_written(self):
-        """ls-remote asks the server, rev-parse reads the clone. A fetch would
-        already write into their .git, a pull into their working tree."""
+        """ls-remote asks the server, merge-base reads the clone. A fetch
+        would already write into their .git, a pull into their working tree."""
         comp = self.component()
         rows = self.lines_for(comp)
         self.ran.clear()
@@ -2783,8 +2783,9 @@ class TheWindow(unittest.TestCase):
         self.assertIn("ls-remote", argv)
         done(True, "abc123\tHEAD")
         argv, done, _on_line, _kw = self.ran.pop(0)
-        self.assertIn("rev-parse", argv)
-        done(True, "def456")
+        self.assertEqual(["merge-base", "--is-ancestor", "abc123", "HEAD"],
+                         argv[3:])
+        done(False, "")                        # the clone does not have it
         self.assertIn(comp["tool"], rows)
         self.assertEqual("/home/furios/Projekte/eigen",
                          rows[comp["tool"]]["path"])
@@ -2816,7 +2817,7 @@ class TheWindow(unittest.TestCase):
         _argv, done, _on_line, _kw = self.ran.pop(0)
         done(True, "abc123\tHEAD")
         _argv, done, _on_line, _kw = self.ran.pop(0)
-        done(True, "def456")
+        done(False, "")
         return rows[comp["tool"]]["words"]
 
     def test_a_foreign_clone_that_matches_the_server_is_left_in_peace(self):
@@ -2827,8 +2828,32 @@ class TheWindow(unittest.TestCase):
         _argv, done, _on_line, _kw = self.ran.pop(0)
         done(True, "abc123\tHEAD")
         _argv, done, _on_line, _kw = self.ran.pop(0)
-        done(True, "abc123\n")
+        done(True, "")
         self.assertEqual({}, rows, "a check that found nothing offered something")
+
+    def test_a_foreign_clone_ahead_of_the_server_is_not_behind_it(self):
+        """Unpushed commits are not news from the server. Against a real
+        repository: the clone has the server's commit and one more."""
+        work = tempfile.mkdtemp(prefix="miscde-ahead-")
+        git = ["git", "-C", work, "-c", "user.name=t", "-c", "user.email=t@t"]
+        subprocess_real.run(["git", "init", "-q", work], check=True)
+        subprocess_real.run(git + ["commit", "-q", "--allow-empty", "-m", "a"],
+                            check=True)
+        theirs = subprocess_real.run(git + ["rev-parse", "HEAD"], check=True,
+                                     capture_output=True, text=True).stdout.strip()
+        subprocess_real.run(git + ["commit", "-q", "--allow-empty", "-m", "b"],
+                            check=True)
+        comp = self.component()
+        rows = self.lines_for(comp)
+        self.ran.clear()
+        self.win.peek_upstream(comp, work)
+        _argv, done, _on_line, _kw = self.ran.pop(0)
+        done(True, theirs + "\tHEAD")
+        argv, done, _on_line, _kw = self.ran.pop(0)
+        real = subprocess_real.run(argv, capture_output=True, text=True)
+        done(real.returncode == 0, real.stdout)
+        self.assertEqual({}, rows, "unpushed work was offered as an update")
+        shutil_real.rmtree(work, ignore_errors=True)
 
     def test_no_answer_from_the_server_is_not_an_update(self):
         comp = self.component()
@@ -2837,8 +2862,7 @@ class TheWindow(unittest.TestCase):
         self.win.peek_upstream(comp, "/eigen")
         _argv, done, _on_line, _kw = self.ran.pop(0)
         done(False, "could not resolve host")
-        _argv, done, _on_line, _kw = self.ran.pop(0)
-        done(True, "abc123")
+        self.assertEqual([], self.ran, "the clone was asked about nothing")
         self.assertEqual({}, rows, "a check that found nothing offered something")
 
     def test_our_own_clone_is_the_one_that_gets_fetched(self):

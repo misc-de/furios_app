@@ -248,15 +248,22 @@ class InstallPage:
     def peek_upstream(self, comp, foreign_path, other=None):
         """Is there something new for a clone we must not touch?
 
-        Answered by asking the server what its HEAD is and comparing it with
-        the clone's - "git ls-remote" writes nothing at all, not even the
-        remote refs a fetch would update. Somebody else's working tree is read
-        and nothing more; what to do about it is their business, in their
+        Answered by asking the server what its HEAD is and whether the clone
+        already contains it - "git ls-remote" writes nothing at all, not even
+        the remote refs a fetch would update. Somebody else's working tree is
+        read and nothing more; what to do about it is their business, in their
         terminal.
+
+        Contained, not equal. The clones in ~/Projekte are where the next
+        commits are written, and they are regularly ahead of the server with
+        work not pushed yet. A hash comparison called that "something new on
+        the server" - furios_misc three commits ahead of origin put a battctl
+        update in the header that pulled nothing. `merge-base --is-ancestor`
+        fails for a commit the clone does not have, which is exactly the case
+        that is news.
         """
-        def compared(ok, out, theirs):
-            ours = (out or "").strip().split()
-            if not ok or not theirs or not ours or ours[0] == theirs:
+        def compared(ok, _out):
+            if ok:
                 if other:
                     other()
                 return                         # nothing to say, so nothing said
@@ -265,8 +272,13 @@ class InstallPage:
         def upstream_read(ok, out):
             head = (out or "").split()
             theirs = head[0] if ok and head else None
-            process.run_async(["git", "-C", foreign_path, "rev-parse", "HEAD"],
-                      lambda ok2, out2: compared(ok2, out2, theirs), timeout=30)
+            if not theirs:
+                if other:
+                    other()
+                return
+            process.run_async(["git", "-C", foreign_path, "merge-base",
+                               "--is-ancestor", theirs, "HEAD"],
+                              compared, timeout=30)
 
         process.run_async(["git", "ls-remote", comp["url"], "HEAD"], upstream_read,
                   timeout=60)
