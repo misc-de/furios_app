@@ -549,6 +549,12 @@ class FakeStream:
             return None, 0
         line = self.process.lines[self.index]
         self.index += 1
+        if isinstance(line, bytes):
+            # What the real GLib does with a line that is not UTF-8: the
+            # line is consumed, and this read fails with a conversion error.
+            err = switcher.GLib.Error("Invalid byte sequence in conversion input")
+            err.domain = "g_convert_error"
+            raise err
         return line, len(line)
 
 
@@ -654,6 +660,20 @@ class RunsAudioctl(unittest.TestCase):
         switcher.process.run_async(["audioctl"], lambda ok, out: seen.append((ok, out)),
                            on_line=lambda _l: None)
         self.assertEqual(seen[0][0], False)
+
+    def test_a_line_that_is_not_utf8_does_not_end_the_reading(self):
+        """An installer is still running when one odd byte turns up in its
+        output. Stopping there reported it failed, took the password socket
+        down under it and left its pipe undrained."""
+        process = self.arrange(lines=["building", b"\xfcber", "installed"])
+        lines, seen = [], []
+        switcher.process.run_async(["./install.sh"],
+                                   lambda ok, out: seen.append((ok, out)),
+                                   on_line=lines.append)
+        self.assertEqual(1, len(seen))
+        self.assertTrue(seen[0][0], seen)
+        self.assertEqual("installed", lines[-1])
+        self.assertTrue(process.waited)
 
     def test_a_process_that_never_finishes_is_reported(self):
         self.arrange(lines=[], fail_at="wait")

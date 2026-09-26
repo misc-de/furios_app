@@ -115,8 +115,17 @@ def run_async(argv, on_done, on_line=None, timeout=CALL_TIMEOUT, cwd=None,
         try:
             line, _length = src.read_line_finish_utf8(res)
         except GLib.Error as err:
-            on_done(False, str(err))
-            return
+            if getattr(err, "domain", None) != "g_convert_error":
+                on_done(False, str(err))
+                return
+            # One line that is not UTF-8 - a build log quoting a Latin-1
+            # source line is enough. The line is already consumed, and the
+            # next read carries on behind it (checked against the real GLib).
+            # Giving up here used to report an install as failed while it
+            # was still running: the password socket went down under its next
+            # sudo line, and with nobody draining the pipe any more the
+            # installer blocked for good once 64 KiB of output had piled up.
+            line = "(a line that is not UTF-8)"
         if line is None:                      # end of output
             proc.wait_async(None, waited)
             return
