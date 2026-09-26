@@ -1932,6 +1932,20 @@ class TheWindow(unittest.TestCase):
         self.assertTrue(win.sw_row.get_active())
         self.assertIn("top bar", win.sw_row.subtitle)
 
+    def test_a_tool_too_old_to_know_the_icons_is_not_blamed_on_phosh(self):
+        """The installed killswitch-indicator on this phone prints no "icons"
+        key at all; that is an old tool, not an unreadable plugin list."""
+        win = self.switches_win()
+        old = json.loads(self.JSON)
+        del old["icons"]
+        win.on_switches_status(True, json.dumps(old))
+        self.assertFalse(win.sw_row.sensitive)
+        self.assertIn("too old", win.sw_row.subtitle)
+        self.assertNotIn("phosh", win.sw_row.subtitle)
+        old["icons"] = None
+        win.on_switches_status(True, json.dumps(old))
+        self.assertIn("phosh", win.sw_row.subtitle)
+
     def test_a_reading_while_loading_does_not_write_anything_back(self):
         """Filling the switches from a status must not look like a user
         touching them - that would write the state back at itself."""

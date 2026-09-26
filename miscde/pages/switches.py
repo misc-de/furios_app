@@ -146,9 +146,15 @@ class SwitchesPage:
         self.sw_row.set_active(bool(icons))
         self._loading = False
         self.sw_row.set_sensitive(icons is not None)
+        # A missing key is not phosh's null. The killswitch-indicator this
+        # phone runs predates "icons" altogether (and has no "icons" command
+        # either), and blaming phosh's plugin list for that sends somebody
+        # looking in the one place that is fine.
         self.sw_row.set_subtitle(
             "in the top bar, at the left end of the indicators" if icons else
             "not shown" if icons is False else
+            "this killswitch-indicator is too old to switch them - update it"
+            if "icons" not in data else
             "phosh's plugin list is not readable here")
 
         extras = data.get("network_extras", {})
