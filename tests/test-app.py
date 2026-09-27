@@ -962,7 +962,8 @@ class TheWindow(unittest.TestCase):
         # Always, unlike the others: every GPS handler asks self.live for
         # its tool, so a test says whether it is there by setting that, and
         # the page is tested on a phone that does not have it installed.
-        names += ["gps_contrib", "gps_contrib_stats", "gps_restore_btn"]
+        names += ["gps_contrib", "gps_contrib_stats", "gps_firefox",
+                  "gps_restore_btn"]
         if KILLSWITCH:
             names += ["sw_row", "sw_wifi", "sw_bt", "sw_modem",
                       "srow_cam_hal", "srow_cams", "srow_mic",
@@ -976,7 +977,8 @@ class TheWindow(unittest.TestCase):
         if MODEMCTL:
             self.win.modem_rows = [self.win.modem_row, self.win.modem_persist,
                                    self.win.modem_restore_btn]
-        self.win.gps_rows = [self.win.gps_contrib, self.win.gps_restore_btn]
+        self.win.gps_rows = [self.win.gps_contrib, self.win.gps_firefox,
+                             self.win.gps_restore_btn]
         if KILLSWITCH:
             self.win.sw_rows = [self.win.sw_row, self.win.sw_wifi,
                                 self.win.sw_bt, self.win.sw_restore_btn]
@@ -1507,6 +1509,59 @@ class TheWindow(unittest.TestCase):
         self.win.live["gps"] = "/usr/local/bin/furios-gps-contribute"
         self.win.on_gps_contrib(self.win.gps_contrib, None)
         self.assertEqual("off", self.ran[0][0][1])
+
+    def firefox_beside(self):
+        """A furios-gps-firefox next to the contribution tool, where the
+        page looks for it."""
+        d = self.enterContext(tempfile.TemporaryDirectory())
+        for name in ("furios-gps-contribute", "furios-gps-firefox"):
+            path = os.path.join(d, name)
+            with open(path, "w") as f:
+                f.write("#!/bin/sh\n")
+            os.chmod(path, 0o755)
+        self.win.live["gps"] = os.path.join(d, "furios-gps-contribute")
+        return os.path.join(d, "furios-gps-firefox")
+
+    def test_the_firefox_switch_calls_the_tool_beside_contribute(self):
+        ff = self.firefox_beside()
+        self.win.busy = False
+        self.win._syncing = False
+        self.win.gps_firefox.active = True
+        self.win.on_gps_firefox(self.win.gps_firefox, None)
+        self.assertEqual([ff, "on"], list(self.ran[-1][0]))
+
+    def test_without_the_firefox_tool_the_switch_says_so_and_does_nothing(self):
+        """An older installation has contribute but not this one."""
+        self.win.live["gps"] = "/nowhere/furios-gps-contribute"
+        self.win.refresh_gps_contrib()
+        self.assertFalse(self.win.gps_firefox.sensitive)
+        self.assertIn("not installed", self.win.gps_firefox.subtitle)
+        self.ran.clear()
+        self.win.on_gps_firefox(self.win.gps_firefox, None)
+        self.assertEqual([], self.ran)
+
+    def test_firefox_on_says_how_many_profiles_carry_it(self):
+        self.win.on_gps_firefox_status(
+            True, "firefox_wait=yes\nprofiles=34\npatched=34\nleftover=0\n")
+        self.assertTrue(self.win.gps_firefox.active)
+        self.assertIn("34 of 34", self.win.gps_firefox.subtitle)
+
+    def test_firefox_off_with_an_open_app_is_not_passed_off_as_done(self):
+        self.win.on_gps_firefox_status(
+            True, "firefox_wait=no\nprofiles=34\npatched=0\nleftover=2\n")
+        self.assertFalse(self.win.gps_firefox.active)
+        self.assertIn("2 open", self.win.gps_firefox.subtitle)
+
+    def test_the_location_way_back_also_takes_the_firefox_prefs_out(self):
+        ff = self.firefox_beside()
+        self.win.busy = False
+        steps = []
+        self.enterContext(mock.patch.object(
+            switcher.Window, "run_chain",
+            lambda self, cmds, done: steps.extend(cmds)))
+        self.win.on_gps_restore(None)
+        self.assertEqual([self.win.live["gps"], "off"], steps[0])
+        self.assertEqual([ff, "off"], steps[1])
 
     # ------------------------------------------------------------ Battery
 

@@ -1,15 +1,28 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 misc-de
 # SPDX-License-Identifier: MIT
-"""The GPS page: contributing Wi-Fi observations to beaconDB.
+"""The GPS page: contributing Wi-Fi observations to beaconDB, and letting
+Firefox web apps wait long enough for a satellite fix.
 
 Until 27.9.2026 this page switched a filter that kept geoclue from publishing
 the carrier's IP address as a position. geoclue does that itself now, the
 filter is retired, and what is left is the other direction - what this phone
 hands out, not what it accepts."""
 
+import os
+
 from gi.repository import Adw
 
 from .. import process
+
+
+def firefox_tool(contribute):
+    """furios-gps-firefox ships next to furios-gps-contribute, in the same
+    package and the same install.sh - so it is looked for there, and only
+    there. An older checkout has the one without the other."""
+    if not contribute:
+        return None
+    path = os.path.join(os.path.dirname(contribute), "furios-gps-firefox")
+    return path if os.access(path, os.X_OK) else None
 
 
 class GpsPage:
@@ -32,16 +45,27 @@ class GpsPage:
         contribution.add(self.gps_contrib_stats)
         gpage.add(contribution)
 
+        browser = Adw.PreferencesGroup(title="Firefox and web apps")
+        self.gps_firefox = Adw.SwitchRow(
+            title="Wait for the satellite fix",
+            subtitle="reading …",
+        )
+        self.gps_firefox.connect("notify::active", self.on_gps_firefox)
+        browser.add(self.gps_firefox)
+        gpage.add(browser)
+
         # The switch above reaches the same state. But a way back that exists
         # on some pages and not on others is one somebody has to go looking
         # for - so it is here too.
         back, self.gps_restore_btn = self.build_restore_group(
-            "Switches sending off. Nothing more is collected, and what is "
-            "still waiting is not sent.",
+            "Switches sending off - nothing more is collected, and what is "
+            "still waiting is not sent - and gives Firefox back its "
+            "12-second limit.",
             self.on_gps_restore)
         gpage.add(back)
 
-        self.gps_rows = [self.gps_contrib, self.gps_restore_btn]
+        self.gps_rows = [self.gps_contrib, self.gps_firefox,
+                         self.gps_restore_btn]
         return gpage
 
     def on_gps_contrib(self, row, _param):
@@ -62,7 +86,59 @@ class GpsPage:
             self.report(out or "No output.")
         self.refresh_gps_contrib()
 
+    def on_gps_firefox(self, row, _param):
+        if self._syncing or self.busy:
+            return
+        tool = firefox_tool(self.live.get("gps"))
+        if not tool:
+            return
+        self.set_busy(True)
+        process.run_async([tool, "on" if row.get_active() else "off"],
+                          self.on_gps_firefox_done)
+
+    def on_gps_firefox_done(self, ok, out):
+        self.set_busy(False)
+        if not ok:
+            self.toast("Could not change the Firefox setting")
+            self.report(out or "No output.")
+        self.refresh_gps_contrib()
+
+    def on_gps_firefox_status(self, ok, out):
+        if not ok:
+            self.gps_firefox.set_subtitle("did not answer")
+            return
+        values = dict(z.split("=", 1) for z in out.splitlines() if "=" in z)
+        an = values.get("firefox_wait") == "yes"
+        self._syncing = True
+        self.gps_firefox.set_active(an)
+        self._syncing = False
+        self.gps_firefox.set_sensitive(True)
+        profiles = values.get("profiles", "0")
+        if an:
+            self.gps_firefox.set_subtitle(
+                "Up to 3 minutes instead of 12 seconds - %s of %s profiles. "
+                "An open app needs a restart"
+                % (values.get("patched", "0"), profiles))
+        elif values.get("leftover", "0") != "0":
+            # Off was asked for, but an open profile still has the values.
+            self.gps_firefox.set_subtitle(
+                "Off - %s open app(s) keep it until the next login"
+                % values["leftover"])
+        else:
+            self.gps_firefox.set_subtitle(
+                "Off - Firefox gives up after 12 seconds, before a cold fix "
+                "arrives")
+
     def refresh_gps_contrib(self):
+        ff = firefox_tool(self.live.get("gps"))
+        if ff:
+            process.run_async([ff, "status"], self.on_gps_firefox_status)
+        else:
+            self._syncing = True
+            self.gps_firefox.set_active(False)
+            self._syncing = False
+            self.gps_firefox.set_sensitive(False)
+            self.gps_firefox.set_subtitle("not installed")
         tool = self.live.get("gps")
         if not tool:
             # Not installed is not "off": saying "off" would claim we looked.
@@ -110,12 +186,16 @@ class GpsPage:
         if self.busy or not self.live.get("gps"):
             return
         self.set_busy(True)
-        process.run_async([self.live["gps"], "off"], self.on_gps_restored)
+        steps = [[self.live["gps"], "off"]]
+        ff = firefox_tool(self.live["gps"])
+        if ff:
+            steps.append([ff, "off"])
+        self.run_chain(steps, self.on_gps_restored)
 
     def on_gps_restored(self, ok, out):
         self.set_busy(False)
         if ok:
-            self.toast("Sending to beaconDB is off")
+            self.toast("Sending to beaconDB is off, Firefox as shipped")
         else:
             self.toast("Could not switch sending off")
             self.report(out or "No output.")
