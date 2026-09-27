@@ -18,19 +18,34 @@ from ..words import profile_in_words, server_in_words
 # Bluetooth adapter is switched off along with the screen.
 BATMAN_CONFIG = "/var/lib/batman/config"
 
-# The A2DP codecs "audioctl bt-codec" takes, with what the row says about
-# each. The costs are the ones measured on this phone on 2026-09-12 (bluebinder
-# plus wireplumber while music plays): AAC 7.2 %, SBC-XQ 7.0 %, SBC 4.3 % of a
-# core. aptX and LDAC were never measured, so nothing is claimed for them.
+# The two sound servers the page chooses between, by audioctl profile. pw-tunnel
+# still exists in audioctl but is not offered: PulseAudio holds the HAL there
+# too, so it reads as PulseAudio.
+SERVERS = [
+    ("standard", "PulseAudio"),
+    ("pw-hal", "PipeWire"),
+]
+
+# The A2DP codecs "audioctl bt-codec" takes. Names only - the page does not
+# rate them (decided 27.9.2026).
 CODECS = [
     ("auto", "Automatic", "the best one both ends know"),
-    ("aac", "AAC", "7.2 % CPU while playing"),
-    ("sbc_xq", "SBC-XQ", "sounds like AAC, 7.0 % CPU"),
-    ("sbc", "SBC", "40 % less CPU than AAC, audibly worse"),
-    ("aptx", "aptX", "not measured"),
-    ("aptx_hd", "aptX HD", "not measured"),
-    ("ldac", "LDAC", "not measured"),
+    ("aac", "AAC", ""),
+    ("sbc_xq", "SBC-XQ", ""),
+    ("sbc", "SBC", ""),
+    ("aptx", "aptX", ""),
+    ("aptx_hd", "aptX HD", ""),
+    ("ldac", "LDAC", ""),
 ]
+
+
+def server_at(index):
+    """The profile behind a position in the server list, or None for a
+    position that is not in it (GTK answers INVALID_LIST_POSITION when
+    nothing is selected)."""
+    if isinstance(index, int) and 0 <= index < len(SERVERS):
+        return SERVERS[index][0]
+    return None
 
 
 def codec_name(key):
@@ -52,7 +67,9 @@ def codec_words(values):
     if pref != "auto" and pref not in offered:
         return "This headset does not offer %s - it plays %s" % (
             codec_name(pref), codec_name(active))
-    return "Playing %s · %s" % (codec_name(active), what)
+    if pref == "auto":
+        return "Playing %s · %s" % (codec_name(active), what)
+    return "Playing %s" % codec_name(active)
 BATMAN_UNIT = "batman.service"
 
 # Everything it works on comes in as an argument: the file as $1, the unit as
@@ -185,7 +202,7 @@ class AudioPage:
 
         # Follow the switch without triggering a toggle while doing it.
         self._syncing = True
-        self.switch_row.set_active(profile == "pw-hal")
+        self.switch_row.set_selected(1 if profile == "pw-hal" else 0)
         # This one is both a report and a choice: it says whether what is
         # running now is what the phone comes back to, and it decides between
         # "set" and "try" for the next switch.
@@ -212,7 +229,7 @@ class AudioPage:
     def on_switch(self, row, _param):
         if self._syncing or self.busy:
             return
-        want_pw = row.get_active()
+        want_pw = server_at(row.get_selected()) == "pw-hal"
         mode = "set" if self.persist_row.get_active() else "try"
         audioctl = self.live["audio"]
         argv = ([audioctl, mode, "pw-hal"] if want_pw

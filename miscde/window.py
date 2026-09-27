@@ -22,7 +22,7 @@ from gi.repository import Adw, GLib, Gtk
 from . import process, tools
 from .components import BATTERY_UNIT, COMPONENTS, SELF
 from .tools import APP_ID, DMNR
-from .pages.audio import CODECS, AudioPage
+from .pages.audio import CODECS, SERVERS, AudioPage, server_at
 from .pages.battery import BatteryPage
 from .pages.gps import GpsPage
 from .pages.install import InstallPage
@@ -113,11 +113,14 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
 
         # --- the switch itself ---
         grp = Adw.PreferencesGroup(title="Audio stack")
-        self.switch_row = Adw.SwitchRow(
-            title="PipeWire owns the HAL",
-            subtitle="Off: PulseAudio, exactly as shipped",
+        # A choice between two servers, not an on/off: both are complete
+        # stacks, and "off" for one of them read as "no sound".
+        self.switch_row = Adw.ComboRow(
+            title="Sound server",
+            subtitle="reading …",
+            model=Gtk.StringList.new([name for _k, name in SERVERS]),
         )
-        self.switch_row.connect("notify::active", self.on_switch)
+        self.switch_row.connect("notify::selected", self.on_switch)
         grp.add(self.switch_row)
 
         # Echo during a call, above the switch that decides how long a
@@ -187,8 +190,7 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         bt.add(self.btsave_row)
 
         # What headsets play music with. A list, not a switch: which codec
-        # is worth it is the owner's trade between battery and sound, and
-        # the costs are in the entries. Takes effect at once and is kept by
+        # is worth it is the owner's call. Takes effect at once and is kept by
         # WirePlumber, so the remember switch above has nothing to say here.
         self.codec_row = Adw.ComboRow(
             title="Music codec",
@@ -438,10 +440,13 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
             self.switch_row.set_subtitle("Switching, this takes a moment …")
         elif not self.audio_ok:
             self.switch_row.set_subtitle("audioctl did not answer")
-        elif self.switch_row.get_active():
-            self.switch_row.set_subtitle("On: PipeWire talks to the HAL directly")
+        elif server_at(self.switch_row.get_selected()) == "pw-hal":
+            self.switch_row.set_subtitle(
+                "PipeWire with our changes: Bluetooth calls, headset "
+                "microphone, reconnect")
         else:
-            self.switch_row.set_subtitle("Off: PulseAudio, exactly as shipped")
+            self.switch_row.set_subtitle(
+                "PulseAudio exactly as shipped - our Bluetooth helpers are off")
 
     def on_progress_line(self, line):
         """Shows the step audioctl is currently reporting - shortened so it

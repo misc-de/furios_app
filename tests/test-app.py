@@ -1031,7 +1031,7 @@ class TheWindow(unittest.TestCase):
         self.assertIn("until the next reboot", self.win.row_profile.subtitle)
         self.assertIn("older apps", self.win.row_server.subtitle)
         self.assertEqual("droid-sink, droid-voip-sink", self.win.row_sinks.subtitle)
-        self.assertTrue(self.win.switch_row.active)
+        self.assertEqual(1, self.win.switch_row.selected)
 
     def test_a_profile_that_survives_a_reboot_says_so(self):
         """The state the phone had for two days while this window said nothing.
@@ -1060,12 +1060,12 @@ class TheWindow(unittest.TestCase):
     def test_audioctl_not_answering_claims_nothing_about_the_phone(self):
         """Off is the shipped state, so a switch left at off is not a blank -
         it is a plausible statement about a phone this window cannot see."""
-        self.win.switch_row.active = True
+        self.win.switch_row.selected = 1
         self.win.on_status(False, "Failed to execute child process")
         self.assertIn("did not answer", self.win.row_profile.subtitle)
         self.assertIn("did not answer", self.win.persist_row.subtitle)
-        self.assertTrue(self.win.switch_row.active,
-                        "the switch was moved on the strength of no answer")
+        self.assertEqual(1, self.win.switch_row.selected,
+                         "the switch was moved on the strength of no answer")
         self.assertFalse(self.win.switch_row.sensitive)
         self.assertFalse(self.win.persist_row.sensitive)
 
@@ -1095,7 +1095,7 @@ class TheWindow(unittest.TestCase):
     def test_the_shipped_state_is_named_as_such(self):
         self.win.on_status(True, "Profile (active):   standard\nSinks:              x\n")
         self.assertIn("as shipped", self.win.row_profile.subtitle)
-        self.assertFalse(self.win.switch_row.active)
+        self.assertEqual(0, self.win.switch_row.selected)
 
     def test_the_tunnel_profile_has_its_own_sentence(self):
         self.win.on_status(True, "Profile (active):   pw-tunnel\n")
@@ -1119,24 +1119,34 @@ class TheWindow(unittest.TestCase):
         self.win.on_status(True, self.STATUS)
         self.assertEqual([], self.ran, "syncing the switch started a command")
 
-    def test_flipping_the_switch_on_asks_for_pw_hal(self):
-        self.win.switch_row.active = True
+    def test_choosing_pipewire_asks_for_pw_hal(self):
+        self.win.switch_row.selected = 1
         self.win.persist_row.active = False
         self.win.on_switch(self.win.switch_row, None)
         argv = self.ran[0][0]
         self.assertEqual(["try", "pw-hal"], argv[1:])
 
     def test_and_with_remember_ticked_it_asks_for_set(self):
-        self.win.switch_row.active = True
+        self.win.switch_row.selected = 1
         self.win.persist_row.active = True
         self.win.on_switch(self.win.switch_row, None)
         self.assertEqual(["set", "pw-hal"], self.ran[0][0][1:])
 
-    def test_flipping_it_off_always_sets_standard_persistently(self):
-        """Off means off after a reboot too - a test-mode "off" would come back."""
-        self.win.switch_row.active = False
+    def test_choosing_pulseaudio_always_sets_standard_persistently(self):
+        """PulseAudio after a reboot too - a test-mode choice would come back."""
+        self.win.switch_row.selected = 0
         self.win.on_switch(self.win.switch_row, None)
         self.assertEqual(["set", "standard"], self.ran[0][0][1:])
+
+    def test_the_codec_list_makes_no_performance_claims(self):
+        """Names only since 27.9.2026 - no CPU figures, no measurements."""
+        for _k, name, note in switcher.pages.audio.CODECS:
+            for word in ("%", "CPU", "measured"):
+                self.assertNotIn(word, note, name)
+
+    def test_the_server_choice_offers_exactly_the_two_servers(self):
+        self.assertEqual(["standard", "pw-hal"],
+                         [k for k, _ in switcher.pages.audio.SERVERS])
 
     def test_the_switch_is_ignored_while_something_is_running(self):
         self.win.busy = True
@@ -1984,8 +1994,10 @@ class TheWindow(unittest.TestCase):
         # status, bt-codec status and the echo helper's status
         expected = ((2 + bool(DMNR) if AUDIOCTL else 0)
                     + (2 if MODEMCTL else 0)
-                    # status of the contribution tool
+                    # status of the contribution tool, and of the Firefox
+                    # one beside it when that is installed too
                     + (1 if CONTRIB else 0)
+                    + (1 if switcher.pages.gps.firefox_tool(CONTRIB) else 0)
                     # status --json, plus is-active for the daemon. Not
                     # is-enabled any more: the icons are phosh's plugin list
                     # and the tool answers for them in the same status.
@@ -3813,11 +3825,11 @@ class TheWindow(unittest.TestCase):
         self.win.set_busy(True)
         self.assertFalse(self.win.switch_row.sensitive)
         self.assertIn("takes a moment", self.win.switch_row.subtitle)
-        self.win.switch_row.active = True
+        self.win.switch_row.selected = 1
         self.win.set_busy(False)
         self.assertTrue(self.win.switch_row.sensitive)
-        self.assertIn("talks to the HAL", self.win.switch_row.subtitle)
-        self.win.switch_row.active = False
+        self.assertIn("our changes", self.win.switch_row.subtitle)
+        self.win.switch_row.selected = 0
         self.win.set_busy(False)
         self.assertIn("as shipped", self.win.switch_row.subtitle)
 
