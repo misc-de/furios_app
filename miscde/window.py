@@ -337,10 +337,6 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
             process.run_async([self.live["modem"], "profile"], self.on_modem_profile)
             process.run_async([self.live["modem"], "status"], self.on_modem_status)
         if self.live.get("gps"):
-            process.run_async([self.live["gps"], "profile"], self.on_gps_profile)
-            process.run_async([self.live["gps"], "status"], self.on_gps_status)
-            # Same installer as gpsctl, so this is normally there - and when
-            # it is not, the row says so rather than showing a false "off".
             self.refresh_gps_contrib()
         if self.live.get("switches"):
             process.run_async([self.live["switches"], "status", "--json"],

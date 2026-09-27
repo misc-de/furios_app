@@ -13,7 +13,7 @@ says what a decision costs.
 |---|---|---|
 | Audio | `audioctl` | [furios_pipewire](https://github.com/misc-de/furios_pipewire) |
 | Modem | `modemctl` | [furios_modem_fixes](https://github.com/misc-de/furios_modem_fixes) |
-| GPS | `gpsctl` | [furios_gps](https://github.com/misc-de/furios_gps) |
+| GPS | `furios-gps-contribute` | [furios_gps](https://github.com/misc-de/furios_gps) |
 | Switches | `killswitch-indicator` | [furios_killswitch](https://github.com/misc-de/furios_killswitch) |
 | Battery | `battctl` | [furios_misc/battery](https://github.com/misc-de/furios_misc) |
 
@@ -60,10 +60,11 @@ the dual-microphone echo cancellation for calls.
 **Modem** — the repairs to ofono2mm and ModemManager on or off, remembered or
 only until the next boot, what the checks say, and how good the signal is.
 
-**GPS** — the filter that refuses geoclue a position derived from the phone's
-IP address. "Off" here does not mean "no position": it means the carrier's exit
-node is published as though the phone had been seen there, and every line on
-the page says so.
+**GPS** — sending the Wi-Fi networks around you, with a satellite position, to
+beaconDB, so Wi-Fi location works where it does not yet. Off until switched
+on; the row says what leaves the phone before anybody touches it. The location
+filter this page used to switch is retired: geoclue refuses IP-derived
+positions itself since 2.7.1-3+furios7.
 
 **Switches** — what the three sliders on the case took down with them. Camera
 and cellular are software shutdowns; the microphone switch physically cuts the

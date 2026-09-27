@@ -4,12 +4,11 @@
 
 Five pages, and each is one switch: the audio stack talks to the Android HAL
 through PipeWire or through PulseAudio as shipped, the modem runs with the
-repairs from furios_modem_fixes or exactly as it came, geoclue either has the
-filter that throws away positions derived from the carrier's IP address or it
-does not, the three sliders on the case are read rather than guessed at, and
+repairs from furios_modem_fixes or exactly as it came, the phone hands
+beaconDB its Wi-Fi observations or it does not, the three sliders on the case are read rather than guessed at, and
 the battery icon says how fast the battery is filling. The tools do the work -
-audioctl, modemctl, gpsctl, killswitch-indicator and battctl - and this front
-end only calls them and shows what is actually running.
+audioctl, modemctl, furios-gps-contribute, killswitch-indicator and battctl -
+and this front end only calls them and shows what is actually running.
 
 Every page is there, whether its tool is or not. Where one is missing the tab
 says what it would do, where it comes from, and offers to fetch it - and the
@@ -55,7 +54,7 @@ from .components import (BATTERY_UNIT, CLONE_HOME, COMPONENTS, OWN_CLONES,
 from .pages.audio import (BATMAN_CONFIG, BATMAN_UNIT, btsave_argv,
                           btsave_in_config, needs_a_password)
 from .process import CALL_TIMEOUT, run_async
-from .tools import (APP_ID, CONTRIB, DMNR, KILLSWITCH_SYSFS, PKEXEC, _tool,
+from .tools import (APP_ID, DMNR, KILLSWITCH_SYSFS, PKEXEC, _tool,
                     _tool_maybe, phone_has_switches)
 from .window import App, Window
 from .words import PROFILE_WORDS, profile_in_words, server_in_words
@@ -64,7 +63,7 @@ __all__ = [
     "Adw", "GLib", "Gio", "Gtk", "os", "shutil",
     "APP_ID", "ASKPASS_HELPER", "App", "Askpass", "BATMAN_CONFIG",
     "BATMAN_UNIT", "BATTERY_UNIT",
-    "CALL_TIMEOUT", "CLONE_HOME", "COMPONENTS", "CONTRIB", "DMNR",
+    "CALL_TIMEOUT", "CLONE_HOME", "COMPONENTS", "DMNR",
     "KILLSWITCH_SYSFS", "OWN_CLONES", "PKEXEC", "PROFILE_WORDS", "SELF",
     "Window", "askpass", "behind_count", "clone_elsewhere", "clone_path",
     "btsave_argv", "btsave_in_config", "component_steps", "components",

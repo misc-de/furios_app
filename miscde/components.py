@@ -63,15 +63,16 @@ COMPONENTS = [
                 "that move, 26 cell broadcast channels instead of 8",
     },
     {
-        "tool": "gpsctl",
+        "tool": "furios-gps-contribute",
         "page": "GPS",
         "key": "gps",
         "icon": "find-location-symbolic",
         "url": "https://github.com/misc-de/furios_gps",
         "dir": "furios_gps",
-        "root": True,
-        "does": "geoclue stops handing out the carrier's IP address as though "
-                "it were a position",
+        "root": False,
+        "does": "sends the Wi-Fi networks around you with a satellite position "
+                "to beaconDB, so Wi-Fi location works where it does not yet - "
+                "off until you switch it on",
     },
     {
         "tool": "killswitch-indicator",

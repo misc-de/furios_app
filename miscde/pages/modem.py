@@ -86,7 +86,7 @@ class ModemPage:
 
     def on_modem_profile(self, ok, out):
         """modemctl prints both lines and THEN exits 1 when the repairs are
-        half in place ("mixed") - the same contract as gpsctl's, and the
+        half in place ("mixed") - the same contract gpsctl had, and the
         same answer: whether there was a reading is decided by the reading.
         Going by the exit code turned the one state this row has words for
         ("use Repairs active to settle it") into "modemctl did not answer",

@@ -54,7 +54,6 @@ def _tool_maybe(name):
 # what it found in self.live; furios-audio-dmnr comes with the same installer
 # and is looked up when it is used.
 DMNR = "furios-audio-dmnr"
-CONTRIB = "furios-gps-contribute"
 
 
 # Where the kernel driver puts the switch positions. Taken from
@@ -80,7 +79,7 @@ def phone_has_switches():
     base = os.environ.get("FURIOS_KILLSWITCH_BASE", KILLSWITCH_SYSFS)
     return any(os.path.exists(os.path.join(base, name))
                for name in ("cam_switch", "nwk_switch"))
-# modemctl, gpsctl and killswitch-indicator have NO constant here on purpose.
+# modemctl, furios-gps-contribute and killswitch-indicator have NO constant here on purpose.
 # They ship in other packages, may simply not be on the phone, and - since the
 # components page can fetch one - may arrive while this window is open. A
 # constant would be the answer to "was it there when the app started", and

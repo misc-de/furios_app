@@ -80,7 +80,6 @@ AUDIOCTL = switcher.tools._tool_maybe("audioctl")
 DMNR = switcher.tools._tool_maybe("furios-audio-dmnr")
 CONTRIB = switcher.tools._tool_maybe("furios-gps-contribute")
 MODEMCTL = switcher.tools._tool_maybe("modemctl")
-GPSCTL = switcher.tools._tool_maybe("gpsctl")
 KILLSWITCH = switcher.tools._tool_maybe("killswitch-indicator")
 BATTCTL = switcher.tools._tool_maybe("battctl")
 SECCTL = switcher.tools._tool_maybe("secctl")
@@ -216,7 +215,7 @@ class ComponentTable(unittest.TestCase):
     anything at all.
     """
 
-    def comp(self, tool="gpsctl"):
+    def comp(self, tool="modemctl"):
         return next(c for c in switcher.COMPONENTS if c["tool"] == tool)
 
     def test_every_component_names_a_repository_a_tab_and_what_it_does(self):
@@ -300,7 +299,7 @@ class ComponentTable(unittest.TestCase):
         self.assertEqual(path, steps[0][0][-1])
 
     def test_a_single_project_still_installs_from_the_clone(self):
-        comp = self.comp("gpsctl")
+        comp = self.comp("furios-gps-contribute")
         path = self.nowhere()
         steps = switcher.component_steps(comp, "install", "secret_word", path)
         self.assertEqual(path, self.where_it_installs(steps))
@@ -321,7 +320,7 @@ class ComponentTable(unittest.TestCase):
         self.assertEqual("./battery/install.sh",
                          switcher.installer_said(self.comp("battctl")))
         self.assertEqual("./install.sh",
-                         switcher.installer_said(self.comp("gpsctl")))
+                         switcher.installer_said(self.comp("furios-gps-contribute")))
 
     def clone_dir(self, url):
         """A directory that git would recognise as a clone of `url`."""
@@ -953,10 +952,10 @@ class TheWindow(unittest.TestCase):
                       "modem_revealer", "mrow_profile", "mrow_health",
                       "mrow_signal", "modem_restore_btn"]
         names.append("rescue_btn")
-        if GPSCTL:
-            names += ["gps_row", "gps_persist", "gps_progress", "gps_revealer",
-                      "grow_profile", "grow_seen", "grow_health",
-                      "gps_contrib", "gps_contrib_stats", "gps_restore_btn"]
+        # Always, unlike the others: every GPS handler asks self.live for
+        # its tool, so a test says whether it is there by setting that, and
+        # the page is tested on a phone that does not have it installed.
+        names += ["gps_contrib", "gps_contrib_stats", "gps_restore_btn"]
         if KILLSWITCH:
             names += ["sw_row", "sw_wifi", "sw_bt", "sw_modem",
                       "srow_cam_hal", "srow_cams", "srow_mic",
@@ -970,9 +969,7 @@ class TheWindow(unittest.TestCase):
         if MODEMCTL:
             self.win.modem_rows = [self.win.modem_row, self.win.modem_persist,
                                    self.win.modem_restore_btn]
-        if GPSCTL:
-            self.win.gps_rows = [self.win.gps_row, self.win.gps_persist,
-                                 self.win.gps_contrib, self.win.gps_restore_btn]
+        self.win.gps_rows = [self.win.gps_contrib, self.win.gps_restore_btn]
         if KILLSWITCH:
             self.win.sw_rows = [self.win.sw_row, self.win.sw_wifi,
                                 self.win.sw_bt, self.win.sw_restore_btn]
@@ -1427,8 +1424,8 @@ class TheWindow(unittest.TestCase):
 
     def test_a_missing_contribution_tool_is_not_reported_as_off(self):
         """"Off" would claim we asked and got an answer."""
-        with mock.patch.object(switcher.tools, "_tool_maybe", return_value=None):
-            self.win.refresh_gps_contrib()
+        self.win.live["gps"] = None
+        self.win.refresh_gps_contrib()
         self.assertFalse(self.win.gps_contrib.sensitive)
         self.assertIn("not installed", self.win.gps_contrib.subtitle)
 
@@ -1436,16 +1433,14 @@ class TheWindow(unittest.TestCase):
         """With the tool present. Without it the switch does nothing at all,
         which is the subject of the test above."""
         self.win.gps_contrib.active = True
-        with mock.patch.object(switcher.tools, "_tool_maybe",
-                               return_value="/usr/local/bin/furios-gps-contribute"):
-            self.win.on_gps_contrib(self.win.gps_contrib, None)
+        self.win.live["gps"] = "/usr/local/bin/furios-gps-contribute"
+        self.win.on_gps_contrib(self.win.gps_contrib, None)
         self.assertEqual("on", self.ran[0][0][1])
 
     def test_switching_contribution_off_calls_the_tool_too(self):
         self.win.gps_contrib.active = False
-        with mock.patch.object(switcher.tools, "_tool_maybe",
-                               return_value="/usr/local/bin/furios-gps-contribute"):
-            self.win.on_gps_contrib(self.win.gps_contrib, None)
+        self.win.live["gps"] = "/usr/local/bin/furios-gps-contribute"
+        self.win.on_gps_contrib(self.win.gps_contrib, None)
         self.assertEqual("off", self.ran[0][0][1])
 
     # ------------------------------------------------------------ Battery
@@ -1868,10 +1863,8 @@ class TheWindow(unittest.TestCase):
         # nobody had built.
         expected = ((1 + bool(DMNR) if AUDIOCTL else 0)
                     + (2 if MODEMCTL else 0)
-                    # profile and status, plus the contribution tool when it
-                    # is installed - same installer, but it can be absent in
-                    # the seconds after one that stopped half way.
-                    + ((2 + bool(CONTRIB)) if GPSCTL else 0)
+                    # status of the contribution tool
+                    + (1 if CONTRIB else 0)
                     # status --json, plus is-active for the daemon. Not
                     # is-enabled any more: the icons are phosh's plugin list
                     # and the tool answers for them in the same status.
@@ -2124,7 +2117,7 @@ class TheWindow(unittest.TestCase):
     # furniture, and a page full of greyed-out controls reads like a broken
     # phone rather than a missing package.
 
-    def component(self, tool="gpsctl"):
+    def component(self, tool="modemctl"):
         return next(c for c in switcher.COMPONENTS if c["tool"] == tool)
 
     def without_tool(self, *missing):
@@ -2140,10 +2133,11 @@ class TheWindow(unittest.TestCase):
 
     def test_a_tool_whose_page_was_not_built_is_never_asked(self):
         """Found on the phone, not here: the page was built from _tool_maybe
-        while refresh asked the module constants, so gpsctl was asked for a
+        while refresh asked the module constants, so gpsctl (the GPS tool of
+        the time) was asked for a
         status that arrived at rows which had never been created - an
         AttributeError inside a callback, where nobody sees it."""
-        win = self.without_tool("gpsctl")
+        win = self.without_tool("furios-gps-contribute")
         asked = []
         real = switcher.process.run_async
         switcher.process.run_async = lambda argv, done, on_line=None, **kw: asked.append(argv)
@@ -2151,18 +2145,21 @@ class TheWindow(unittest.TestCase):
             win.refresh()
         finally:
             switcher.process.run_async = real
-        self.assertEqual([], [a for a in asked if "gpsctl" in a[0]])
+        self.assertEqual([], [a for a in asked
+                              if "furios-gps-contribute" in a[0]])
         # And one that IS here is asked - whichever of them this machine has.
         # Naming audioctl would only measure whether this phone happens to
         # have it installed.
         da = [c["tool"] for c in switcher.COMPONENTS
-              if c["tool"] != "gpsctl" and switcher.tools._tool_maybe(c["tool"])]
+              if c["tool"] != "furios-gps-contribute"
+              and switcher.tools._tool_maybe(c["tool"])]
         if da:
             self.assertTrue([a for a in asked
                              if any(t in a[0] for t in da)], asked)
 
     def test_a_missing_tool_still_gets_its_tab(self):
-        win = self.without_tool("modemctl", "gpsctl", "killswitch-indicator")
+        win = self.without_tool("modemctl", "furios-gps-contribute",
+                                "killswitch-indicator")
         pages = [c[1] for c in recorder.calls
                   if c[0] == "Adw.ViewStack.add_titled_with_icon()" and c[1]]
         self.assertEqual(["audio", "modem", "gps", "switches", "security",
@@ -2171,20 +2168,20 @@ class TheWindow(unittest.TestCase):
         self.assertIsNotNone(win)
 
     def test_a_tab_without_its_tool_shows_the_offer_and_nothing_else(self):
-        self.without_tool("gpsctl")
+        self.without_tool("furios-gps-contribute")
         groups = [c[2] for c in recorder.calls if c[0] == "Adw.PreferencesGroup"]
         offer = [g for g in groups
                    if "not installed" in str(g.get("title", ""))
-                   and "gpsctl" in str(g.get("description", ""))]
+                   and "furios-gps-contribute" in str(g.get("description", ""))]
         self.assertTrue(offer, "no offer on the page of a missing tool")
         # and none of the page's own controls were built
         titles = [str(c[2].get("title", "")) for c in recorder.calls
                  if c[0] == "Adw.SwitchRow"]
-        self.assertEqual([], [t for t in titles if "Filter active" in t])
+        self.assertEqual([], [t for t in titles if "Send my observations" in t])
 
     def test_the_offer_says_where_it_comes_from_and_what_it_would_do(self):
-        self.without_tool("gpsctl")
-        comp = self.component()
+        self.without_tool("modemctl")
+        comp = self.component("modemctl")
         rows = [str(c[2].get("subtitle", "")) for c in recorder.calls
                   if c[0] == "Adw.ActionRow"]
         self.assertIn(comp["url"], rows)
@@ -2242,8 +2239,8 @@ class TheWindow(unittest.TestCase):
 
     def test_only_a_component_that_needs_root_asks_for_a_password(self):
         recorder.reset()
-        self.win.comp_rows[self.component("gpsctl")["tool"]] = {}
-        self.win.ask_component(self.component("gpsctl"), "install")
+        self.win.comp_rows[self.component("modemctl")["tool"]] = {}
+        self.win.ask_component(self.component("modemctl"), "install")
         self.assertTrue([c for c in recorder.calls
                          if c[0] == "Adw.PasswordEntryRow"])
         recorder.reset()
@@ -2707,7 +2704,8 @@ class TheWindow(unittest.TestCase):
         self.assertEqual([], [r for r in self.ran if "install.sh" in " ".join(r[0])])
         self.assertIn("Could not set up", str(self.win.toasts.text))
 
-    def with_tool(self, name, path="/usr/local/bin/gpsctl"):
+    def with_tool(self, name,
+                  path=os.path.expanduser("~/.local/bin/furios-gps-contribute")):
         """_tool_maybe answering as though `name` had just been installed."""
         real = switcher.tools._tool_maybe
         switcher.tools._tool_maybe = lambda n: path if n == name else real(n)
@@ -2717,7 +2715,9 @@ class TheWindow(unittest.TestCase):
         return [str(c[2].get("title", "")) for c in recorder.calls
                 if c[0] == "Adw.Toast"]
 
-    def freshly_installed(self, tool="gpsctl", path="/usr/local/bin/gpsctl"):
+    def freshly_installed(self, tool="furios-gps-contribute",
+                          path=os.path.expanduser(
+                              "~/.local/bin/furios-gps-contribute")):
         """A window whose tool was missing when it opened and is there now -
         the state the phone is in the moment an install finishes."""
         win = self.without_tool(tool)
@@ -2735,7 +2735,8 @@ class TheWindow(unittest.TestCase):
         one thing left to do after watching a clone, a build and an install go
         by - and it reads like nothing happened."""
         win = self.freshly_installed()
-        self.assertEqual("/usr/local/bin/gpsctl", win.live["gps"])
+        self.assertEqual(os.path.expanduser("~/.local/bin/furios-gps-contribute"),
+                         win.live["gps"])
         self.assertTrue(any("live" in t for t in self.toast_texts()),
                         "nothing said the tab is usable now")
         self.assertFalse(any("restart" in t for t in self.toast_texts()))
@@ -2769,16 +2770,15 @@ class TheWindow(unittest.TestCase):
     def test_the_new_page_runs_the_tool_that_was_just_installed(self):
         """The window used to keep the answer to "was it there when the app
         started" in a module constant. A page built after that would have sent
-        None to pkexec."""
+        None to the switch."""
         win = self.freshly_installed()
-        if not switcher.tools.PKEXEC:
-            self.skipTest("no pkexec here, so the switch runs nothing")
         self.ran.clear()
         win.busy = False
         win._syncing = False
-        win.on_gps_switch(win.gps_row, None)
+        win.on_gps_contrib(win.gps_contrib, None)
         argv = self.ran[0][0]
-        self.assertIn("/usr/local/bin/gpsctl", argv)
+        self.assertIn(os.path.expanduser("~/.local/bin/furios-gps-contribute"),
+                      argv)
 
     def test_a_tool_that_was_already_there_says_so(self):
         """component_done is the single-install path now - the tab that
@@ -2795,15 +2795,17 @@ class TheWindow(unittest.TestCase):
     def test_an_install_that_leaves_nothing_behind_says_so(self):
         """Every step returned 0 and the tool is still not findable. The
         installer's own output is the only thing that can explain that."""
-        win = self.without_tool("gpsctl")
+        win = self.without_tool("furios-gps-contribute")
         recorder.reset()
         # Absent during the window AND during the answer: this machine may
-        # well have gpsctl installed, and then the swap would succeed and the
+        # well have the tool installed, and then the swap would succeed and the
         # test would measure the opposite of what it says.
         real = switcher.tools._tool_maybe
-        switcher.tools._tool_maybe = lambda n: None if n == "gpsctl" else real(n)
+        switcher.tools._tool_maybe = lambda n: (None if n == "furios-gps-contribute"
+                                                else real(n))
         try:
-            win.component_done(self.component(), True, "ln: Permission denied")
+            win.component_done(self.component("furios-gps-contribute"), True,
+                               "ln: Permission denied")
         finally:
             switcher.tools._tool_maybe = real
         self.assertTrue(any("not on the phone" in t
@@ -3202,7 +3204,7 @@ class TheWindow(unittest.TestCase):
         shape of this."""
         recorder.reset()
         switcher.Window(switcher.Adw.Application())
-        expected = (1 + bool(MODEMCTL) + bool(GPSCTL)
+        expected = (1 + bool(MODEMCTL) + bool(CONTRIB)
                     + bool(KILLSWITCH) + bool(BATTCTL) + bool(SECCTL))
         buttons = [c for c in recorder.calls if c[0] == "Gtk.Button"
                    and c[2].get("label") == switcher.Window.RESTORE_LABEL]
@@ -3227,7 +3229,7 @@ class TheWindow(unittest.TestCase):
         texts = {str(c[2].get("description", ""))
                  for c in recorder.calls if c[0] == "Adw.PreferencesGroup"
                  and c[2].get("title") == switcher.Window.RESTORE_TITLE}
-        expected = (1 + bool(MODEMCTL) + bool(GPSCTL)
+        expected = (1 + bool(MODEMCTL) + bool(CONTRIB)
                     + bool(KILLSWITCH) + bool(BATTCTL) + bool(SECCTL))
         self.assertEqual(expected, len(texts))
 
@@ -3275,16 +3277,14 @@ class TheWindow(unittest.TestCase):
         self.win.on_restore_response(None, "restore")
         self.assertEqual(["btn"], called)
 
-    def test_the_location_way_back_switches_and_remembers(self):
-        """"set", not "try": what it restores is what the next boot comes back
-        to, the same promise the other pages make."""
+    def test_the_location_way_back_switches_sending_off(self):
         win = self.gps_win()
         self.ran.clear()
         win.busy = False
         win.on_gps_restore(None)
-        self.assertEqual(["set", "shipped"], list(self.ran[-1][0][-2:]))
+        self.assertEqual([win.live["gps"], "off"], list(self.ran[-1][0]))
         win.on_gps_restored(True, "")
-        self.assertIn("IP position", str(win.toasts.text))
+        self.assertIn("off", str(win.toasts.text))
 
     def test_the_switches_way_back_undoes_what_this_page_added(self):
         """Four commands, because two owners: the tool holds the extra radios
@@ -3341,22 +3341,17 @@ class TheWindow(unittest.TestCase):
                 self.assertEqual([], self.ran)
         self.win.busy = False
 
-    def test_without_pkexec_the_location_way_back_says_so(self):
+    def test_the_location_way_back_needs_no_root(self):
+        """Nothing on the page wants root any more, so nothing asks pkexec."""
         win = self.gps_win()
-        real = switcher.tools.PKEXEC
-        try:
-            switcher.tools.PKEXEC = None
-            self.ran.clear()
-            win.busy = False
-            win.on_gps_restore(None)
-            self.assertEqual([], self.ran)
-            self.assertIn("pkexec", str(win.toasts.text))
-        finally:
-            switcher.tools.PKEXEC = real
+        self.ran.clear()
+        win.busy = False
+        win.on_gps_restore(None)
+        self.assertNotIn("pkexec", " ".join(self.ran[-1][0]))
 
     def test_a_location_way_back_that_fails_is_reported(self):
         win = self.gps_win()
-        win.on_gps_restored(False, "gpsctl: no")
+        win.on_gps_restored(False, "furios-gps-contribute: no")
         self.assertIn("Could not", str(win.toasts.text))
 
     def test_a_stopped_daemon_is_said_where_it_would_act(self):
@@ -3536,171 +3531,43 @@ class TheWindow(unittest.TestCase):
 
     # --- the GPS page ------------------------------------------------------
     #
-    # Built only when gpsctl is installed, same as the modem page. What is
-    # different here is the "off" side: it is not a neutral shipped state but
-    # one that publishes the carrier's exit node as a position, and every row
-    # on this page is checked for saying so.
+    # Contributing to beaconDB, and nothing else since the location filter was
+    # retired. Tested whether or not the tool is on this phone: the handlers
+    # ask self.live for it, and gps_win() says it is there.
 
-    def test_without_gpsctl_the_page_has_no_controls(self):
-        win = self.without_tool("gpsctl")
+    def test_without_the_tool_the_page_has_no_controls(self):
+        win = self.without_tool("furios-gps-contribute")
         self.assertEqual([], win.gps_rows)
 
     def gps_win(self):
-        if not GPSCTL:
-            self.skipTest("no gpsctl on this machine, so no GPS page")
+        self.win.live["gps"] = "/home/x/.local/bin/furios-gps-contribute"
+        self.win.busy = False
+        self.win._syncing = False
         return self.win
 
-    def test_the_row_names_whose_ip_address_it_is(self):
-        """Not "this phone's" - the position comes from the carrier's exit
-        node, and calling it the phone's reads as if it sat in the device."""
-        win = self.gps_win()
-        win.on_gps_profile(True, "recorded: fixed\nactual:   fixed\n")
-        self.assertIn("carrier's IP address", win.gps_row.subtitle)
-        win.on_gps_profile(True, "recorded: shipped\nactual:   shipped\n")
-        self.assertIn("carrier's IP address", win.gps_row.subtitle)
-
-    def test_the_fix_group_carries_no_essay(self):
-        """The switch's own subtitle says what on and off mean; the paragraph
-        above it said the same thing a third time."""
-        self.gps_win()                         # skips when there is no page
+    def test_the_page_asks_no_filter_anything(self):
+        """The filter is retired; a row for it would switch nothing."""
         recorder.reset()
-        switcher.Window(switcher.Adw.Application())
-        place = [c for c in recorder.calls if c[0] == "Adw.PreferencesGroup"
-               and c[2].get("title") == "GPS fix"]
-        self.assertTrue(place, "no GPS fix group")
-        self.assertNotIn("description", place[0][2])
-
-    def test_beacondb_sits_under_the_fix_and_not_above_it(self):
-        """Two directions, and the page is read top down: the fix decides what
-        this phone accepts, contributing decides what it hands out. The switch
-        somebody opened the tab for comes first."""
-        self.gps_win()                         # skips when there is no page
-        recorder.reset()
-        switcher.Window(switcher.Adw.Application())
-        titles = [str(c[1][0].title) for c in recorder.calls
-                  if c[0] == "Adw.PreferencesPage.add()" and c[1]]
-        self.assertIn("GPS fix", titles)
-        self.assertLess(titles.index("GPS fix"),
-                        titles.index("Contribute to beaconDB"), titles)
-
-    def test_the_filter_being_on_reads_as_on(self):
-        win = self.gps_win()
-        win.on_gps_profile(True, "recorded: fixed\nactual:   fixed\n")
-        self.assertTrue(win.gps_row.get_active())
-        self.assertIn("thrown away", win.grow_profile.subtitle)
-
-    def test_the_filter_being_off_says_what_off_means(self):
-        """"Off" here is not an absence of something. It is the carrier's exit
-        node being published as an observation, and a row that said "as
-        shipped" and stopped there would be hiding the only part that
-        matters."""
-        win = self.gps_win()
-        win.on_gps_profile(True, "recorded: shipped\nactual:   shipped\n")
-        self.assertFalse(win.gps_row.get_active())
-        self.assertIn("IP position is published", win.grow_profile.subtitle)
-
-    def test_a_gps_try_says_the_next_boot_will_undo_it(self):
-        win = self.gps_win()
-        win.on_gps_profile(True, "recorded: fixed\nactual:   shipped\n")
-        self.assertIn("next boot", win.grow_profile.subtitle)
-
-    def test_mixed_survives_the_return_code_that_comes_with_it(self):
-        """gpsctl prints recorded/actual and *then* exits 1 when the two halves
-        disagree. Reading the return code first turns the one state somebody
-        most needs to see into "gpsctl did not answer"."""
-        win = self.gps_win()
-        win.on_gps_profile(False, "recorded: fixed\nactual:   mixed\n")
-        self.assertIn("half applied", win.grow_profile.subtitle)
-        self.assertTrue(win.gps_ok, "a failing exit code was read as no answer")
-
-    def test_gpsctl_not_answering_is_said_and_not_guessed(self):
-        win = self.gps_win()
-        win.on_gps_profile(False, "")
-        self.assertIn("did not answer", win.grow_profile.subtitle)
-        self.assertFalse(win.gps_row.sensitive,
-                         "the switch stayed usable with nothing behind it")
-
-    def test_a_gps_page_with_no_answer_stays_unusable(self):
-        win = self.gps_win()
-        win.on_gps_profile(False, "")
-        win.set_busy(True)
-        win.set_busy(False)
-        self.assertFalse(win.gps_row.sensitive)
-        self.assertFalse(win.gps_persist.sensitive)
-
-    def test_the_counters_are_said_back_as_gpsctl_printed_them(self):
-        win = self.gps_win()
-        win.on_gps_status(True,
-                          "  ok    [wifi] enable = true\n"
-                          "  FAIL  furios-gps-proxy.service is not installed\n"
-                          "since boot: 5 asked, 0 located, 5 IP fallbacks rejected\n")
-        self.assertIn("1 in place, 1 not", win.grow_health.subtitle)
-        self.assertIn("5 IP fallbacks rejected", win.grow_seen.subtitle)
-
-    def test_having_counted_nothing_is_not_dressed_up_as_a_fault(self):
-        win = self.gps_win()
-        win.on_gps_status(True, "  ok    [wifi] enable = true\n")
-        self.assertIn("nothing counted yet", win.grow_seen.subtitle)
-        self.assertIn("1 in place", win.grow_health.subtitle)
-
-    def test_no_gps_output_at_all_is_admitted(self):
-        win = self.gps_win()
-        win.on_gps_status(False, "")
-        self.assertIn("did not answer", win.grow_health.subtitle)
-
-    def test_the_gps_switch_asks_for_the_rights_it_needs(self):
-        win = self.gps_win()
-        win.gps_persist.active = True
-        win.gps_row.active = False
-        win.on_gps_switch(win.gps_row, None)
-        argv = self.ran[-1][0]
-        self.assertIn("pkexec", argv[0])
-        self.assertEqual(["set", "shipped"], argv[2:])
-
-    def test_a_gps_try_is_a_try(self):
-        win = self.gps_win()
-        win.gps_persist.active = False
-        win.gps_row.active = True
-        win.on_gps_switch(win.gps_row, None)
-        self.assertEqual(["try", "fixed"], self.ran[-1][0][2:])
-
-    def test_turning_the_filter_off_says_what_was_turned_off(self):
-        """A toast saying "Done" after this switch would be the one moment the
-        app had to tell somebody their phone now reports the carrier's exit
-        node, and spent it on a word that means nothing."""
-        win = self.gps_win()
-        win.gps_row.active = False
-        win.on_gps_switched(True, "")
-        self.assertIn("published again", str(win.toasts.text))
-
-    def test_turning_the_filter_on_says_so_too(self):
-        win = self.gps_win()
-        win.gps_row.active = True
-        win.on_gps_switched(True, "")
-        self.assertIn("refused", str(win.toasts.text))
-
-    def test_a_failed_gps_switch_is_not_reported_as_success(self):
-        win = self.gps_win()
-        win.on_gps_switched(False, "pkexec: refused")
-        self.assertIn("failed", str(win.toasts.text).lower())
-
-    def test_the_gps_switch_needs_pkexec_to_exist(self):
-        win = self.gps_win()
-        real = switcher.tools.PKEXEC
+        real = switcher.tools._tool_maybe
+        switcher.tools._tool_maybe = lambda n: ("/x/furios-gps-contribute"
+                                                if n == "furios-gps-contribute"
+                                                else real(n))
         try:
-            switcher.tools.PKEXEC = None
-            before = len(self.ran)
-            win.on_gps_switch(win.gps_row, None)
-            self.assertEqual(before, len(self.ran), "ran the switch without pkexec")
-            self.assertIn("pkexec", str(win.toasts.text))
+            switcher.Window(switcher.Adw.Application())
         finally:
-            switcher.tools.PKEXEC = real
+            switcher.tools._tool_maybe = real
+        titles = [str(c[2].get("title", "")) for c in recorder.calls
+                  if c[0] in ("Adw.SwitchRow", "Adw.PreferencesGroup")]
+        self.assertIn("Contribute to beaconDB", titles)
+        self.assertIn("Send my observations", titles)
+        self.assertEqual([], [t for t in titles
+                              if "Filter" in t or t == "GPS fix"])
 
-    def test_a_gps_switch_while_busy_is_ignored(self):
+    def test_a_contribution_switch_while_busy_is_ignored(self):
         win = self.gps_win()
         win.busy = True
         before = len(self.ran)
-        win.on_gps_switch(win.gps_row, None)
+        win.on_gps_contrib(win.gps_contrib, None)
         self.assertEqual(before, len(self.ran))
 
     def test_the_checks_are_counted_the_way_modemctl_prints_them(self):
@@ -3852,8 +3719,7 @@ class TheWindow(unittest.TestCase):
         handlers = ["on_switched", "on_dmnr_done", "on_rescued"]
         if MODEMCTL:
             handlers += ["on_modem_switched", "on_modem_restored"]
-        if GPSCTL:
-            handlers += ["on_gps_switched", "on_gps_restored"]
+        handlers += ["on_gps_contrib_done", "on_gps_restored"]
         if KILLSWITCH:
             handlers.append("on_switches_restored")
         if BATTCTL:
@@ -4377,7 +4243,7 @@ class TheInstallerLooksForTools(unittest.TestCase):
         "command -v" left in the list would bring the wrong line back for
         whichever tool it checks."""
         text = self.SCRIPT.read_text()
-        for tool in ("audioctl", "modemctl", "gpsctl",
+        for tool in ("audioctl", "modemctl", "furios-gps-contribute",
                      "killswitch-indicator", "battctl"):
             self.assertNotIn("command -v " + tool, text)
         self.assertNotIn('command -v "$tool"', text)
