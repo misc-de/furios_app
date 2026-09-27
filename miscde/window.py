@@ -22,7 +22,7 @@ from gi.repository import Adw, GLib, Gtk
 from . import process, tools
 from .components import BATTERY_UNIT, COMPONENTS, SELF
 from .tools import APP_ID, DMNR
-from .pages.audio import AudioPage
+from .pages.audio import CODECS, AudioPage
 from .pages.battery import BatteryPage
 from .pages.gps import GpsPage
 from .pages.install import InstallPage
@@ -185,6 +185,22 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         )
         self.btsave_row.connect("notify::active", self.on_btsave)
         bt.add(self.btsave_row)
+
+        # What headsets play music with. A list, not a switch: which codec
+        # is worth it is the owner's trade between battery and sound, and
+        # the costs are in the entries. Takes effect at once and is kept by
+        # WirePlumber, so the remember switch above has nothing to say here.
+        self.codec_row = Adw.ComboRow(
+            title="Music codec",
+            subtitle="reading …",
+            model=Gtk.StringList.new(
+                ["%s - %s" % (name, note) if k != "auto" else name
+                 for k, name, note in CODECS]),
+        )
+        self.codec_ok = False
+        self.codec_row.set_sensitive(False)
+        self.codec_row.connect("notify::selected", self.on_codec)
+        bt.add(self.codec_row)
         page.add(bt)
 
         # --- last resort ---
@@ -321,6 +337,8 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         """
         if self.live.get("audio"):
             process.run_async([self.live["audio"], "status"], self.on_status)
+            process.run_async([self.live["audio"], "bt-codec", "status"],
+                              self.on_codec_status)
             dmnr = tools._tool_maybe(DMNR)
             if dmnr:
                 process.run_async([dmnr, "status"], self.on_dmnr_status)
@@ -386,6 +404,7 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         self.persist_row.set_sensitive(not busy and self.audio_ok)
         self.dmnr_row.set_sensitive(not busy and self.dmnr_ok)
         self.btsave_row.set_sensitive(not busy and self.btsave_ok)
+        self.codec_row.set_sensitive(not busy and self.codec_ok)
         # Sensitive only while there is something behind it. show_update_count
         # owns whether it is there at all; this owns whether it can be
         # pressed, and a batch that is running must not be started twice.

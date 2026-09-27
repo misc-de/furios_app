@@ -868,6 +868,12 @@ class Recording:
     def set_visible(self, value):
         self.visible = value
 
+    def set_selected(self, index):
+        self.selected = index
+
+    def get_selected(self):
+        return getattr(self, "selected", 0)
+
     def add_toast(self, toast):
         # The stub keeps constructor arguments as attributes, so the title of
         # the toast is readable rather than the object's name.
@@ -942,7 +948,8 @@ class TheWindow(unittest.TestCase):
     def setUp(self):
         self.win = switcher.Window(switcher.Adw.Application())
         names = ["row_profile", "row_server", "row_sinks", "switch_row",
-                 "persist_row", "dmnr_row", "btsave_row", "update_btn",
+                 "persist_row", "dmnr_row", "btsave_row", "codec_row",
+                 "update_btn",
                  "progress", "progress_revealer", "toasts"]
         # The modem widgets only exist when the page was built, and the page is
         # only built when modemctl is installed - so they are swapped in the
@@ -1393,6 +1400,64 @@ class TheWindow(unittest.TestCase):
         remember = [i for i, t in enumerate(titles) if t.startswith("Remember")]
         self.assertTrue(echo and remember, "rows not built: %s" % titles)
         self.assertLess(echo[0], remember[0])
+
+    # ------------------------------------------------------ Bluetooth codec
+
+    CODEC = ("preference=sbc\ncard=bluez_card.F4_9D_8A_00_00_01\n"
+             "active=sbc\noffered=aac sbc sbc_xq\n")
+
+    def codec_keys(self):
+        return [k for k, _n, _w in switcher.pages.audio.CODECS]
+
+    def test_the_codec_row_follows_what_is_set(self):
+        self.win.on_codec_status(True, self.CODEC)
+        self.assertEqual(self.codec_keys().index("sbc"),
+                         self.win.codec_row.get_selected())
+        self.assertIn("Playing SBC", self.win.codec_row.subtitle)
+        self.assertTrue(self.win.codec_ok)
+
+    def test_a_codec_the_headset_lacks_is_said_with_what_it_plays(self):
+        self.win.on_codec_status(True, self.CODEC.replace(
+            "preference=sbc", "preference=ldac").replace("active=sbc", "active=aac"))
+        self.assertIn("does not offer LDAC", self.win.codec_row.subtitle)
+        self.assertIn("plays AAC", self.win.codec_row.subtitle)
+
+    def test_without_a_headset_the_choice_still_stands(self):
+        self.win.on_codec_status(True, "preference=sbc_xq\n")
+        self.assertIn("no headset connected", self.win.codec_row.subtitle)
+        self.assertTrue(self.win.codec_ok)
+
+    def test_no_wireplumber_setting_closes_the_row(self):
+        """The shipped profile has no WirePlumber, an older furios_pipewire
+        no setting; "Automatic" would claim a choice that cannot be made."""
+        self.win.on_codec_status(True, "preference=unsupported\n")
+        self.assertFalse(self.win.codec_ok)
+        self.assertFalse(self.win.codec_row.sensitive)
+        self.win.set_busy(False)
+        self.assertFalse(self.win.codec_row.sensitive)
+
+    def test_choosing_a_codec_runs_audioctl_with_it(self):
+        self.win.live["audio"] = "/usr/bin/audioctl"
+        self.win.busy = False
+        self.win._syncing = False
+        self.win.codec_row.set_selected(self.codec_keys().index("sbc_xq"))
+        self.win.on_codec(self.win.codec_row, None)
+        self.assertEqual(["/usr/bin/audioctl", "bt-codec", "sbc_xq"],
+                         self.ran[-1][0])
+
+    def test_following_the_status_does_not_choose_anything(self):
+        self.win.live["audio"] = "/usr/bin/audioctl"
+        self.win._syncing = True
+        self.win.on_codec(self.win.codec_row, None)
+        self.assertEqual([], [r for r in self.ran if "bt-codec" in r[0]])
+
+    def test_a_failed_codec_change_is_reported(self):
+        said = []
+        self.enterContext(mock.patch.object(switcher.Window, "report",
+                                            lambda self, text: said.append(text)))
+        self.win.on_codec_done(False, "WirePlumber did not take the setting")
+        self.assertIn("Could not", str(self.win.toasts.text))
+        self.assertTrue(said)
 
     def test_the_contribution_switch_is_off_and_says_what_it_would_send(self):
         """Handing data to a public database is the one thing on these pages
@@ -1861,7 +1926,8 @@ class TheWindow(unittest.TestCase):
         # Audio is counted like the rest now: audioctl can be missing too, and
         # asking a tool that is not there was how a callback ended up at rows
         # nobody had built.
-        expected = ((1 + bool(DMNR) if AUDIOCTL else 0)
+        # status, bt-codec status and the echo helper's status
+        expected = ((2 + bool(DMNR) if AUDIOCTL else 0)
                     + (2 if MODEMCTL else 0)
                     # status of the contribution tool
                     + (1 if CONTRIB else 0)

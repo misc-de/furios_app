@@ -55,7 +55,9 @@ Requires `python3-gi` and `gir1.2-adw-1`, and nothing else.
 ## What each tab does
 
 **Audio** — who owns the Android audio HAL, whether that survives a reboot, and
-the dual-microphone echo cancellation for calls.
+the dual-microphone echo cancellation for calls. Under Bluetooth: the music
+codec for headsets - automatic, or AAC, SBC-XQ, SBC (40 % less CPU than AAC,
+audibly worse), aptX, aptX HD, LDAC - with what the connected headset plays.
 
 **Modem** — the repairs to ofono2mm and ModemManager on or off, remembered or
 only until the next boot, what the checks say, and how good the signal is.

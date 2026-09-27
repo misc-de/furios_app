@@ -17,6 +17,42 @@ from ..words import profile_in_words, server_in_words
 # here as plain KEY=value lines. BTSAVE is the one that decides whether the
 # Bluetooth adapter is switched off along with the screen.
 BATMAN_CONFIG = "/var/lib/batman/config"
+
+# The A2DP codecs "audioctl bt-codec" takes, with what the row says about
+# each. The costs are the ones measured on this phone on 2026-09-12 (bluebinder
+# plus wireplumber while music plays): AAC 7.2 %, SBC-XQ 7.0 %, SBC 4.3 % of a
+# core. aptX and LDAC were never measured, so nothing is claimed for them.
+CODECS = [
+    ("auto", "Automatic", "the best one both ends know"),
+    ("aac", "AAC", "7.2 % CPU while playing"),
+    ("sbc_xq", "SBC-XQ", "sounds like AAC, 7.0 % CPU"),
+    ("sbc", "SBC", "40 % less CPU than AAC, audibly worse"),
+    ("aptx", "aptX", "not measured"),
+    ("aptx_hd", "aptX HD", "not measured"),
+    ("ldac", "LDAC", "not measured"),
+]
+
+
+def codec_name(key):
+    return next((name for k, name, _ in CODECS if k == key), key)
+
+
+def codec_words(values):
+    """The row's subtitle from "audioctl bt-codec status" output, parsed into
+    a dict. What is chosen, and what a connected headset really plays -
+    which is not the same when the headset does not offer the choice."""
+    pref = values.get("preference", "auto")
+    what = next((note for k, _, note in CODECS if k == pref), "")
+    if not values.get("card"):
+        return "%s - no headset connected" % what if what else "no headset connected"
+    active = values.get("active")
+    offered = values.get("offered", "").split()
+    if not active:
+        return "The headset is on hands-free right now"
+    if pref != "auto" and pref not in offered:
+        return "This headset does not offer %s - it plays %s" % (
+            codec_name(pref), codec_name(active))
+    return "Playing %s · %s" % (codec_name(active), what)
 BATMAN_UNIT = "batman.service"
 
 # Everything it works on comes in as an argument: the file as $1, the unit as
@@ -346,6 +382,42 @@ class AudioPage:
         self._syncing = False
         self.btsave_row.set_subtitle(self.btsave_words(state))
         self.btsave_row.set_sensitive(not self.busy and self.btsave_ok)
+
+    def on_codec_status(self, ok, out):
+        values = dict(z.split("=", 1) for z in (out or "").splitlines()
+                      if "=" in z)
+        pref = values.get("preference")
+        keys = [k for k, _, _ in CODECS]
+        # Unsupported is its own answer: WirePlumber is not running (the
+        # shipped profile) or does not know the setting (an older
+        # furios_pipewire). "Automatic" would claim a choice nobody can make.
+        if not ok or pref not in keys:
+            self.codec_ok = False
+            self.codec_row.set_sensitive(False)
+            self.codec_row.set_subtitle(
+                "Needs PipeWire owning the HAL and a current furios_pipewire")
+            return
+        self.codec_ok = True
+        self._syncing = True
+        self.codec_row.set_selected(keys.index(pref))
+        self._syncing = False
+        self.codec_row.set_subtitle(codec_words(values))
+        self.codec_row.set_sensitive(not self.busy)
+
+    def on_codec(self, row, _param):
+        if self._syncing or self.busy or not self.live.get("audio"):
+            return
+        key = CODECS[row.get_selected()][0]
+        self.set_busy(True)
+        process.run_async([self.live["audio"], "bt-codec", key],
+                          self.on_codec_done)
+
+    def on_codec_done(self, ok, out):
+        self.set_busy(False)
+        if not ok:
+            self.toast("Could not change the Bluetooth codec")
+            self.report(out or "No output.")
+        self.refresh()
 
     def on_btsave(self, row, _param):
         if self._syncing or self.busy:
