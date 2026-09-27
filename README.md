@@ -96,6 +96,14 @@ The last two are keys in `~/.config/furios-folder-dock.conf`, which the plugin
 watches, so they take effect at once. They need the folders at the bottom
 switched on.
 
+*Keyring prompt in phosh style* (group *Unlock*): after a restart
+gnome-keyring asks for its password before phosh has registered its own
+prompt, so D-Bus starts the plain GTK 3 `gcr-prompter` - light, whatever the
+theme. The switch writes `~/.local/share/dbus-1/services/org.gnome.keyring.SystemPrompter.service`
+and a shim in `~/.local/libexec` that waits up to 90 s for phosh's prompt and
+only then falls back to `gcr-prompter`, dark when the phone is. Off removes
+both files, and only when they are ours. Nothing under `/usr` is touched.
+
 Every page has the same plainly labelled way back to how the phone shipped, and
 asks before it does anything.
 

@@ -66,6 +66,9 @@ sys.path.insert(0, str(ROOT))
 os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp(prefix="miscde-test-")
 # And the folder dock's crash mark, which it removes from ~/.cache.
 os.environ["XDG_CACHE_HOME"] = tempfile.mkdtemp(prefix="miscde-test-")
+# And the keyring prompter's service file and shim, under ~/.local.
+os.environ["XDG_DATA_HOME"] = os.path.join(
+    tempfile.mkdtemp(prefix="miscde-test-"), "share")
 switcher = importlib.import_module("miscde")
 
 
@@ -3960,6 +3963,70 @@ class HidesTheSearchField(unittest.TestCase):
         self.assertFalse(row.get_active())
         self.assertTrue(said)
 
+
+class FixesTheKeyringPrompt(unittest.TestCase):
+    """The service file and the shim, in a directory of their own."""
+
+    def setUp(self):
+        d = tempfile.mkdtemp()
+        self.service = os.path.join(d, "share", "dbus-1", "services",
+                                    "p.service")
+        self.shim = os.path.join(d, "libexec", "keyring-prompter-wait")
+        self.other = switcher.pages.other
+
+    def test_on_writes_both_and_off_removes_both(self):
+        self.other.set_prompter_fixed(True, self.service, self.shim)
+        self.assertTrue(self.other.prompter_fixed(self.service, self.shim))
+        self.assertIn("Exec=%s\n" % self.shim, Path(self.service).read_text())
+        self.assertTrue(os.access(self.shim, os.X_OK))
+        self.other.set_prompter_fixed(False, self.service, self.shim)
+        self.assertFalse(self.other.prompter_fixed(self.service, self.shim))
+        self.assertFalse(os.path.exists(self.service))
+        self.assertFalse(os.path.exists(self.shim))
+
+    def test_the_hand_made_fix_counts_and_is_removed(self):
+        os.makedirs(os.path.dirname(self.shim))
+        Path(self.shim).write_text(
+            "#!/bin/sh\n" + self.other.PROMPTER_LEGACY + "\nexit 0\n")
+        os.makedirs(os.path.dirname(self.service))
+        Path(self.service).write_text(
+            "[D-BUS Service]\nName=x\nExec=%s\n" % self.shim)
+        self.assertTrue(self.other.prompter_fixed(self.service, self.shim))
+        self.other.set_prompter_fixed(False, self.service, self.shim)
+        self.assertFalse(os.path.exists(self.service))
+        self.assertFalse(os.path.exists(self.shim))
+
+    def test_somebody_elses_service_file_is_left_alone(self):
+        os.makedirs(os.path.dirname(self.service))
+        Path(self.service).write_text("[D-BUS Service]\nExec=/usr/bin/other\n")
+        self.assertFalse(self.other.prompter_fixed(self.service, self.shim))
+        self.other.set_prompter_fixed(False, self.service, self.shim)
+        self.assertTrue(os.path.exists(self.service))
+
+    def test_the_default_paths_stay_out_of_the_real_home(self):
+        home = os.path.dirname(os.environ["XDG_DATA_HOME"])
+        self.assertTrue(self.other.prompter_service_path().startswith(home))
+        self.assertTrue(self.other.prompter_shim_path().startswith(home))
+
+    def test_the_switch_writes_and_a_failure_puts_it_back(self):
+        win = switcher.Window(switcher.Adw.Application())
+        said = []
+        self.enterContext(mock.patch.object(switcher.Window, "report",
+                                            lambda self, text: said.append(text)))
+        row = Recording()
+        row.set_active(True)
+        win._loading = False
+        win.on_prompter_fixed(row, None)
+        self.assertTrue(self.other.prompter_fixed())
+        row.set_active(False)
+        win.on_prompter_fixed(row, None)
+        self.assertFalse(self.other.prompter_fixed())
+        with mock.patch.object(self.other, "set_prompter_fixed",
+                               side_effect=PermissionError("denied")):
+            row.set_active(True)
+            win.on_prompter_fixed(row, None)
+        self.assertFalse(row.get_active())
+        self.assertTrue(said)
 
 
 class FakePluginSettings:
