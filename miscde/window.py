@@ -196,8 +196,7 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
             title="Music codec",
             subtitle="reading …",
             model=Gtk.StringList.new(
-                ["%s - %s" % (name, note) if k != "auto" else name
-                 for k, name, note in CODECS]),
+                [name for _k, name, _note in CODECS]),
         )
         self.codec_ok = False
         self.codec_row.set_sensitive(False)

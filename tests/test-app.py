@@ -1144,6 +1144,12 @@ class TheWindow(unittest.TestCase):
             for word in ("%", "CPU", "measured"):
                 self.assertNotIn(word, note, name)
 
+    def test_the_codec_entries_are_bare_names(self):
+        """No trailing " - " left over from the notes that were removed."""
+        src = open(os.path.join(os.path.dirname(switcher.__file__),
+                                "window.py")).read()
+        self.assertNotIn('"%s - %s" % (name, note)', src)
+
     def test_the_server_choice_offers_exactly_the_two_servers(self):
         self.assertEqual(["standard", "pw-hal"],
                          [k for k, _ in switcher.pages.audio.SERVERS])
