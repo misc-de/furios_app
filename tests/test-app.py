@@ -957,7 +957,8 @@ class TheWindow(unittest.TestCase):
         if MODEMCTL:
             names += ["modem_row", "modem_persist", "modem_progress",
                       "modem_revealer", "mrow_profile", "mrow_health",
-                      "mrow_signal", "modem_restore_btn"]
+                      "mrow_signal", "modem_restore_btn",
+                      "sim_group", "sim_row"]
         names.append("rescue_btn")
         # Always, unlike the others: every GPS handler asks self.live for
         # its tool, so a test says whether it is there by setting that, and
@@ -1988,7 +1989,7 @@ class TheWindow(unittest.TestCase):
         self.assertIn("failed", str(self.win.toasts.text).lower())
 
     def test_refresh_asks_every_helper_there_is(self):
-        """Two for audio, and two more for the modem when modemctl is here.
+        """Two for audio, and three more for the modem when modemctl is here.
 
         Counted rather than named, because the point is that adding a page
         must not leave one of the others unasked - which is how a window ends
@@ -1999,7 +2000,8 @@ class TheWindow(unittest.TestCase):
         # nobody had built.
         # status, bt-codec status and the echo helper's status
         expected = ((2 + bool(DMNR) if AUDIOCTL else 0)
-                    + (2 if MODEMCTL else 0)
+                    # profile, status and sim
+                    + (3 if MODEMCTL else 0)
                     # status of the contribution tool, and of the Firefox
                     # one beside it when that is installed too
                     + (1 if CONTRIB else 0)
@@ -3679,6 +3681,75 @@ class TheWindow(unittest.TestCase):
         self.assertFalse(win.modem_row.sensitive)
         self.assertFalse(win.modem_restore_btn.sensitive,
                          "the restore button came back with nothing behind it")
+
+    # --- which SIM ---------------------------------------------------------
+    #
+    # "modemctl sim" is the contract: slots, active, recorded, present. Its
+    # other half is tests/test-sim-slot.sh in furios_modem_fixes.
+
+    SIM_ONE_CARD = "slots: 2\nactive: 1\nrecorded: 1\npresent: 1\n"
+    SIM_TWO_CARDS = "slots: 2\nactive: 1\nrecorded: 1\npresent: 1 2\n"
+
+    def test_one_card_in_slot_one_shows_no_sim_row(self):
+        """The shipped phone: nothing to choose, so nothing on screen."""
+        win = self.modem_win()
+        win.on_sim_status(True, self.SIM_ONE_CARD)
+        self.assertFalse(win.sim_group.visible)
+        self.assertFalse(win.sim_ok)
+
+    def test_two_cards_show_the_list_on_the_active_slot(self):
+        win = self.modem_win()
+        win.busy = False
+        win.on_sim_status(True, self.SIM_TWO_CARDS.replace("active: 1", "active: 2"))
+        self.assertTrue(win.sim_group.visible)
+        self.assertEqual(1, win.sim_row.get_selected())
+        self.assertIn("one radio", win.sim_row.subtitle)
+        self.assertTrue(win.sim_row.sensitive)
+
+    def test_on_slot_two_without_a_card_the_way_back_stays(self):
+        """Switched to 2 and the card came out: the row must stay, or there is
+        no button left that leads back to slot 1."""
+        win = self.modem_win()
+        win.on_sim_status(True, "slots: 2\nactive: 2\nrecorded: 2\npresent: 1\n")
+        self.assertTrue(win.sim_group.visible)
+        self.assertIn("slot 2", win.sim_row.subtitle)
+
+    def test_an_older_modemctl_without_sim_hides_the_row(self):
+        win = self.modem_win()
+        win.on_sim_status(False, "unknown command: sim\nmodemctl 0.1.0 - ...")
+        self.assertFalse(win.sim_group.visible)
+        win.set_busy(False)
+        self.assertFalse(win.sim_row.sensitive)
+
+    def test_a_one_slot_phone_shows_no_row(self):
+        win = self.modem_win()
+        win.on_sim_status(True, "slots: 1\nactive: 1\nrecorded: 1\npresent: 1\n")
+        self.assertFalse(win.sim_group.visible)
+
+    def test_picking_a_slot_asks_for_rights_and_names_it(self):
+        win = self.modem_win()
+        win.busy = False
+        win.on_sim_status(True, self.SIM_TWO_CARDS)
+        win.sim_row.set_selected(1)
+        win.on_sim_select(win.sim_row, None)
+        argv = self.ran[-1][0]
+        self.assertIn("pkexec", argv[0])
+        self.assertEqual(["sim", "2"], argv[2:])
+
+    def test_syncing_the_list_starts_nothing(self):
+        """Reading the state sets the selection; that must not switch."""
+        win = self.modem_win()
+        win.busy = False
+        before = len(self.ran)
+        win._syncing = True
+        win.on_sim_select(win.sim_row, None)
+        win._syncing = False
+        self.assertEqual(before, len(self.ran))
+
+    def test_a_refused_sim_switch_is_reported(self):
+        win = self.modem_win()
+        win.on_sim_switched(False, "  FAIL  a call is in progress - not switching the SIM now")
+        self.assertIn("failed", str(win.toasts.text).lower())
 
     # --- the GPS page ------------------------------------------------------
     #

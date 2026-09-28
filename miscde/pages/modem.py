@@ -47,6 +47,24 @@ class ModemPage:
         grp.add(self.modem_revealer)
         mpage.add(grp)
 
+        # Which SIM. Only there when there is a choice to make: two cards in,
+        # or a phone already on the second slot (so there is a way back). A
+        # list rather than a switch, because the slots have numbers, not an
+        # on and an off. Always remembered - a SIM that went back at the next
+        # boot would be a surprise, not a try.
+        self.sim_group = Adw.PreferencesGroup(title="SIM")
+        self.sim_row = Adw.ComboRow(
+            title="Active SIM",
+            subtitle="reading …",
+            model=Gtk.StringList.new(["SIM 1", "SIM 2"]),
+        )
+        self.sim_ok = False
+        self.sim_row.set_sensitive(False)
+        self.sim_row.connect("notify::selected", self.on_sim_select)
+        self.sim_group.add(self.sim_row)
+        self.sim_group.set_visible(False)
+        mpage.add(self.sim_group)
+
         info = Adw.PreferencesGroup(title="Status")
         self.mrow_profile = Adw.ActionRow(title="Profile", subtitle="…")
         self.mrow_health = Adw.ActionRow(title="Checks", subtitle="…")
@@ -192,4 +210,66 @@ class ModemPage:
         else:
             last = [l for l in out.splitlines() if l.strip()]
             self.toast(last[-1].strip() if last else "Done")
+        self.refresh()
+
+    # --- which SIM ---------------------------------------------------------
+
+    def on_sim_status(self, ok, out):
+        """modemctl sim prints slots, active, recorded and present. An older
+        modemctl has no such command and answers with its usage - then there
+        is no row, rather than a row that cannot do anything."""
+        found = self._keyed(out or "")
+        try:
+            slots = int(found.get("slots", ""))
+            active = int(found.get("active", ""))
+        except ValueError:
+            self.sim_ok = False
+            self.sim_group.set_visible(False)
+            return
+        present = [int(p) for p in found.get("present", "").split()
+                   if p.isdigit()]
+        # Two cards to choose between, or already on slot 2 and needing the
+        # way back to 1. One card in slot 1 is the shipped phone - no row.
+        if slots < 2 or (len(present) < 2 and active == 1):
+            self.sim_ok = False
+            self.sim_group.set_visible(False)
+            return
+        self.sim_ok = True
+        self.sim_group.set_visible(True)
+        self._syncing = True
+        self.sim_row.set_selected(min(active, 2) - 1)
+        self._syncing = False
+        missing = [n for n in (1, 2) if n not in present]
+        words = "One at a time - both slots share one radio"
+        if missing:
+            words = f"No card detected in slot {missing[0]}"
+        self.sim_row.set_subtitle(words)
+        self.sim_row.set_sensitive(not self.busy)
+
+    def on_sim_select(self, row, _param):
+        if self._syncing or self.busy or not self.sim_ok:
+            return
+        if not tools.PKEXEC:
+            self.toast("pkexec is missing - cannot ask for the rights to switch")
+            return
+        slot = row.get_selected() + 1
+        self.set_busy(True)
+        self.modem_progress.set_text("Switching SIM …")
+        self.modem_revealer.set_reveal_child(True)
+        # About half a minute: oFono comes back on the other slot, then
+        # ModemManager and NetworkManager are put in order behind it.
+        self.pulse_start(f"Switching to SIM {slot} - mobile network away for about 30 s …")
+        process.run_async([tools.PKEXEC, self.live["modem"], "sim", str(slot)],
+                          self.on_sim_switched, on_line=self.on_progress_line)
+
+    def on_sim_switched(self, ok, out):
+        self.pulse_stop()
+        self.set_busy(False)
+        self.modem_revealer.set_reveal_child(False)
+        if not ok:
+            # "a call is in progress" is the likely refusal, and it is in out.
+            self.toast("Switching the SIM failed")
+            self.report(out or "No output.")
+        else:
+            self.toast("SIM switched")
         self.refresh()
