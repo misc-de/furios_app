@@ -243,7 +243,7 @@ class ComponentTable(unittest.TestCase):
                 os.path.join(base, "anders_benannt"),
                 switcher.components.clone_elsewhere("https://github.com/misc-de/furios_gps", base))
             self.assertIsNone(switcher.components.clone_elsewhere(
-                "https://github.com/misc-de/furios_pipewire", base))
+                "https://github.com/misc-de/furios_audio", base))
         finally:
             shutil_real.rmtree(base, ignore_errors=True)
 
@@ -1446,7 +1446,7 @@ class TheWindow(unittest.TestCase):
         self.assertTrue(self.win.codec_ok)
 
     def test_no_wireplumber_setting_closes_the_row(self):
-        """The shipped profile has no WirePlumber, an older furios_pipewire
+        """The shipped profile has no WirePlumber, an older furios_audio
         no setting; "Automatic" would claim a choice that cannot be made."""
         self.win.on_codec_status(True, "preference=unsupported\n")
         self.assertFalse(self.win.codec_ok)

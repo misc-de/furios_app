@@ -11,7 +11,7 @@ says what a decision costs.
 
 | Tab | Tool | Repository |
 |---|---|---|
-| Audio | `audioctl` | [furios_pipewire](https://github.com/misc-de/furios_pipewire) |
+| Audio | `audioctl` | [furios_audio](https://github.com/misc-de/furios_audio) |
 | Modem | `modemctl` | [furios_modem_fixes](https://github.com/misc-de/furios_modem_fixes) |
 | GPS | `furios-gps-contribute` | [furios_gps](https://github.com/misc-de/furios_gps) |
 | Switches | `killswitch-indicator` | [furios_killswitch](https://github.com/misc-de/furios_killswitch) |

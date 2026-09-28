@@ -407,12 +407,12 @@ class AudioPage:
         keys = [k for k, _, _ in CODECS]
         # Unsupported is its own answer: WirePlumber is not running (the
         # shipped profile) or does not know the setting (an older
-        # furios_pipewire). "Automatic" would claim a choice nobody can make.
+        # furios_audio). "Automatic" would claim a choice nobody can make.
         if not ok or pref not in keys:
             self.codec_ok = False
             self.codec_row.set_sensitive(False)
             self.codec_row.set_subtitle(
-                "Needs PipeWire owning the HAL and a current furios_pipewire")
+                "Needs PipeWire owning the HAL and a current furios_audio")
             return
         self.codec_ok = True
         self._syncing = True

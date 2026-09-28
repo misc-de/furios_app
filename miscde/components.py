@@ -45,8 +45,8 @@ COMPONENTS = [
         "page": "Audio",
         "key": "audio",
         "icon": "audio-speakers-symbolic",
-        "url": "https://github.com/misc-de/furios_pipewire",
-        "dir": "furios_pipewire",
+        "url": "https://github.com/misc-de/furios_audio",
+        "dir": "furios_audio",
         "root": True,
         "does": "PipeWire talks to the Android HAL directly instead of "
                 "PulseAudio: playback, recording, calls and Bluetooth audio",

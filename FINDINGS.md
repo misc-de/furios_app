@@ -217,7 +217,7 @@ with nothing behind it.
 ## Origin
 
 Until 14.9.2026 the app lived in
-[furios_pipewire](https://github.com/misc-de/furios_pipewire) under `gui/`. It
+[furios_audio](https://github.com/misc-de/furios_audio) under `gui/`. It
 moved here with its history, because it now drives five tools from five
 repositories and none of them is its home.
 

@@ -20,7 +20,7 @@ It calls, without shipping them:
 
 Those tools live in repositories of their own and have licences of their
 own. Anybody installing them through this app is not installing MIT code:
-the package from furios_pipewire is LGPL-2.1 (it compiles Jolla code in),
+the package from furios_audio is LGPL-2.1 (it compiles Jolla code in),
 the one from furios_modem_fixes is GPL-2.0 (it patches a GPL file of
 ofono2mm). furios_gps, furios_killswitch and furios_misc are MIT
 throughout. The details are in the NOTICE of the respective repository; the

@@ -31,7 +31,7 @@ have_tool() {
 # refusing to install would leave somebody with no way to get there at all.
 have_tool audioctl || cat <<'HINT'
 Note: audioctl is not installed yet. The Audio tab will offer to fetch it
-      (github.com/misc-de/furios_pipewire), like the other three tabs do.
+      (github.com/misc-de/furios_audio), like the other three tabs do.
 HINT
 python3 -c "import gi; gi.require_version('Adw','1')" 2>/dev/null \
   || { echo "libadwaita bindings missing: apt install python3-gi gir1.2-adw-1"; exit 1; }
