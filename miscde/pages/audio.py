@@ -188,6 +188,7 @@ class AudioPage:
     def on_status(self, ok, out):
         profile, persistent, server, sinks = "unknown", "unknown", "-", "-"
         warn = None
+        fell_back = None
         testmode = False
         for line in out.splitlines():
             if line.startswith("Profile (active):"):
@@ -196,6 +197,9 @@ class AudioPage:
                 persistent = line.split(":", 1)[1].strip()
             elif line.startswith("WARNING:"):
                 warn = line.split(":", 1)[1].strip()
+            elif line.startswith("Fell back:"):
+                # "2026-09-28 17:50:01 pw-hal - that profile gave ..."
+                fell_back = line.split(":", 1)[1].split(" - ")[0].strip()
             elif line.startswith("Test mode:"):
                 testmode = line.split(":", 1)[1].strip().startswith("yes")
             elif line.startswith("Pulse server:"):
@@ -231,6 +235,13 @@ class AudioPage:
             text += f" - until the next reboot, then {profile_in_words(persistent)}"
         if warn:
             text += f" | {warn}"
+        if fell_back:
+            # The boot check put the phone back on the shipped stack because
+            # the chosen one gave no sound - most likely after an update. The
+            # switch shows the result; this says why it moved by itself.
+            when, _sp, was = fell_back.rpartition(" ")
+            text += (f" | fell back by itself on {when}: "
+                     f"{profile_in_words(was)} gave no sound at boot")
         self.row_profile.set_subtitle(text)
         self.row_server.set_subtitle(server_in_words(server))
         self.row_sinks.set_subtitle(sinks.replace(",", ", ") or "none")

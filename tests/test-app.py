@@ -1424,6 +1424,17 @@ class TheWindow(unittest.TestCase):
         self.assertTrue(echo and remember, "rows not built: %s" % titles)
         self.assertLess(echo[0], remember[0])
 
+    def test_a_fallback_at_boot_is_said(self):
+        """After an update the boot check may put the phone back on the
+        shipped stack; the row must say it moved by itself, and why."""
+        self.win.on_status(True, "Profile (active):   standard\n"
+                           "Profile (persistent): standard\n"
+                           "Fell back:          2026-09-28 17:50:01 pw-hal - that "
+                           "profile gave no phone output at boot\n")
+        self.assertIn("fell back by itself on 2026-09-28 17:50:01",
+                      self.win.row_profile.subtitle)
+        self.assertIn("gave no sound", self.win.row_profile.subtitle)
+
     # ------------------------------------------------------ Bluetooth codec
 
     CODEC = ("preference=sbc\ncard=bluez_card.F4_9D_8A_00_00_01\n"
