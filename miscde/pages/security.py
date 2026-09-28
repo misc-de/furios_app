@@ -58,14 +58,6 @@ class SecurityPage:
                 grp.add(self.sec_lan)
         page.add(grp)
 
-        # What the chain is actually for. A firewall with nothing listening
-        # behind it is theatre, and this is the row that says which it is.
-        self.sec_open = Adw.PreferencesGroup(title="Listening")
-        self.sec_open_rows = []
-        self.sec_open_empty = Adw.ActionRow(title="reading …")
-        self.sec_open.add(self.sec_open_empty)
-        page.add(self.sec_open)
-
         back, self.sec_restore_btn = self.build_restore_group(
             "Takes everything back out: the sysctl file, the module blocks, "
             "the firewall with the original /etc/nftables.conf put back, and "
@@ -92,9 +84,9 @@ class SecurityPage:
             self.say_security_unread("unreadable answer")
             return
 
+        # No "Listening" list any more (removed 28.9. on request): the
+        # exposure part of the answer is still there for "secctl status".
         self.say_security_parts(data.get("parts", {}))
-        self.say_security_open(data.get("exposure", {}),
-                               data.get("parts", {}).get("firewall", {}))
 
     def say_security_unread(self, why):
         """A reading that did not happen, said on the rows that are readings.
@@ -106,11 +98,6 @@ class SecurityPage:
         """
         for row in self.sec_switches.values():
             row.set_subtitle(why)
-        for row in self.sec_open_rows:
-            self.sec_open.remove(row)
-        self.sec_open_rows = []
-        self.sec_open_empty.set_title(why)
-        self.sec_open_empty.set_visible(True)
 
     @staticmethod
     def lockout_subtitle(part, subtitle):
@@ -167,44 +154,6 @@ class SecurityPage:
                     "loaded, and back after a reboot" if live else
                     "set to load at boot, but not loaded right now")
         return fallback
-
-    def say_security_open(self, exposure, firewall):
-        """What listens outside loopback, and whether the chain covers it."""
-        for row in self.sec_open_rows:
-            self.sec_open.remove(row)
-        self.sec_open_rows = []
-
-        if not exposure.get("readable"):
-            self.sec_open_empty.set_title("could not be read")
-            self.sec_open_empty.set_visible(True)
-            return
-        open_ports = exposure.get("open") or []
-        if not open_ports:
-            self.sec_open_empty.set_title("nothing listens outside loopback")
-            self.sec_open_empty.set_visible(True)
-            return
-
-        self.sec_open_empty.set_visible(False)
-        on = firewall.get("state") == "on"
-        # Four at most. This is a phone screen, and the list is here to make
-        # a point, not to be an inventory - "ss -tulnp" is where somebody
-        # goes who wants all of them.
-        for entry in open_ports[:4]:
-            row = Adw.ActionRow(
-                title="%s %s:%s" % (entry.get("proto", ""),
-                                    entry.get("addr", ""),
-                                    entry.get("port", "")),
-                subtitle=("reachable only from the home network"
-                          if on else "reachable from every network this "
-                          "phone joins, mobile included"))
-            self.sec_open.add(row)
-            self.sec_open_rows.append(row)
-        if len(open_ports) > 4:
-            row = Adw.ActionRow(title="and %d more" % (len(open_ports) - 4),
-                                subtitle="ss -tulnp")
-            row.set_subtitle_selectable(True)
-            self.sec_open.add(row)
-            self.sec_open_rows.append(row)
 
     # ---------------------------------------------------------------- acting
 

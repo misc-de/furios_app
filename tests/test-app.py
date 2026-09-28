@@ -3316,21 +3316,14 @@ class TheWindow(unittest.TestCase):
                   if c[0] == "Adw.AlertDialog"]
         self.assertTrue(any("which network" in b for b in bodies), bodies)
 
-    def test_the_listening_list_is_capped(self):
-        """A phone screen, and the list is here to make a point rather than
-        be an inventory."""
-        win = self.security_win()
-        win.on_security_status(True, self.SEC_JSON)
-        self.assertEqual(5, len(win.sec_open_rows))
-        self.assertIn("and 1 more", win.sec_open_rows[-1].title)
-
-    def test_an_open_port_says_whether_the_chain_covers_it(self):
-        win = self.security_win()
-        win.on_security_status(True, self.SEC_JSON)
-        self.assertIn("only from the home network", win.sec_open_rows[0].subtitle)
-        win.on_security_status(True, self.SEC_JSON.replace(
-            '"firewall": {"state": "on"', '"firewall": {"state": "off"'))
-        self.assertIn("mobile included", win.sec_open_rows[0].subtitle)
+    def test_there_is_no_listening_list(self):
+        """Removed on request 28.9.: the page shows the switches only."""
+        recorder.reset()
+        self.security_win()
+        switcher.Window(switcher.Adw.Application())
+        titles = [str(c[2].get("title", "")) for c in recorder.calls
+                  if c[0] == "Adw.PreferencesGroup"]
+        self.assertNotIn("Listening", titles)
 
     def test_the_way_back_takes_all_three(self):
         win = self.security_win()
@@ -3347,7 +3340,6 @@ class TheWindow(unittest.TestCase):
         win.on_security_status(False, "")
         for row in win.sec_switches.values():
             self.assertIn("did not answer", str(row.subtitle))
-        self.assertIn("did not answer", str(win.sec_open_empty.title))
 
     def test_an_unreadable_answer_says_so_the_same_way(self):
         win = self.security_win()
