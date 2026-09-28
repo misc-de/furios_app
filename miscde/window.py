@@ -127,10 +127,9 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         grp.add(self.switch_row)
 
         # The Bluetooth helpers, as their own choice rather than part of the
-        # server. Under PipeWire all of them run, always - that is the stack
-        # as it was worked out, so the row shows it and cannot be changed.
-        # Under PulseAudio only the two that need no WirePlumber can run, and
-        # they are an option there until they have been lived with.
+        # server. Under PipeWire all of them, on unless switched off. Under
+        # PulseAudio only the two that need no WirePlumber can run, and they
+        # are marked as not tested there yet.
         self.btx_row = Adw.SwitchRow(
             title="Bluetooth helpers",
             subtitle="reading …",

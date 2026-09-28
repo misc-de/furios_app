@@ -1426,15 +1426,24 @@ class TheWindow(unittest.TestCase):
 
     # --- the Bluetooth helpers, apart from the server ---
 
-    def test_under_pipewire_the_helpers_show_on_and_fixed(self):
+    def test_under_pipewire_the_helpers_are_on_and_can_be_switched_off(self):
         self.win.busy = False
-        self.win.on_btx_status(True, "bt-extras=off\nprofile=pw-hal\neffective=all\n")
+        self.win.on_btx_status(True, "bt-extras=on\nprofile=pw-hal\neffective=all\n")
         self.assertTrue(self.win.btx_row.visible)
         self.assertTrue(self.win.btx_row.get_active())
-        self.assertFalse(self.win.btx_row.sensitive)
-        self.assertIn("Always on with PipeWire", self.win.btx_row.subtitle)
-        self.win.set_busy(False)
-        self.assertFalse(self.win.btx_row.sensitive, "set_busy made it switchable")
+        self.assertTrue(self.win.btx_row.sensitive)
+        self.assertIn("Calls on the headset", self.win.btx_row.subtitle)
+        self.win.on_btx_status(True, "bt-extras=off\nprofile=pw-hal\neffective=none\n")
+        self.assertFalse(self.win.btx_row.get_active())
+        self.assertIn("WirePlumber's own", self.win.btx_row.subtitle)
+
+    def test_switching_them_off_under_pipewire_runs_audioctl(self):
+        self.win.busy = False
+        self.win.live["audio"] = "/usr/bin/audioctl"
+        self.win.on_btx_status(True, "bt-extras=on\nprofile=pw-hal\neffective=all\n")
+        self.win.btx_row.active = False
+        self.win.on_btx(self.win.btx_row, None)
+        self.assertEqual(["/usr/bin/audioctl", "bt-extras", "off"], self.ran[-1][0])
 
     def test_under_pulseaudio_they_are_a_choice_marked_untested(self):
         self.win.busy = False

@@ -307,17 +307,16 @@ class AudioPage:
             self.btx_row.set_visible(False)
             return
         self.btx_row.set_visible(True)
+        self.btx_ok = True
         self._syncing = True
-        if effective == "all":
-            # PipeWire: fixed on. Not a choice here, and saying why.
-            self.btx_ok = False
-            self.btx_row.set_active(True)
+        self.btx_row.set_active(values.get("bt-extras") == "on")
+        if values.get("profile") == "pw-hal":
             self.btx_row.set_subtitle(
-                "Always on with PipeWire: calls on the headset, its microphone, "
-                "codec choice, reconnect, pause when it disconnects")
+                "Calls on the headset, its microphone, reconnect, pause when it "
+                "disconnects" if effective == "all" else
+                "Off: WirePlumber's own Bluetooth - music plays, a call may "
+                "stay on the phone")
         else:
-            self.btx_ok = True
-            self.btx_row.set_active(effective == "basic")
             self.btx_row.set_subtitle(
                 "With PulseAudio only reconnect and pause when it disconnects - "
                 "not tested there yet. The rest needs PipeWire")
