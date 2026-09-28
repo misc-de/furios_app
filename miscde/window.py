@@ -126,6 +126,21 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         self.switch_row.connect("notify::selected", self.on_switch)
         grp.add(self.switch_row)
 
+        # The Bluetooth helpers, as their own choice rather than part of the
+        # server. Under PipeWire all of them run, always - that is the stack
+        # as it was worked out, so the row shows it and cannot be changed.
+        # Under PulseAudio only the two that need no WirePlumber can run, and
+        # they are an option there until they have been lived with.
+        self.btx_row = Adw.SwitchRow(
+            title="Bluetooth helpers",
+            subtitle="reading …",
+        )
+        self.btx_ok = False
+        self.btx_row.set_sensitive(False)
+        self.btx_row.set_visible(False)
+        self.btx_row.connect("notify::active", self.on_btx)
+        grp.add(self.btx_row)
+
         # Echo during a call, above the switch that decides how long a
         # choice lasts - because that switch applies to this one too, and a
         # control has to sit above what qualifies it, not below.
@@ -360,6 +375,8 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
             process.run_async([self.live["audio"], "status"], self.on_status)
             process.run_async([self.live["audio"], "bt-codec", "status"],
                               self.on_codec_status)
+            process.run_async([self.live["audio"], "bt-extras", "status"],
+                              self.on_btx_status)
             dmnr = tools._tool_maybe(DMNR)
             if dmnr:
                 process.run_async([dmnr, "status"], self.on_dmnr_status)
@@ -428,6 +445,7 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         self.btsave_row.set_sensitive(not busy and self.btsave_ok)
         self.codec_row.set_sensitive(not busy and self.codec_ok)
         self.codec_scope_row.set_sensitive(not busy and self.codec_ok)
+        self.btx_row.set_sensitive(not busy and self.btx_ok)
         # Sensitive only while there is something behind it. show_update_count
         # owns whether it is there at all; this owns whether it can be
         # pressed, and a batch that is running must not be started twice.

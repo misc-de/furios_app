@@ -952,7 +952,7 @@ class TheWindow(unittest.TestCase):
         self.win = switcher.Window(switcher.Adw.Application())
         names = ["row_profile", "row_server", "row_sinks", "switch_row",
                  "persist_row", "dmnr_row", "btsave_row", "codec_row",
-                 "codec_scope_row",
+                 "codec_scope_row", "btx_row",
                  "update_btn",
                  "progress", "progress_revealer", "toasts"]
         # The modem widgets only exist when the page was built, and the page is
@@ -1423,6 +1423,48 @@ class TheWindow(unittest.TestCase):
         remember = [i for i, t in enumerate(titles) if t.startswith("Remember")]
         self.assertTrue(echo and remember, "rows not built: %s" % titles)
         self.assertLess(echo[0], remember[0])
+
+    # --- the Bluetooth helpers, apart from the server ---
+
+    def test_under_pipewire_the_helpers_show_on_and_fixed(self):
+        self.win.busy = False
+        self.win.on_btx_status(True, "bt-extras=off\nprofile=pw-hal\neffective=all\n")
+        self.assertTrue(self.win.btx_row.visible)
+        self.assertTrue(self.win.btx_row.get_active())
+        self.assertFalse(self.win.btx_row.sensitive)
+        self.assertIn("Always on with PipeWire", self.win.btx_row.subtitle)
+        self.win.set_busy(False)
+        self.assertFalse(self.win.btx_row.sensitive, "set_busy made it switchable")
+
+    def test_under_pulseaudio_they_are_a_choice_marked_untested(self):
+        self.win.busy = False
+        self.win.on_btx_status(True, "bt-extras=off\nprofile=standard\neffective=none\n")
+        self.assertFalse(self.win.btx_row.get_active())
+        self.assertTrue(self.win.btx_row.sensitive)
+        self.assertIn("not tested", self.win.btx_row.subtitle)
+        self.win.on_btx_status(True, "bt-extras=on\nprofile=standard\neffective=basic\n")
+        self.assertTrue(self.win.btx_row.get_active())
+
+    def test_switching_the_helpers_runs_audioctl(self):
+        self.win.busy = False
+        self.win.live["audio"] = "/usr/bin/audioctl"
+        self.win.on_btx_status(True, "bt-extras=off\nprofile=standard\neffective=none\n")
+        self.win.btx_row.active = True
+        self.win.on_btx(self.win.btx_row, None)
+        self.assertEqual(["/usr/bin/audioctl", "bt-extras", "on"], self.ran[-1][0])
+
+    def test_syncing_the_helpers_row_runs_nothing(self):
+        self.win.busy = False
+        self.win.live["audio"] = "/usr/bin/audioctl"
+        before = len(self.ran)
+        self.win._syncing = True
+        self.win.on_btx(self.win.btx_row, None)
+        self.win._syncing = False
+        self.assertEqual(before, len(self.ran))
+
+    def test_an_older_audioctl_shows_no_helpers_row(self):
+        self.win.on_btx_status(False, "audioctl: unknown command bt-extras")
+        self.assertFalse(self.win.btx_row.visible)
 
     def test_a_fallback_at_boot_is_said(self):
         """After an update the boot check may put the phone back on the
@@ -2075,8 +2117,8 @@ class TheWindow(unittest.TestCase):
         # Audio is counted like the rest now: audioctl can be missing too, and
         # asking a tool that is not there was how a callback ended up at rows
         # nobody had built.
-        # status, bt-codec status and the echo helper's status
-        expected = ((2 + bool(DMNR) if AUDIOCTL else 0)
+        # status, bt-codec status, bt-extras status and the echo helper's
+        expected = ((3 + bool(DMNR) if AUDIOCTL else 0)
                     # profile, status and sim
                     + (3 if MODEMCTL else 0)
                     # status of the contribution tool, and of the Firefox

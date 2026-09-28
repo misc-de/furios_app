@@ -295,6 +295,54 @@ class AudioPage:
             self.toast(last[-1].strip() if last else "Done")
         self.refresh()
 
+    def on_btx_status(self, ok, out):
+        """audioctl bt-extras status: bt-extras=on|off, profile, and what
+        actually runs (all, basic, none). An audioctl without the command
+        answers with its usage - then there is no row."""
+        values = dict(z.split("=", 1) for z in (out or "").splitlines()
+                      if "=" in z)
+        effective = values.get("effective")
+        if not ok or effective not in ("all", "basic", "none"):
+            self.btx_ok = False
+            self.btx_row.set_visible(False)
+            return
+        self.btx_row.set_visible(True)
+        self._syncing = True
+        if effective == "all":
+            # PipeWire: fixed on. Not a choice here, and saying why.
+            self.btx_ok = False
+            self.btx_row.set_active(True)
+            self.btx_row.set_subtitle(
+                "Always on with PipeWire: calls on the headset, its microphone, "
+                "codec choice, reconnect, pause when it disconnects")
+        else:
+            self.btx_ok = True
+            self.btx_row.set_active(effective == "basic")
+            self.btx_row.set_subtitle(
+                "With PulseAudio only reconnect and pause when it disconnects - "
+                "not tested there yet. The rest needs PipeWire")
+        self._syncing = False
+        self.btx_row.set_sensitive(self.btx_ok and not self.busy)
+
+    def on_btx(self, row, _param):
+        if self._syncing or self.busy or not self.btx_ok \
+                or not self.live.get("audio"):
+            return
+        self.set_busy(True)
+        process.run_async([self.live["audio"], "bt-extras",
+                           "on" if row.get_active() else "off"],
+                          self.on_btx_done)
+
+    def on_btx_done(self, ok, out):
+        self.set_busy(False)
+        if not ok:
+            self.toast("Could not change the Bluetooth helpers")
+            self.report(out or "No output.")
+        else:
+            last = [l for l in (out or "").splitlines() if l.strip()]
+            self.toast(last[-1].strip() if last else "Done")
+        self.refresh()
+
     def on_dmnr(self, row, _param):
         if self._syncing or self.busy:
             return
