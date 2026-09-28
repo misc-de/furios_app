@@ -3234,7 +3234,7 @@ class TheWindow(unittest.TestCase):
         win = self.security_win()
         win._loading = False
         win.busy = False
-        for key in ("sysctl", "modules", "firewall"):
+        for key in ("sysctl", "modules", "firewall", "lockout"):
             # Reset per part: the handler locks the window while the helper
             # runs, and a second switch thrown while it is locked is
             # deliberately ignored.
@@ -3246,6 +3246,31 @@ class TheWindow(unittest.TestCase):
             argv = self.ran[0][0]
             self.assertEqual(argv[-3:], ["set", key, "on"])
             self.assertIn("secctl", argv[-4])
+
+    def test_the_lockout_says_when_the_lock_screen_is_locked(self):
+        """phosh refuses the right PIN during a lock without saying why, so
+        this row has to."""
+        win = self.security_win()
+        data = json.loads(self.SEC_JSON)
+        data["parts"]["lockout"] = {"state": "on", "module": True,
+                                    "user": {"locked_for": 272}}
+        win.on_security_status(True, json.dumps(data))
+        self.assertIn("4:32 left", win.sec_switches["lockout"].subtitle)
+        self.assertTrue(win.sec_switches["lockout"].active)
+
+    def test_the_lockout_without_its_module_says_so(self):
+        win = self.security_win()
+        data = json.loads(self.SEC_JSON)
+        data["parts"]["lockout"] = {"state": "off", "module": False}
+        win.on_security_status(True, json.dumps(data))
+        self.assertIn("not installed", win.sec_switches["lockout"].subtitle)
+
+    def test_the_lockout_off_says_what_it_would_do(self):
+        win = self.security_win()
+        data = json.loads(self.SEC_JSON)
+        data["parts"]["lockout"] = {"state": "off", "module": True}
+        win.on_security_status(True, json.dumps(data))
+        self.assertIn("5 min", win.sec_switches["lockout"].subtitle)
 
     def test_a_switch_off_reverts_that_part(self):
         win = self.security_win()

@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 misc-de
 # SPDX-License-Identifier: MIT
-"""The Security page: three locks for a kernel that gets no more fixes."""
+"""The Security page: locks for a kernel that gets no more fixes, and one
+for the lock screen."""
 
 import json
 
@@ -21,6 +22,8 @@ class SecurityPage:
          "protocol families and filesystems nothing here uses"),
         ("firewall", "Firewall",
          "one input chain, default drop"),
+        ("lockout", "Lock screen lockout",
+         "3 wrong PINs lock it: 5 min, then 10, 15, 30, 60 and longer"),
     )
 
     def build_security_page(self):
@@ -40,13 +43,6 @@ class SecurityPage:
         # pixels above every other tab's. What needs saying sits in the row
         # it is about.
         grp = Adw.PreferencesGroup(title="Hardening")
-        self.sec_switches = {}
-        for key, title, subtitle in self.PARTS:
-            row = Adw.SwitchRow(title=title, subtitle=subtitle)
-            row.connect("notify::active", self.on_security_switch, key)
-            grp.add(row)
-            self.sec_switches[key] = row
-
         # Directly under the firewall switch, because it is the firewall's
         # one setting and the only value on this page that belongs to this
         # phone alone. An entry rather than anything automatic: a wrong
@@ -55,7 +51,14 @@ class SecurityPage:
         self.sec_lan = Adw.EntryRow(title="Home network, e.g. 192.168.0.0/24")
         self.sec_lan.set_show_apply_button(True)
         self.sec_lan.connect("apply", self.on_security_lan)
-        grp.add(self.sec_lan)
+        self.sec_switches = {}
+        for key, title, subtitle in self.PARTS:
+            row = Adw.SwitchRow(title=title, subtitle=subtitle)
+            row.connect("notify::active", self.on_security_switch, key)
+            grp.add(row)
+            self.sec_switches[key] = row
+            if key == "firewall":
+                grp.add(self.sec_lan)
         page.add(grp)
 
         # What the chain is actually for. A firewall with nothing listening
@@ -67,8 +70,9 @@ class SecurityPage:
         page.add(self.sec_open)
 
         back, self.sec_restore_btn = self.build_restore_group(
-            "Takes all three back out: the sysctl file, the module blocks and "
-            "the firewall, with the original /etc/nftables.conf put back. One "
+            "Takes everything back out: the sysctl file, the module blocks, "
+            "the firewall with the original /etc/nftables.conf put back, and "
+            "the lock-screen lockout. One "
             "value stays until the next boot - the kernel will not let "
             "unprivileged BPF be re-enabled on a running 4.19, which is by "
             "design and not a fault here.",
@@ -111,6 +115,18 @@ class SecurityPage:
         self.sec_open_empty.set_title(why)
         self.sec_open_empty.set_visible(True)
 
+    @staticmethod
+    def lockout_subtitle(part, subtitle):
+        """The lock screen tells nobody why a right PIN is refused - phosh
+        does not show PAM's messages - so this row is where it is said."""
+        if not part.get("module", True):
+            return "not installed - run the security install again"
+        user = part.get("user") or {}
+        left = user.get("locked_for") or 0
+        if part.get("state") == "on" and left:
+            return "Locked right now, %d:%02d left" % divmod(left, 60)
+        return subtitle
+
     def say_security_parts(self, parts):
         # _loading, the way every other page here does it: set_active fires
         # notify::active, and without the guard reading the state would
@@ -132,6 +148,8 @@ class SecurityPage:
                                  if state == "on" else subtitle)
             elif key == "firewall":
                 row.set_subtitle(self.firewall_subtitle(part, subtitle))
+            elif key == "lockout":
+                row.set_subtitle(self.lockout_subtitle(part, subtitle))
             else:
                 row.set_subtitle(subtitle)
         self._loading = False
