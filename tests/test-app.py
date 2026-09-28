@@ -3749,6 +3749,35 @@ class TheWindow(unittest.TestCase):
         self.assertIn("pkexec", argv[0])
         self.assertEqual(["sim", "2"], argv[2:])
 
+    def test_picking_an_empty_slot_runs_nothing_and_snaps_back(self):
+        """28.9.: the tray came out and a switch to the empty slot went
+        through. The list must not even ask for one."""
+        win = self.modem_win()
+        win.busy = False
+        win.on_sim_status(True, "slots: 2\nactive: 1\nrecorded: 1\npresent: 2\n")
+        before = len(self.ran)
+        win.sim_row.set_selected(0)
+        win.on_sim_select(win.sim_row, None)
+        self.assertEqual(before, len(self.ran), "picking the active slot switched")
+        win.on_sim_status(True, "slots: 2\nactive: 2\nrecorded: 2\npresent: 1\n")
+        win.sim_row.set_selected(1)
+        win.on_sim_select(win.sim_row, None)
+        self.assertEqual(before, len(self.ran))
+        win.on_sim_status(True, "slots: 2\nactive: 1\nrecorded: 1\npresent: 1\n")
+        win.sim_ok = True
+        win.sim_row.set_selected(1)
+        win.on_sim_select(win.sim_row, None)
+        self.assertEqual(before, len(self.ran), "switched to a slot with no card")
+        self.assertEqual(0, win.sim_row.get_selected())
+        self.assertIn("No card in slot 2", str(win.toasts.text))
+
+    def test_no_card_anywhere_greys_the_list(self):
+        win = self.modem_win()
+        win.on_sim_status(True, "slots: 2\nactive: 1\nrecorded: 1\npresent: none\n")
+        self.assertTrue(win.sim_group.visible)
+        self.assertFalse(win.sim_ok)
+        self.assertIn("tray", win.sim_row.subtitle)
+
     def test_syncing_the_list_starts_nothing(self):
         """Reading the state sets the selection; that must not switch."""
         win = self.modem_win()

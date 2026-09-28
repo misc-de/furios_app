@@ -57,6 +57,8 @@ class ModemPage:
         self.sim_row.set_sensitive(False)
         self.sim_row.connect("notify::selected", self.on_sim_select)
         self._sim_labels = ["SIM 1", "SIM 2"]
+        self._sim_present = []
+        self._sim_active = 1
         self.sim_group.add(self.sim_row)
         self.sim_group.set_visible(False)
         mpage.add(self.sim_group)
@@ -249,8 +251,11 @@ class ModemPage:
         labels = self.sim_labels(present, names)
 
         # Usable with two cards, or when the active slot is empty and the
-        # other one is the way back. One card where it belongs: shown, greyed.
-        self.sim_ok = len(present) >= 2 or active not in present
+        # other one - with a card in it - is the way back. One card where it
+        # belongs, or no card at all: shown, greyed.
+        self._sim_present = present
+        self._sim_active = active
+        self.sim_ok = len(present) >= 2 or (active not in present and bool(present))
         self.sim_group.set_visible(True)
         self._syncing = True
         if labels != self._sim_labels:
@@ -260,6 +265,8 @@ class ModemPage:
         self._syncing = False
         if len(present) >= 2:
             words = "One at a time - both slots share one radio"
+        elif not present:
+            words = "No card detected - is the tray pushed all the way in?"
         elif active not in present:
             words = f"No card in slot {active} - pick the other one to get the network back"
         else:
@@ -274,6 +281,17 @@ class ModemPage:
             self.toast("pkexec is missing - cannot ask for the rights to switch")
             return
         slot = row.get_selected() + 1
+        # Nothing to do for the slot already in use, and never a switch to a
+        # slot without a card - that is a phone without mobile network.
+        # modemctl refuses that too; this keeps the list from even asking.
+        if slot == self._sim_active:
+            return
+        if slot not in self._sim_present:
+            self.toast(f"No card in slot {slot}")
+            self._syncing = True
+            row.set_selected(self._sim_active - 1)
+            self._syncing = False
+            return
         self.set_busy(True)
         self.modem_progress.set_text("Switching SIM …")
         self.modem_revealer.set_reveal_child(True)
