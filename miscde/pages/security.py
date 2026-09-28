@@ -20,8 +20,6 @@ class SecurityPage:
          "unprivileged BPF, dmesg, kernel pointers, ptrace"),
         ("modules", "Block unused modules",
          "protocol families and filesystems nothing here uses"),
-        ("firewall", "Firewall",
-         "one input chain, default drop"),
         ("lockout", "Lock screen lockout",
          "3 wrong PINs lock it: 5 min, then 10, 15, 30, 60 and longer"),
     )
@@ -40,35 +38,27 @@ class SecurityPage:
         # pixels above every other tab's. What needs saying sits in the row
         # it is about.
         grp = Adw.PreferencesGroup(title="Hardening")
-        # Directly under the firewall switch, because it is the firewall's
-        # one setting and the only value on this page that belongs to this
-        # phone alone. An entry rather than anything automatic: a wrong
-        # answer here is what locks somebody out of their own phone, so it
-        # is typed, looked at and confirmed.
-        self.sec_lan = Adw.EntryRow(title="Home network, e.g. 192.168.0.0/24")
-        self.sec_lan.set_show_apply_button(True)
-        self.sec_lan.connect("apply", self.on_security_lan)
+        # No firewall here any more (removed 28.9. on request), and with it
+        # the home network it needed. secctl still has both for the command
+        # line; "revert all" below still takes a firewall out if one is on.
         self.sec_switches = {}
         for key, title, subtitle in self.PARTS:
             row = Adw.SwitchRow(title=title, subtitle=subtitle)
             row.connect("notify::active", self.on_security_switch, key)
             grp.add(row)
             self.sec_switches[key] = row
-            if key == "firewall":
-                grp.add(self.sec_lan)
         page.add(grp)
 
         back, self.sec_restore_btn = self.build_restore_group(
-            "Takes everything back out: the sysctl file, the module blocks, "
-            "the firewall with the original /etc/nftables.conf put back, and "
-            "the lock-screen lockout. One "
+            "Takes everything back out: the sysctl file, the module blocks "
+            "and the lock-screen lockout. One "
             "value stays until the next boot - the kernel will not let "
             "unprivileged BPF be re-enabled while it runs, which is by "
             "design and not a fault here.",
             self.on_security_restore)
         page.add(back)
 
-        self.sec_rows = [self.sec_lan, self.sec_restore_btn]
+        self.sec_rows = [self.sec_restore_btn]
         self.sec_rows += list(self.sec_switches.values())
         return page
 
@@ -130,30 +120,11 @@ class SecurityPage:
                 row.set_subtitle("%d of %d blocked" % (blocked,
                                                        part.get("count", 0))
                                  if state == "on" else subtitle)
-            elif key == "firewall":
-                row.set_subtitle(self.firewall_subtitle(part, subtitle))
             elif key == "lockout":
                 row.set_subtitle(self.lockout_subtitle(part, subtitle))
             else:
                 row.set_subtitle(subtitle)
         self._loading = False
-
-        lan = (parts.get("firewall") or {}).get("lan") or ""
-        # Only when it is not being typed in: writing into the entry under
-        # somebody's fingers during a refresh is how a half-typed network
-        # gets thrown away.
-        if not self.sec_lan.has_focus():
-            self.sec_lan.set_text(lan)
-
-    def firewall_subtitle(self, part, fallback):
-        if not part.get("lan"):
-            return "needs the home network below before it can come up"
-        if part.get("state") == "on":
-            live = part.get("live")
-            return ("rules load at boot" if live is None else
-                    "loaded, and back after a reboot" if live else
-                    "set to load at boot, but not loaded right now")
-        return fallback
 
     # ---------------------------------------------------------------- acting
 
@@ -185,34 +156,7 @@ class SecurityPage:
         self.set_busy(False)
         if not ok:
             self.toast("Could not switch %s %s" % (key, value))
-            # The reason matters here more than anywhere else on this page:
-            # the firewall refuses to come up without a home network, and
-            # that refusal is a sentence, not an error code.
-            if out and out.strip():
-                self.report(out.strip())
-        self.refresh()
-
-    def on_security_lan(self, entry):
-        """The network, written and - if the chain is already up - applied.
-
-        secctl validates it as CIDR and refuses anything else, so a typo
-        cannot become a rule. What it does not do is switch the firewall on:
-        naming your network is not asking for the chain.
-        """
-        if self.busy:
-            return
-        text = entry.get_text().strip()
-        if not text or self.no_pkexec():
-            return
-        self.set_busy(True)
-        process.run_async(
-            [tools.PKEXEC, self.live["security"], "lan", text],
-            self.after_security_lan)
-
-    def after_security_lan(self, ok, out):
-        self.set_busy(False)
-        if not ok:
-            self.toast("Not a network in CIDR form")
+            # secctl's refusals are sentences, not error codes.
             if out and out.strip():
                 self.report(out.strip())
         self.refresh()

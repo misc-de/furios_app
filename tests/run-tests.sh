@@ -37,6 +37,10 @@ run "the widget calls, against the real libraries" \
 # not part of the ordinary run.
 run "the askpass socket, against the real GLib" python3 "$HERE/askpass-live.py"
 
+# The swipe between tabs, against the real GTK: the tab order the ViewStack
+# reports, and what counts as a slider's own drag. Needs a display.
+run "swiping between the tabs, against the real GTK" python3 "$HERE/swipe-live.py"
+
 printf '\n\033[1m== shell\033[0m\n'
 if command -v shellcheck >/dev/null; then
     for f in "$ROOT"/*.sh "$HERE"/*.sh; do

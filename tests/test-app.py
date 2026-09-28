@@ -971,12 +971,11 @@ class TheWindow(unittest.TestCase):
                   "gps_restore_btn"]
         if KILLSWITCH:
             names += ["sw_row", "sw_wifi", "sw_bt", "sw_modem",
-                      "srow_cam_hal", "srow_cams", "srow_mic",
                       "sw_restore_btn"]
         if BATTCTL:
             names += ["batt_restore_btn"]
         if SECCTL:
-            names += ["sec_lan", "sec_restore_btn"]
+            names += ["sec_restore_btn"]
         for name in names:
             setattr(self.win, name, Recording())
         if MODEMCTL:
@@ -1006,8 +1005,7 @@ class TheWindow(unittest.TestCase):
             self.win.sec_switches = {key: Recording()
                                      for key, _t, _s in switcher.Window.PARTS}
             self.win.sec_rows = (list(self.win.sec_switches.values())
-                                 + [self.win.sec_lan,
-                                    self.win.sec_restore_btn])
+                                 + [self.win.sec_restore_btn])
         self.ran = []
         self.original = switcher.process.run_async
         # Four fields, not three: the components page passes cwd, stdin and a
@@ -2213,21 +2211,6 @@ class TheWindow(unittest.TestCase):
                   and str(c[2].get("title", "")) == "Position"]
         self.assertEqual([], titled, titled)
 
-    def test_a_status_still_says_what_the_switch_took_down(self):
-        """What replaced the position: not where the slider sits, but what
-        went with it - which is the part nothing else on the phone says."""
-        win = self.switches_win()
-        win.on_switches_status(True, self.JSON)
-        self.assertEqual("stopped", win.srow_cam_hal.subtitle)
-
-    def test_the_camera_row_says_all_of_them(self):
-        """The switch stops one service every camera goes through, so picking
-        a single one is not a thing that exists."""
-        win = self.switches_win()
-        win.on_switches_status(True, self.JSON)
-        self.assertIn("all 3", win.srow_cams.subtitle)
-        self.assertIn("never one alone", win.srow_cams.subtitle)
-
     def test_the_modem_row_cannot_be_switched_off(self):
         """Firmware stops the RIL before any program here hears about it, so
         the row is shown switched on and cannot be touched. Checked against
@@ -2307,8 +2290,7 @@ class TheWindow(unittest.TestCase):
     def test_an_unreadable_answer_is_not_shown_as_a_reading(self):
         win = self.switches_win()
         win.on_switches_status(True, "not json at all")
-        self.assertIn("unreadable", win.srow_cam_hal.subtitle)
-        self.assertNotIn("running", win.srow_cam_hal.subtitle)
+        self.assertIn("unreadable", win.sw_row.subtitle)
 
     def test_no_page_starts_with_a_paragraph_under_its_heading(self):
         """A group with a description draws its title higher than one without,
@@ -2328,40 +2310,30 @@ class TheWindow(unittest.TestCase):
         self.assertEqual(sorted(with_paragraph), sorted(allowed), with_paragraph)
 
     def test_the_switches_page_explains_itself_in_rows_not_paragraphs(self):
-        """The four groups on this page carry a title and nothing else. What
+        """The groups on this page carry a title and nothing else. What
         needs saying sits in the row it is about - the way back keeps its
         description, because that text is also the question it asks."""
         self.switches_win()
         recorder.reset()
         switcher.Window(switcher.Adw.Application())
-        titles = ("Indicator", "1 · Camera", "2 · Network", "3 · Microphone")
+        titles = ("Indicator", "Network switch")
         with_paragraph = [c[2].get("title") for c in recorder.calls
                       if c[0] == "Adw.PreferencesGroup"
                       and c[2].get("title") in titles
                       and c[2].get("description")]
         self.assertEqual([], with_paragraph)
 
-    def test_the_microphone_row_says_software_does_not_reach_it(self):
-        """The one switch that cuts the line is also the one nothing here can
-        see or set. Saying so is the whole content of the row - checked
-        against what the page actually built, not against a stand-in a test
-        wrote. Without the reason it reads like a defect, so the reason stays
-        even though the row got shorter."""
+    def test_only_the_network_switch_group_is_left(self):
+        """Camera and microphone went on 28.9.: they described the sliders
+        and set nothing. The network switch is what this page sets."""
         self.switches_win()
         recorder.reset()
         switcher.Window(switcher.Adw.Application())
-        rows = [c for c in recorder.calls if c[0] == "Adw.ActionRow"]
-        mic = [c for c in rows
-               if "not controlled by software" in str(c[2].get("title", "")).lower()]
-        self.assertTrue(mic, "no row saying software does not reach it")
-        self.assertIn("opening the microphone", str(mic[0][2].get("subtitle", "")))
-
-    def test_an_old_tools_verdict_does_not_reach_the_row(self):
-        """Older killswitch-indicators still send a measurement. Putting it on
-        screen would turn a three-second-old guess into a position."""
-        win = self.switches_win()
-        win.on_switches_status(True, self.JSON)
-        self.assertIsNone(win.srow_mic.subtitle)
+        groups = [str(c[2].get("title", "")) for c in recorder.calls
+                  if c[0] == "Adw.PreferencesGroup"]
+        self.assertIn("Network switch", groups)
+        for gone in ("1 · Camera", "2 · Network", "3 · Microphone"):
+            self.assertNotIn(gone, groups)
 
     def test_the_page_never_opens_the_microphone_itself(self):
         """Measuring means listening, and listening is what the switch is
@@ -3307,10 +3279,8 @@ class TheWindow(unittest.TestCase):
             switcher.tools.PKEXEC = None
             win._loading = False
             win.busy = False
-            win.sec_lan.text = "192.168.0.0/24"
             for act in (lambda: win.on_security_switch(
                             win.sec_switches["sysctl"], None, "sysctl"),
-                        lambda: win.on_security_lan(win.sec_lan),
                         lambda: win.on_security_restore(None)):
                 self.ran.clear()
                 act()
@@ -3351,7 +3321,7 @@ class TheWindow(unittest.TestCase):
         win = self.security_win()
         win._loading = False
         win.busy = False
-        for key in ("sysctl", "modules", "firewall", "lockout"):
+        for key in ("sysctl", "modules", "lockout"):
             # Reset per part: the handler locks the window while the helper
             # runs, and a second switch thrown while it is locked is
             # deliberately ignored.
@@ -3393,53 +3363,32 @@ class TheWindow(unittest.TestCase):
         win = self.security_win()
         win._loading = False
         win.busy = False
-        row = win.sec_switches["firewall"]
+        row = win.sec_switches["modules"]
         row.set_active(False)
         self.ran.clear()
-        win.on_security_switch(row, None, "firewall")
-        self.assertEqual(self.ran[0][0][-3:], ["set", "firewall", "off"])
-
-    def test_the_firewall_says_what_it_is_still_missing(self):
-        """It refuses to come up without a home network, and the row has to
-        say that before somebody presses a switch that cannot work."""
-        win = self.security_win()
-        win.on_security_status(True, self.SEC_JSON.replace(
-            '"lan": "192.168.0.0/24"', '"lan": ""'))
-        self.assertIn("home network",
-                      win.sec_switches["firewall"].subtitle)
-
-    def test_the_home_network_is_never_widened_by_an_empty_entry(self):
-        """An empty field is somebody clearing it, not somebody asking for
-        "any" - and the one value that decides who may reach SSH must not be
-        set from nothing."""
-        win = self.security_win()
-        win.busy = False
-        win.sec_lan.set_text("   ")
-        self.ran.clear()
-        win.on_security_lan(win.sec_lan)
-        self.assertEqual([], self.ran)
-
-    def test_the_home_network_is_handed_over_as_typed(self):
-        """secctl validates it as CIDR and refuses anything else, so the app
-        does not second-guess the text - it passes it and reports what comes
-        back."""
-        win = self.security_win()
-        win.busy = False
-        win.sec_lan.set_text("10.1.2.0/24")
-        self.ran.clear()
-        win.on_security_lan(win.sec_lan)
-        self.assertEqual(self.ran[0][0][-2:], ["lan", "10.1.2.0/24"])
+        win.on_security_switch(row, None, "modules")
+        self.assertEqual(self.ran[0][0][-3:], ["set", "modules", "off"])
 
     def test_a_refusal_is_shown_with_its_reason(self):
-        """The firewall's refusal is a sentence, not an error code, and it is
-        the one thing somebody needs in order to act."""
+        """secctl's refusal is a sentence, not an error code, and it is the
+        one thing somebody needs in order to act."""
         win = self.security_win()
         recorder.reset()
-        win.after_security(False, "The firewall needs to know which network",
-                           "firewall", "on")
+        win.after_security(False, "lockout: the module does not load",
+                           "lockout", "on")
         bodies = [str(c[2].get("body", "")) for c in recorder.calls
                   if c[0] == "Adw.AlertDialog"]
-        self.assertTrue(any("which network" in b for b in bodies), bodies)
+        self.assertTrue(any("does not load" in b for b in bodies), bodies)
+
+    def test_there_is_no_firewall_and_no_home_network(self):
+        """Removed 28.9. on request, with the home network it needed."""
+        recorder.reset()
+        self.security_win()
+        switcher.Window(switcher.Adw.Application())
+        titles = [str(c[2].get("title", "")) for c in recorder.calls
+                  if c[0] in ("Adw.SwitchRow", "Adw.EntryRow")]
+        self.assertNotIn("Firewall", titles)
+        self.assertEqual([], [x for x in titles if "Home network" in x])
 
     def test_there_is_no_listening_list(self):
         """Removed on request 28.9.: the page shows the switches only."""
@@ -3666,17 +3615,7 @@ class TheWindow(unittest.TestCase):
     def test_a_tool_that_did_not_answer_is_not_shown_as_a_reading(self):
         win = self.switches_win()
         win.on_switches_status(False, "")
-        self.assertIn("did not answer", win.srow_cam_hal.subtitle)
-        self.assertIn("did not answer", win.srow_cams.subtitle)
-
-    def test_an_unfetched_camera_list_says_how_to_fetch_it(self):
-        """The list needs root once. Until then the row must not imply that
-        one camera is spared - the switch takes all of them either way."""
-        win = self.switches_win()
-        win.on_switches_status(True, self.JSON.replace(
-            '"cameras": ["Back", "Front", "Back"]', '"cameras": []'))
-        self.assertIn("all of them", win.srow_cams.subtitle)
-        self.assertIn("--refresh", win.srow_cams.subtitle)
+        self.assertIn("did not answer", win.sw_row.subtitle)
 
     def test_choosing_bluetooth_is_written_through_the_tool_too(self):
         """The Wi-Fi row is checked above; this one exists so that the second

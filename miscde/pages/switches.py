@@ -40,15 +40,10 @@ class SwitchesPage:
         grp.add(self.sw_row)
         spage.add(grp)
 
-        cam = Adw.PreferencesGroup(title="1 · Camera")
-        self.srow_cam_hal = Adw.ActionRow(title="Camera service", subtitle="…")
-        self.srow_cams = Adw.ActionRow(title="Cameras affected", subtitle="…")
-        for row in (self.srow_cam_hal, self.srow_cams):
-            row.set_subtitle_selectable(True)
-            cam.add(row)
-        spage.add(cam)
-
-        net = Adw.PreferencesGroup(title="2 · Network")
+        # The camera and microphone groups are gone (28.9., on request):
+        # they only described what the sliders do, and nothing there could be
+        # changed. What is left is what this page actually sets.
+        net = Adw.PreferencesGroup(title="Network switch")
         # Shown as a switch like the other two, but fixed on: the Android side
         # stops the RIL before any program here learns the slider moved. The
         # only way to "deselect" it would be to start the modem back up behind
@@ -75,32 +70,6 @@ class SwitchesPage:
         net.add(self.sw_bt)
         spage.add(net)
 
-        mic = Adw.PreferencesGroup(title="3 · Microphone")
-        # The one line that cannot go: without it the row reads like a defect.
-        # It cuts the built-in microphones for real, and reading the position
-        # would mean opening them - which is what the switch is flipped
-        # against. The long version lives in the project's FINDINGS.md.
-        #
-        # Said as what it is rather than as a missing reading: "Position:
-        # not readable" puts the word Position on screen and then takes it
-        # back, which reads as a gap where the other two have an answer.
-        self.srow_mic = Adw.ActionRow(
-            title="Not controlled by software",
-            subtitle="the slider cuts the line itself - nothing here switches "
-            "it, and reading it would mean opening the microphone, which is "
-            "what it is against")
-        self.srow_mic.set_subtitle_selectable(True)
-        mic.add(self.srow_mic)
-        # For anyone who does want a number: one measurement, asked for by
-        # hand, on the terminal. Deliberately not a button here - a button is
-        # an invitation, and this one should be a decision.
-        hint = Adw.ActionRow(
-            title="Measure once by hand",
-            subtitle="killswitch-indicator mic-check")
-        hint.set_subtitle_selectable(True)
-        mic.add(hint)
-        spage.add(mic)
-
         # Nothing here can undo what the sliders do - they are hardware, and
         # Android acts on them before this program hears about it. What this
         # page added is the indicator and the two extra radios, and that is
@@ -119,27 +88,13 @@ class SwitchesPage:
 
     def on_switches_status(self, ok, out):
         if not ok:
-            for row in (self.srow_cam_hal, self.srow_cams):
-                row.set_subtitle("killswitch-indicator did not answer")
+            self.sw_row.set_subtitle("killswitch-indicator did not answer")
             return
         try:
             data = json.loads(out)
         except ValueError:
-            self.srow_cam_hal.set_subtitle("unreadable answer")
+            self.sw_row.set_subtitle("unreadable answer")
             return
-
-        hal = data.get("camera_hal")
-        self.srow_cam_hal.set_subtitle(
-            "running" if hal else "stopped" if hal is False else "unknown")
-
-        cams = data.get("cameras")
-        if cams:
-            sides = ", ".join(c.lower() for c in cams)
-            self.srow_cams.set_subtitle(f"all {len(cams)} ({sides}) - never one alone")
-        else:
-            self.srow_cams.set_subtitle(
-                "all of them - list not fetched yet "
-                "(sudo killswitch-indicator cameras --refresh)")
 
         icons = data.get("icons")
         self._loading = True

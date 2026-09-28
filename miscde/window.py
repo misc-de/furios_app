@@ -19,7 +19,7 @@ and is the only method that knows about all of them."""
 
 from gi.repository import Adw, GLib, Gtk
 
-from . import process, tools
+from . import process, swipe, tools
 from .components import BATTERY_UNIT, COMPONENTS, SELF
 from .tools import APP_ID, DMNR
 from .pages.audio import CODECS, SERVERS, AudioPage, server_at
@@ -204,7 +204,6 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
             subtitle="reading …",
         )
         self.btsave_row.connect("notify::active", self.on_btsave)
-        bt.add(self.btsave_row)
 
         # What headsets play music with. A list, not a switch: which codec
         # is worth it is the owner's call. Takes effect at once and is kept by
@@ -236,6 +235,9 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         self.codec_row.set_sensitive(False)
         self.codec_row.connect("notify::selected", self.on_codec)
         bt.add(self.codec_row)
+        # Below the codec: the two codec rows belong together, and this one is
+        # about the adapter, not about what plays.
+        bt.add(self.btsave_row)
         page.add(bt)
 
         # --- last resort ---
@@ -304,6 +306,9 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         self.switcher_bar = Adw.ViewSwitcherBar(stack=self.stack)
         self.switcher_bar.set_reveal(True)
         toolbar.add_top_bar(self.switcher_bar)
+
+        # Left and right between the tabs, as on any phone app with tabs.
+        swipe.attach(self.stack)
 
         self.toasts = Adw.ToastOverlay()
         self.toasts.set_child(self.stack)
