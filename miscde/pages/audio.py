@@ -6,7 +6,7 @@ The page itself is built in window.py with the rest of the window -
 it is the one tab that exists before any tool is found. What lives
 here is everything that happens after somebody touches it."""
 
-from gi.repository import Adw
+from gi.repository import Adw, Gtk
 
 from .. import askpass, components, process, tools
 from ..tools import DMNR
@@ -50,6 +50,41 @@ def server_at(index):
 
 def codec_name(key):
     return next((name for k, name, _ in CODECS if k == key), key)
+
+
+# The first entry for a single headset: no choice of its own, it plays what
+# is set for all of them.
+FOLLOW_ALL = ("default", "As for all headsets", "")
+
+
+def parse_codec_status(out):
+    """ "audioctl bt-codec status" as a dict of its single values, plus the
+    headsets it has seen - one "known=address|name|choice|codecs" line each,
+    which a dict would squash into the last one."""
+    values, known = {}, []
+    for line in (out or "").splitlines():
+        key, sep, value = line.partition("=")
+        if not sep:
+            continue
+        if key == "known":
+            parts = value.split("|")
+            if len(parts) == 4 and parts[0]:
+                known.append({"addr": parts[0], "name": parts[1] or parts[0],
+                              "choice": parts[2] or "default",
+                              "offered": [c for c in parts[3].split(",") if c]})
+        else:
+            values[key] = value
+    return values, known
+
+
+def device_codec_choices(offered, choice):
+    """What one headset's list offers: following the rest, Automatic, and the
+    codecs it said it has - in the order of CODECS. A choice made before it
+    stopped offering it stays in the list, so the list does not lie about
+    what is set."""
+    keep = set(offered) | {choice}
+    return [FOLLOW_ALL] + [c for c in CODECS
+                           if c[0] == "auto" or c[0] in keep]
 
 
 def codec_words(values):
@@ -401,33 +436,100 @@ class AudioPage:
         self.btsave_row.set_sensitive(not self.busy and self.btsave_ok)
 
     def on_codec_status(self, ok, out):
-        values = dict(z.split("=", 1) for z in (out or "").splitlines()
-                      if "=" in z)
+        values, known = parse_codec_status(out)
         pref = values.get("preference")
-        keys = [k for k, _, _ in CODECS]
         # Unsupported is its own answer: WirePlumber is not running (the
         # shipped profile) or does not know the setting (an older
         # furios_audio). "Automatic" would claim a choice nobody can make.
-        if not ok or pref not in keys:
+        if not ok or pref not in [k for k, _, _ in CODECS]:
             self.codec_ok = False
             self.codec_row.set_sensitive(False)
+            self.codec_scope_row.set_visible(False)
             self.codec_row.set_subtitle(
                 "Needs PipeWire owning the HAL and a current furios_audio")
             return
         self.codec_ok = True
+        self._codec_values = values
+        self._codec_known = {k["addr"]: k for k in known}
+
+        # Which headsets there are to choose between. None stands for all of
+        # them. Only headsets that were connected once are listed - before
+        # that nobody knows which codecs they have.
+        per_device = values.get("per_device") == "yes" and known
+        scopes = [None] + ([k["addr"] for k in known] if per_device else [])
+        device = values.get("device")
+        labels = ["All headsets"] + [
+            k["name"] + (" · connected" if k["addr"] == device else "")
+            for k in known if per_device]
         self._syncing = True
-        self.codec_row.set_selected(keys.index(pref))
+        if labels != self._codec_scope_labels:
+            self.codec_scope_row.set_model(Gtk.StringList.new(labels))
+            self._codec_scope_labels = labels
+        # Until somebody picks one, the list follows the headset that is
+        # connected - that is the one a change is most likely meant for.
+        if self._codec_scope_auto or self._codec_scope not in scopes:
+            self._codec_scope = device if device in scopes else None
+        self._codec_scopes = scopes
+        self.codec_scope_row.set_selected(scopes.index(self._codec_scope))
         self._syncing = False
-        self.codec_row.set_subtitle(codec_words(values))
+        self.codec_scope_row.set_visible(bool(per_device))
+        self.codec_scope_row.set_sensitive(not self.busy)
+        self.show_codec_scope()
+
+    def show_codec_scope(self):
+        """Fill the codec list for what "Applies to" says: every codec for all
+        headsets, only the ones it offers for a single one."""
+        values = self._codec_values
+        scope = self._codec_scope
+        pref = values.get("preference", "auto")
+        if scope is None:
+            choices, chosen = CODECS, pref
+            words = codec_words(values)
+        else:
+            known = self._codec_known[scope]
+            chosen = known["choice"]
+            choices = device_codec_choices(known["offered"], chosen)
+            if scope != values.get("device"):
+                words = "Not connected - applies when it connects"
+            elif values.get("active"):
+                words = "Playing %s" % codec_name(values["active"])
+            else:
+                words = "The headset is on hands-free right now"
+            if chosen == "default":
+                words += " · all headsets: %s" % codec_name(pref)
+        keys = [k for k, _, _ in choices]
+        self._syncing = True
+        if keys != self._codec_keys:
+            self.codec_row.set_model(Gtk.StringList.new(
+                [name for _k, name, _n in choices]))
+            self._codec_keys = keys
+        if chosen in keys:
+            self.codec_row.set_selected(keys.index(chosen))
+        self._syncing = False
+        self.codec_row.set_subtitle(words)
         self.codec_row.set_sensitive(not self.busy)
+
+    def on_codec_scope(self, row, _param):
+        if self._syncing or self.busy or not self.codec_ok:
+            return
+        index = row.get_selected()
+        if not isinstance(index, int) or not 0 <= index < len(self._codec_scopes):
+            return
+        self._codec_scope_auto = False
+        self._codec_scope = self._codec_scopes[index]
+        self.show_codec_scope()
 
     def on_codec(self, row, _param):
         if self._syncing or self.busy or not self.live.get("audio"):
             return
-        key = CODECS[row.get_selected()][0]
+        index = row.get_selected()
+        if not isinstance(index, int) or not 0 <= index < len(self._codec_keys):
+            return
+        argv = [self.live["audio"], "bt-codec", self._codec_keys[index]]
+        if self._codec_scope is not None:
+            argv += ["--device", self._codec_scope]
         self.set_busy(True)
-        process.run_async([self.live["audio"], "bt-codec", key],
-                          self.on_codec_done)
+        process.run_async(argv, self.on_codec_done)
 
     def on_codec_done(self, ok, out):
         self.set_busy(False)

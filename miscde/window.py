@@ -195,6 +195,23 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         # What headsets play music with. A list, not a switch: which codec
         # is worth it is the owner's call. Takes effect at once and is kept by
         # WirePlumber, so the remember switch above has nothing to say here.
+        # Which headset the codec below is for: all of them, or one alone.
+        # Only there once a headset has been seen - see on_codec_status.
+        self.codec_scope_row = Adw.ComboRow(
+            title="Applies to",
+            model=Gtk.StringList.new(["All headsets"]),
+        )
+        self.codec_scope_row.set_visible(False)
+        self.codec_scope_row.connect("notify::selected", self.on_codec_scope)
+        bt.add(self.codec_scope_row)
+        self._codec_scope_labels = ["All headsets"]
+        self._codec_scopes = [None]
+        self._codec_scope = None
+        self._codec_scope_auto = True
+        self._codec_known = {}
+        self._codec_values = {}
+        self._codec_keys = [k for k, _name, _note in CODECS]
+
         self.codec_row = Adw.ComboRow(
             title="Music codec",
             subtitle="reading …",
@@ -410,6 +427,7 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         self.dmnr_row.set_sensitive(not busy and self.dmnr_ok)
         self.btsave_row.set_sensitive(not busy and self.btsave_ok)
         self.codec_row.set_sensitive(not busy and self.codec_ok)
+        self.codec_scope_row.set_sensitive(not busy and self.codec_ok)
         # Sensitive only while there is something behind it. show_update_count
         # owns whether it is there at all; this owns whether it can be
         # pressed, and a batch that is running must not be started twice.

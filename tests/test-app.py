@@ -952,6 +952,7 @@ class TheWindow(unittest.TestCase):
         self.win = switcher.Window(switcher.Adw.Application())
         names = ["row_profile", "row_server", "row_sinks", "switch_row",
                  "persist_row", "dmnr_row", "btsave_row", "codec_row",
+                 "codec_scope_row",
                  "update_btn",
                  "progress", "progress_revealer", "toasts"]
         # The modem widgets only exist when the page was built, and the page is
@@ -1472,6 +1473,68 @@ class TheWindow(unittest.TestCase):
         self.win._syncing = True
         self.win.on_codec(self.win.codec_row, None)
         self.assertEqual([], [r for r in self.ran if "bt-codec" in r[0]])
+
+    # --- one headset, its own codec ---
+
+    KNOWN = ("per_device=yes\n"
+             "known=F4:9D:8A:00:00:01|soundcore Liberty 4 Pro|default|aac,sbc,sbc_xq\n"
+             "known=98:52:3D:00:00:02|Soundcore Liberty Air 2-L|sbc|sbc\n")
+
+    def test_the_connected_headset_is_picked_until_somebody_chooses(self):
+        self.win.on_codec_status(True, self.CODEC.replace(
+            "card=", "device=F4:9D:8A:00:00:01\ncard=") + self.KNOWN)
+        self.assertTrue(self.win.codec_scope_row.visible)
+        self.assertEqual("F4:9D:8A:00:00:01", self.win._codec_scope)
+        self.assertEqual(1, self.win.codec_scope_row.get_selected())
+        self.assertIn("connected", self.win._codec_scope_labels[1])
+
+    def test_a_headset_is_offered_only_what_it_has(self):
+        self.win.on_codec_status(True, self.CODEC.replace(
+            "card=", "device=F4:9D:8A:00:00:01\ncard=") + self.KNOWN)
+        self.assertEqual(["default", "auto", "aac", "sbc_xq", "sbc"],
+                         self.win._codec_keys)
+        self.assertEqual(0, self.win.codec_row.get_selected())
+        self.assertIn("all headsets: SBC", self.win.codec_row.subtitle)
+
+    def test_choosing_for_one_headset_names_it(self):
+        self.win.busy = False
+        self.win.live["audio"] = "/usr/bin/audioctl"
+        self.win.on_codec_status(True, self.CODEC.replace(
+            "card=", "device=F4:9D:8A:00:00:01\ncard=") + self.KNOWN)
+        self.win.codec_row.set_selected(self.win._codec_keys.index("sbc_xq"))
+        self.win.on_codec(self.win.codec_row, None)
+        self.assertEqual(["/usr/bin/audioctl", "bt-codec", "sbc_xq",
+                          "--device", "F4:9D:8A:00:00:01"], self.ran[-1][0])
+
+    def test_picking_another_headset_shows_its_list_and_stays(self):
+        self.win.busy = False
+        out = self.CODEC.replace("card=", "device=F4:9D:8A:00:00:01\ncard=") + self.KNOWN
+        self.win.on_codec_status(True, out)
+        self.win.codec_scope_row.set_selected(2)
+        self.win.on_codec_scope(self.win.codec_scope_row, None)
+        self.assertEqual(["default", "auto", "sbc"], self.win._codec_keys)
+        self.assertEqual(2, self.win.codec_row.get_selected())
+        self.assertIn("Not connected", self.win.codec_row.subtitle)
+        self.win.on_codec_status(True, out)
+        self.assertEqual("98:52:3D:00:00:02", self.win._codec_scope,
+                         "a refresh took the chosen headset away again")
+
+    def test_all_headsets_keeps_the_full_list_and_runs_without_device(self):
+        self.win.busy = False
+        self.win.live["audio"] = "/usr/bin/audioctl"
+        self.win.on_codec_status(True, self.CODEC + self.KNOWN)
+        self.assertIsNone(self.win._codec_scope)
+        self.assertEqual(self.codec_keys(), self.win._codec_keys)
+        self.win.codec_row.set_selected(self.codec_keys().index("aac"))
+        self.win.on_codec(self.win.codec_row, None)
+        self.assertEqual(["/usr/bin/audioctl", "bt-codec", "aac"], self.ran[-1][0])
+
+    def test_an_older_audioctl_shows_no_headset_list(self):
+        self.win.on_codec_status(True, self.CODEC)
+        self.assertFalse(self.win.codec_scope_row.visible)
+        self.win.on_codec_status(True, self.CODEC + self.KNOWN.replace(
+            "per_device=yes", "per_device=no"))
+        self.assertFalse(self.win.codec_scope_row.visible)
 
     def test_a_failed_codec_change_is_reported(self):
         said = []
