@@ -3192,9 +3192,6 @@ class TheWindow(unittest.TestCase):
             switcher.tools.PKEXEC = real
 
     SEC_JSON = """{
-      "kernel": {"release": "4.19.325-furiphone-radon", "base": "4.19.325",
-                 "series": "4.19", "eol": "2024-12-05",
-                 "last_release": "4.19.325", "maintained": false},
       "parts": {
         "sysctl": {"state": "on", "keys": {}},
         "modules": {"state": "on", "count": 14,
@@ -3211,16 +3208,6 @@ class TheWindow(unittest.TestCase):
       ]},
       "state": "on"
     }"""
-
-    def test_the_page_says_nothing_about_the_kernel_version(self):
-        """It was a paragraph nobody can act on from this page, and it is
-        gone. secctl still reports it; the tab does not."""
-        win = self.security_win()
-        win.on_security_status(True, self.SEC_JSON)
-        said = [str(row.subtitle) for row in win.sec_switches.values()]
-        said += [str(win.sec_open_empty.title)]
-        self.assertEqual([], [s for s in said
-                              if "4.19" in s or "end of life" in s])
 
     def test_filling_the_page_writes_nothing_back(self):
         """set_active fires notify::active. Without the guard, reading the

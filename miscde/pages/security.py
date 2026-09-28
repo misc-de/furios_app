@@ -29,11 +29,8 @@ class SecurityPage:
     def build_security_page(self):
         """What is switched on, and what is exposed.
 
-        No kernel line. The version and its end of life were at the top as
-        the premise for the three switches, and they took a paragraph to
-        say something nobody can act on from here - the switches are worth
-        having on any phone, whatever kernel it boots. It is still in
-        `secctl status` for anyone who wants the reasoning.
+        No kernel line: the switches are worth having on any phone,
+        whatever kernel it boots.
         """
         page = Adw.PreferencesPage()
 
@@ -74,7 +71,7 @@ class SecurityPage:
             "the firewall with the original /etc/nftables.conf put back, and "
             "the lock-screen lockout. One "
             "value stays until the next boot - the kernel will not let "
-            "unprivileged BPF be re-enabled on a running 4.19, which is by "
+            "unprivileged BPF be re-enabled while it runs, which is by "
             "design and not a fault here.",
             self.on_security_restore)
         page.add(back)
