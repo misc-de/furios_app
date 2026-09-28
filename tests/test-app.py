@@ -868,6 +868,9 @@ class Recording:
     def set_visible(self, value):
         self.visible = value
 
+    def set_model(self, model):
+        self.model = model
+
     def set_selected(self, index):
         self.selected = index
 
@@ -3690,12 +3693,29 @@ class TheWindow(unittest.TestCase):
     SIM_ONE_CARD = "slots: 2\nactive: 1\nrecorded: 1\npresent: 1\n"
     SIM_TWO_CARDS = "slots: 2\nactive: 1\nrecorded: 1\npresent: 1 2\n"
 
-    def test_one_card_in_slot_one_shows_no_sim_row(self):
-        """The shipped phone: nothing to choose, so nothing on screen."""
+    def test_one_card_shows_the_row_greyed_and_says_why(self):
+        """Wanted on 28.9.: the option must be findable before a second card
+        is in - shown, but not usable, with the reason in the subtitle."""
         win = self.modem_win()
+        win.busy = False
         win.on_sim_status(True, self.SIM_ONE_CARD)
-        self.assertFalse(win.sim_group.visible)
+        self.assertTrue(win.sim_group.visible)
         self.assertFalse(win.sim_ok)
+        self.assertFalse(win.sim_row.sensitive)
+        self.assertIn("second card", win.sim_row.subtitle)
+        win.set_busy(False)
+        self.assertFalse(win.sim_row.sensitive, "set_busy made it usable again")
+
+    def test_labels_carry_the_provider_and_the_empty_slot(self):
+        self.assertEqual(["SIM 1 · Willkommen", "SIM 2 · no card"],
+                         switcher.Window.sim_labels([1], {1: "Willkommen"}))
+        self.assertEqual(["SIM 1 · Willkommen", "SIM 2"],
+                         switcher.Window.sim_labels([1, 2], {1: "Willkommen", 2: ""}))
+
+    def test_the_names_reach_the_list(self):
+        win = self.modem_win()
+        win.on_sim_status(True, self.SIM_TWO_CARDS + "name1: Willkommen\nname2: Vodafone\n")
+        self.assertEqual(["SIM 1 · Willkommen", "SIM 2 · Vodafone"], win._sim_labels)
 
     def test_two_cards_show_the_list_on_the_active_slot(self):
         win = self.modem_win()
@@ -3710,8 +3730,10 @@ class TheWindow(unittest.TestCase):
         """Switched to 2 and the card came out: the row must stay, or there is
         no button left that leads back to slot 1."""
         win = self.modem_win()
+        win.busy = False
         win.on_sim_status(True, "slots: 2\nactive: 2\nrecorded: 2\npresent: 1\n")
         self.assertTrue(win.sim_group.visible)
+        self.assertTrue(win.sim_row.sensitive)
         self.assertIn("slot 2", win.sim_row.subtitle)
 
     def test_an_older_modemctl_without_sim_hides_the_row(self):

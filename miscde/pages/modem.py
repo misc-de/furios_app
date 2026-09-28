@@ -47,11 +47,13 @@ class ModemPage:
         grp.add(self.modem_revealer)
         mpage.add(grp)
 
-        # Which SIM. Only there when there is a choice to make: two cards in,
-        # or a phone already on the second slot (so there is a way back). A
-        # list rather than a switch, because the slots have numbers, not an
-        # on and an off. Always remembered - a SIM that went back at the next
-        # boot would be a surprise, not a try.
+        # Which SIM. Shown on every phone with two slots, also with one card
+        # in: the option should be findable before anybody needs it. It can
+        # only be used when there is somewhere to go - two cards, or a way
+        # back from a slot whose card came out. A list rather than a switch,
+        # because the slots have numbers, not an on and an off. Always
+        # remembered - a SIM that went back at the next boot would be a
+        # surprise, not a try.
         self.sim_group = Adw.PreferencesGroup(title="SIM")
         self.sim_row = Adw.ComboRow(
             title="Active SIM",
@@ -61,6 +63,7 @@ class ModemPage:
         self.sim_ok = False
         self.sim_row.set_sensitive(False)
         self.sim_row.connect("notify::selected", self.on_sim_select)
+        self._sim_labels = ["SIM 1", "SIM 2"]
         self.sim_group.add(self.sim_row)
         self.sim_group.set_visible(False)
         mpage.add(self.sim_group)
@@ -214,37 +217,60 @@ class ModemPage:
 
     # --- which SIM ---------------------------------------------------------
 
+    @staticmethod
+    def sim_labels(present, names):
+        """"SIM 1 · Willkommen", "SIM 2 · no card". The name is what the card
+        calls itself, or what modemctl remembered or looked up for it - there
+        is none for a locked card never used here, and then the slot number
+        has to do."""
+        labels = []
+        for n in (1, 2):
+            if n not in present:
+                labels.append(f"SIM {n} · no card")
+            elif names.get(n):
+                labels.append(f"SIM {n} · {names[n]}")
+            else:
+                labels.append(f"SIM {n}")
+        return labels
+
     def on_sim_status(self, ok, out):
-        """modemctl sim prints slots, active, recorded and present. An older
-        modemctl has no such command and answers with its usage - then there
-        is no row, rather than a row that cannot do anything."""
+        """modemctl sim prints slots, active, recorded, present and a name per
+        card. An older modemctl has no such command and answers with its
+        usage - then there is no row, rather than a row that cannot do
+        anything. Neither is there one on a phone with a single slot."""
         found = self._keyed(out or "")
         try:
             slots = int(found.get("slots", ""))
             active = int(found.get("active", ""))
         except ValueError:
+            slots = active = 0
+        if slots < 2 or active not in (1, 2):
             self.sim_ok = False
             self.sim_group.set_visible(False)
             return
         present = [int(p) for p in found.get("present", "").split()
                    if p.isdigit()]
-        # Two cards to choose between, or already on slot 2 and needing the
-        # way back to 1. One card in slot 1 is the shipped phone - no row.
-        if slots < 2 or (len(present) < 2 and active == 1):
-            self.sim_ok = False
-            self.sim_group.set_visible(False)
-            return
-        self.sim_ok = True
+        names = {n: found.get(f"name{n}", "") for n in (1, 2)}
+        labels = self.sim_labels(present, names)
+
+        # Usable with two cards, or when the active slot is empty and the
+        # other one is the way back. One card where it belongs: shown, greyed.
+        self.sim_ok = len(present) >= 2 or active not in present
         self.sim_group.set_visible(True)
         self._syncing = True
-        self.sim_row.set_selected(min(active, 2) - 1)
+        if labels != self._sim_labels:
+            self.sim_row.set_model(Gtk.StringList.new(labels))
+            self._sim_labels = labels
+        self.sim_row.set_selected(active - 1)
         self._syncing = False
-        missing = [n for n in (1, 2) if n not in present]
-        words = "One at a time - both slots share one radio"
-        if missing:
-            words = f"No card detected in slot {missing[0]}"
+        if len(present) >= 2:
+            words = "One at a time - both slots share one radio"
+        elif active not in present:
+            words = f"No card in slot {active} - pick the other one to get the network back"
+        else:
+            words = "Insert a second card to choose between them"
         self.sim_row.set_subtitle(words)
-        self.sim_row.set_sensitive(not self.busy)
+        self.sim_row.set_sensitive(self.sim_ok and not self.busy)
 
     def on_sim_select(self, row, _param):
         if self._syncing or self.busy or not self.sim_ok:
