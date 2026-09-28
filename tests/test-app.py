@@ -958,7 +958,7 @@ class TheWindow(unittest.TestCase):
         # only built when modemctl is installed - so they are swapped in the
         # same way, and only when they are there to swap.
         if MODEMCTL:
-            names += ["modem_row", "modem_persist", "modem_progress",
+            names += ["modem_row", "modem_progress",
                       "modem_revealer", "mrow_profile", "mrow_health",
                       "mrow_signal", "modem_restore_btn",
                       "sim_group", "sim_row"]
@@ -979,7 +979,7 @@ class TheWindow(unittest.TestCase):
         for name in names:
             setattr(self.win, name, Recording())
         if MODEMCTL:
-            self.win.modem_rows = [self.win.modem_row, self.win.modem_persist,
+            self.win.modem_rows = [self.win.modem_row,
                                    self.win.modem_restore_btn]
         self.win.gps_rows = [self.win.gps_contrib, self.win.gps_firefox,
                              self.win.gps_restore_btn]
@@ -3660,7 +3660,6 @@ class TheWindow(unittest.TestCase):
 
     def test_the_switch_asks_for_the_rights_it_needs(self):
         win = self.modem_win()
-        win.modem_persist.active = True
         win.modem_row.active = False
         win.on_modem_switch(win.modem_row, None)
         argv = self.ran[-1][0]
@@ -3895,12 +3894,6 @@ class TheWindow(unittest.TestCase):
         self.assertIn("pkexec", argv[0])
         self.assertEqual(["set", "shipped"], argv[2:])
 
-    def test_the_restore_button_ignores_the_remember_switch(self):
-        win = self.modem_win()
-        win.modem_persist.active = False
-        win.on_modem_restore(None)
-        self.assertEqual(["set", "shipped"], self.ran[-1][0][2:])
-
     def test_restoring_says_what_the_phone_is_now(self):
         win = self.modem_win()
         win.on_modem_restored(True, "")
@@ -3917,12 +3910,12 @@ class TheWindow(unittest.TestCase):
         win.on_modem_restore(None)
         self.assertEqual([], self.ran)
 
-    def test_not_remembering_is_a_try_and_not_a_set(self):
+    def test_switching_on_is_always_remembered(self):
+        """No remember row any more: on means on after a reboot too."""
         win = self.modem_win()
-        win.modem_persist.active = False
         win.modem_row.active = True
         win.on_modem_switch(win.modem_row, None)
-        self.assertEqual(["try", "fixed"], self.ran[-1][0][2:])
+        self.assertEqual(["set", "fixed"], self.ran[-1][0][2:])
 
     def test_the_switch_does_not_fire_while_the_window_is_syncing(self):
         """Filling the switch from the status would otherwise switch the modem."""

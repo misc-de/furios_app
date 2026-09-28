@@ -27,13 +27,6 @@ class ModemPage:
         self.modem_row.connect("notify::active", self.on_modem_switch)
         grp.add(self.modem_row)
 
-        self.modem_persist = Adw.SwitchRow(
-            title="Remember this choice",
-            subtitle="Off: the next boot returns to what was recorded",
-            active=True,
-        )
-        grp.add(self.modem_persist)
-
         self.modem_progress = Gtk.ProgressBar(show_text=True, text="")
         for m in ("top", "bottom"):
             getattr(self.modem_progress, "set_margin_" + m)(6)
@@ -87,8 +80,7 @@ class ModemPage:
             self.on_modem_restore)
         mpage.add(back)
 
-        self.modem_rows = [self.modem_row, self.modem_persist,
-                           self.modem_restore_btn]
+        self.modem_rows = [self.modem_row, self.modem_restore_btn]
         return mpage
 
 
@@ -135,7 +127,6 @@ class ModemPage:
 
         self._syncing = True
         self.modem_row.set_active(actual == "fixed")
-        self.modem_persist.set_active(recorded == actual)
         self._syncing = False
         self.modem_row.set_subtitle(
             "On: patched, with a route and a resolver that work without Wi-Fi"
@@ -165,7 +156,11 @@ class ModemPage:
         if not tools.PKEXEC:
             self.toast("pkexec is missing - cannot ask for the rights to switch")
             return
-        mode = "set" if self.modem_persist.get_active() else "try"
+        # Always "set": the repairs are what makes mobile data work, and a
+        # switch that quietly fell back at the next boot was one more thing
+        # to remember. There is no "remember" row any more (28.9.); a try is
+        # still there for the command line.
+        mode = "set"
         want = "fixed" if row.get_active() else "shipped"
         self.set_busy(True)
         self.modem_progress.set_text("Switching …")
