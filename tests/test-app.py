@@ -1604,22 +1604,29 @@ class TheWindow(unittest.TestCase):
         self.win.on_btx(self.win.btx_row, None)
         self.assertEqual(["/usr/bin/audioctl", "bt-extras", "off"], self.ran[-1][0])
 
-    def test_under_pulseaudio_they_are_a_choice_marked_untested(self):
+    def test_under_pulseaudio_they_are_not_offered(self):
+        """Nothing of ours runs under PulseAudio (decided 29.9.2026)."""
         self.win.busy = False
-        self.win.on_btx_status(True, "bt-extras=off\nprofile=standard\neffective=none\n")
-        self.assertFalse(self.win.btx_row.get_active())
-        self.assertTrue(self.win.btx_row.sensitive)
-        self.assertIn("not tested", self.win.btx_row.subtitle)
-        self.win.on_btx_status(True, "bt-extras=on\nprofile=standard\neffective=basic\n")
-        self.assertTrue(self.win.btx_row.get_active())
+        self.win.on_btx_status(True, "bt-extras=on\nprofile=pw-hal\noffered=yes\neffective=all\n")
+        self.assertTrue(self.win.btx_row.visible)
+        self.win.on_btx_status(True, "bt-extras=on\nprofile=standard\noffered=no\neffective=none\n")
+        self.assertFalse(self.win.btx_row.visible)
+        self.assertFalse(self.win.btx_ok)
 
-    def test_switching_the_helpers_runs_audioctl(self):
+    def test_an_older_audioctl_is_judged_by_its_profile(self):
+        self.win.on_btx_status(True, "bt-extras=on\nprofile=standard\neffective=basic\n")
+        self.assertFalse(self.win.btx_row.visible)
+        self.win.on_btx_status(True, "bt-extras=on\nprofile=pw-hal\neffective=all\n")
+        self.assertTrue(self.win.btx_row.visible)
+
+    def test_a_hidden_row_runs_nothing(self):
         self.win.busy = False
         self.win.live["audio"] = "/usr/bin/audioctl"
-        self.win.on_btx_status(True, "bt-extras=off\nprofile=standard\neffective=none\n")
+        self.win.on_btx_status(True, "bt-extras=off\nprofile=standard\noffered=no\neffective=none\n")
+        before = len(self.ran)
         self.win.btx_row.active = True
         self.win.on_btx(self.win.btx_row, None)
-        self.assertEqual(["/usr/bin/audioctl", "bt-extras", "on"], self.ran[-1][0])
+        self.assertEqual(before, len(self.ran))
 
     def test_syncing_the_helpers_row_runs_nothing(self):
         self.win.busy = False
@@ -1677,36 +1684,9 @@ class TheWindow(unittest.TestCase):
         self.win.on_codec_status(True, "preference=unsupported\n")
         self.assertFalse(self.win.codec_ok)
         self.assertFalse(self.win.codec_row.sensitive)
+        self.assertFalse(self.win.codec_row.visible)
         self.win.set_busy(False)
         self.assertFalse(self.win.codec_row.sensitive)
-
-    PULSE = ("server=pulseaudio\npreference=auto\nper_device=no\n"
-             "card=bluez_card.F4_9D_8A_00_00_01\ndevice=F4:9D:8A:00:00:01\n"
-             "active=sbc\noffered=sbc sbc_xq\nchoices=auto sbc sbc_xq\n")
-
-    def test_under_pulseaudio_the_row_is_open(self):
-        self.win.busy = False
-        self.win.on_codec_status(True, self.PULSE)
-        self.assertTrue(self.win.codec_ok)
-        self.assertTrue(self.win.codec_row.sensitive)
-        self.assertFalse(self.win.codec_scope_row.visible)
-
-    def test_under_pulseaudio_only_what_it_can_switch_to_is_listed(self):
-        self.win.on_codec_status(True, self.PULSE)
-        self.assertEqual(["auto", "sbc_xq", "sbc"], self.win._codec_keys)
-        self.assertEqual(0, self.win.codec_row.get_selected())
-
-    def test_under_pulseaudio_automatic_is_not_called_the_best(self):
-        self.win.on_codec_status(True, self.PULSE)
-        self.assertIn("PulseAudio", self.win.codec_row.subtitle)
-        self.assertNotIn("best", self.win.codec_row.subtitle)
-
-    def test_a_choice_outside_the_list_stays_visible(self):
-        self.win.on_codec_status(True, self.PULSE.replace(
-            "preference=auto", "preference=aptx"))
-        self.assertIn("aptx", self.win._codec_keys)
-        self.assertEqual(self.win._codec_keys.index("aptx"),
-                         self.win.codec_row.get_selected())
 
     def test_choosing_a_codec_runs_audioctl_with_it(self):
         self.win.live["audio"] = "/usr/bin/audioctl"

@@ -88,26 +88,12 @@ def device_codec_choices(offered, choice):
                            if c[0] == "auto" or c[0] in keep]
 
 
-def codec_choices(values):
-    """What the list for all headsets offers. Every codec under PipeWire;
-    under PulseAudio only what audioctl says it can switch to ("choices="),
-    plus whatever is set, so the list does not lie about it."""
-    offered = values.get("choices")
-    if offered is None:
-        return CODECS
-    keep = set(offered.split()) | {values.get("preference", "auto"), "auto"}
-    return [c for c in CODECS if c[0] in keep]
-
-
 def codec_words(values):
     """The row's subtitle from "audioctl bt-codec status" output, parsed into
     a dict. What is chosen, and what a connected headset really plays -
     which is not the same when the headset does not offer the choice."""
     pref = values.get("preference", "auto")
     what = next((note for k, __, note in CODECS if k == pref), "")
-    # PulseAudio picks by itself on connect, and not "the best": SBC.
-    if pref == "auto" and values.get("server") == "pulseaudio":
-        what = _("PulseAudio's own choice")
     if not values.get("card"):
         return _("%s - no device connected") % what if what else _("no device connected")
     active = values.get("active")
@@ -323,7 +309,12 @@ class AudioPage:
         values = dict(z.split("=", 1) for z in (out or "").splitlines()
                       if "=" in z)
         effective = values.get("effective")
-        if not ok or effective not in ("all", "basic", "none"):
+        # Not offered under PulseAudio: nothing of ours runs there (decided
+        # 29.9.2026). "offered" comes from a current audioctl; an older one
+        # still says the profile.
+        offered = values.get("offered",
+                             "yes" if values.get("profile") == "pw-hal" else "no")
+        if not ok or effective not in ("all", "basic", "none") or offered != "yes":
             self.btx_ok = False
             self.btx_row.set_visible(False)
             return
@@ -331,15 +322,9 @@ class AudioPage:
         self.btx_ok = True
         self._syncing = True
         self.btx_row.set_active(values.get("bt-extras") == "on")
-        # The description is the owner's (29.9.). Under PulseAudio it says
-        # what is missing there, because the row looks the same.
-        words = _("Enables the helper that makes sure audio and microphone "
-                  "are set correctly")
-        if values.get("profile") != "pw-hal":
-            words += _(" - with PulseAudio only reconnect, pause, and a "
-                       "headset that connected as the wrong kind of device; "
-                       "not tested there yet")
-        self.btx_row.set_subtitle(words)
+        # The description is the owner's (29.9.).
+        self.btx_row.set_subtitle(_("Enables the helper that makes sure audio "
+                                    "and microphone are set correctly"))
         self._syncing = False
         self.btx_row.set_sensitive(self.btx_ok and not self.busy)
 
@@ -518,17 +503,19 @@ class AudioPage:
     def on_codec_status(self, ok, out):
         values, known = parse_codec_status(out)
         pref = values.get("preference")
-        # Unsupported is its own answer: an older furios_audio, which knew
-        # no codec under PulseAudio and no setting in WirePlumber.
-        # "Automatic" would claim a choice nobody can make.
+        # Unsupported is its own answer: WirePlumber is not running (the
+        # shipped profile) or does not know the setting (an older
+        # furios_audio). "Automatic" would claim a choice nobody can make, so
+        # the row is not offered at all - under PulseAudio the phone stays as
+        # shipped (decided 29.9.2026).
         if not ok or pref not in [k for k, __, __ in CODECS]:
             self.codec_ok = False
             self.codec_row.set_sensitive(False)
+            self.codec_row.set_visible(False)
             self.codec_scope_row.set_visible(False)
-            self.codec_row.set_subtitle(
-                _("Needs a current furios_audio"))
             return
         self.codec_ok = True
+        self.codec_row.set_visible(True)
         self._codec_values = values
         self._codec_known = {k["addr"]: k for k in known}
 
@@ -564,7 +551,7 @@ class AudioPage:
         scope = self._codec_scope
         pref = values.get("preference", "auto")
         if scope is None:
-            choices, chosen = codec_choices(values), pref
+            choices, chosen = CODECS, pref
             words = codec_words(values)
         else:
             known = self._codec_known[scope]

@@ -75,8 +75,6 @@ TRANSLATIONS = {
     "Enables the helper that makes sure audio and microphone are set correctly":
         "Aktiviert den Helfer, der dafür sorgt, dass Audio und Mikrofon richtig "
         "gesetzt werden",
-    " - with PulseAudio only reconnect, pause, and a headset that connected as the wrong kind of device; not tested there yet":
-        " - mit PulseAudio nur Wiederverbinden, Pausieren und ein Headset, das sich als falsches Gerät verbunden hat; dort noch nicht getestet",
     "Could not change the Bluetooth helpers":
         "Die Bluetooth-Helfer konnten nicht geändert werden",
     "Handsfree echo suppression (DMNR)": "Echounterdrückung beim Freisprechen (DMNR)",
@@ -157,8 +155,6 @@ TRANSLATIONS = {
     "Automatic": "Automatisch",
     "the best one both ends know": "der beste, den beide Seiten kennen",
     "Same as for all": "Wie für alle",
-    "Needs a current furios_audio": "Braucht ein aktuelles furios_audio",
-    "PulseAudio's own choice": "wie PulseAudio es wählt",
     "Playing %s": "Spielt %s",
     "Playing %s · %s": "Spielt %s · %s",
     "%s - no device connected": "%s - kein Gerät verbunden",
