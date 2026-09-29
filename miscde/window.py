@@ -17,7 +17,7 @@ left here is what every page uses: the busy state, the progress bar,
 the toast, the way back, and refresh(), which asks every tool at once
 and is the only method that knows about all of them."""
 
-from gi.repository import Adw, GLib, Gtk
+from gi.repository import Adw, Gdk, GLib, Gtk
 
 from . import combo, i18n, process, swipe, tools
 from .components import BATTERY_UNIT, COMPONENTS, SELF
@@ -327,27 +327,105 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         self.pages[OTHER_TAB[0]] = self.build_other_page()
         self.stack.add_titled_with_icon(self.pages[OTHER_TAB[0]], *OTHER_TAB)
 
-        # Directly under the header, not at the foot of the window: the tabs
-        # belong with the title of what they switch, and down there they sat
-        # where a page's last control is - one thumb's width from "Restore
-        # shipped state".
-        self.switcher_bar = Adw.ViewSwitcherBar(stack=self.stack)
-        self.switcher_bar.set_reveal(True)
-        toolbar.add_top_bar(self.switcher_bar)
+        # A list to start from and a page behind each entry (asked for 29.9.,
+        # after a mock-up): seven tabs no longer fit a phone's width, and the
+        # switcher bar squeezed them into icons nobody could tell apart. The
+        # pages stay in the one stack - a widget has one parent, and moving
+        # it into a page of its own would lose what swap_in_page keeps - and
+        # the page behind the list shows whichever of them was chosen.
+        toolbar.set_content(self.build_menu())
+        detail = Adw.ToolbarView()
+        detail.add_top_bar(Adw.HeaderBar())
+        detail.set_content(self.stack)
+        self.detail = Adw.NavigationPage(title="", tag="page", child=detail)
+        self.stack.connect("notify::visible-child", self.on_page_shown)
+        self.on_page_shown(self.stack, None)
 
-        # Left and right between the tabs, as on any phone app with tabs.
-        swipe.attach(self.stack)
+        # Left: the next page, round like a carousel. Right: back to the
+        # list. Done here and not left to the navigation view's own gesture,
+        # which never sees a swipe that starts on a row - see swipe.py.
+        swipe.attach(self.stack, back=lambda: self.nav.pop())
 
+        self.nav = Adw.NavigationView()
+        self.nav.add(Adw.NavigationPage(title="misc-de", tag="menu",
+                                        child=toolbar))
+        self.nav.add(self.detail)
+        # Around both pages, so a toast from a helper that finishes after
+        # somebody went back still reaches them.
         self.toasts = Adw.ToastOverlay()
-        self.toasts.set_child(self.stack)
-        toolbar.set_content(self.toasts)
-        self.set_content(toolbar)
+        self.toasts.set_child(self.nav)
+        self.set_content(self.toasts)
 
         self.refresh()
         # Once per window, not on every refresh: this one goes to the network,
         # and a button people press to re-read their phone should not start
         # four connections every time.
         self.check_updates()
+
+    # One colour per entry, each a circle behind a white symbol. GNOME's
+    # palette, so they sit with the rest of the phone.
+    MENU_CSS = """
+    .menu-icon { border-radius: 999px; min-width: 40px; min-height: 40px;
+                 color: white; }
+    .menu-audio, .menu-other { background: #3584e4; }
+    .menu-modem { background: #2190a4; }
+    .menu-gps { background: #e66100; }
+    .menu-switches { background: #9141ac; }
+    .menu-security { background: #e01b24; }
+    .menu-battery { background: #2ec27e; }
+    """
+
+    def build_menu(self):
+        """The first page: one row per tab, in the order of the stack."""
+        css = Gtk.CssProvider()
+        css.load_from_string(self.MENU_CSS)
+        Gtk.StyleContext.add_provider_for_display(
+            Gdk.Display.get_default(), css,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        box = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        box.add_css_class("boxed-list-separate")
+        self.menu_rows = {}
+        entries = [(c["key"], c["page"], c["icon"]) for c in COMPONENTS]
+        entries.append(OTHER_TAB)
+        for key, title, icon in entries:
+            # The Switches tab is not built on a phone without the hardware.
+            if self.pages.get(key) is None:
+                continue
+            row = Adw.ActionRow(title=_(title), activatable=True)
+            image = Gtk.Image.new_from_icon_name(icon)
+            image.add_css_class("menu-icon")
+            image.add_css_class("menu-" + key)
+            image.set_valign(Gtk.Align.CENTER)
+            row.add_prefix(image)
+            row.add_suffix(Gtk.Image.new_from_icon_name("go-next-symbolic"))
+            row.connect("activated", lambda _row, k=key: self.open_page(k))
+            box.append(row)
+            self.menu_rows[key] = row
+            self.mark_installed(key)
+        page = Adw.PreferencesPage()
+        grp = Adw.PreferencesGroup()
+        grp.add(box)
+        page.add(grp)
+        return page
+
+    def mark_installed(self, key):
+        """Say in the list which tools are not here, before anyone opens one."""
+        row = self.menu_rows.get(key)
+        if row is not None:
+            row.set_subtitle("" if key == OTHER_TAB[0] or self.live.get(key)
+                             else _("Not installed"))
+
+    def open_page(self, key):
+        self.stack.set_visible_child_name(key)
+        if self.nav.get_visible_page() is not self.detail:
+            self.nav.push(self.detail)
+
+    def on_page_shown(self, stack, _pspec):
+        """The title of the page behind the list follows the stack - a swipe
+        changes the page without passing through the list."""
+        child = stack.get_visible_child()
+        if child is not None:
+            self.detail.set_title(stack.get_page(child).get_title() or "")
 
     def on_language(self, check, code):
         if not check.get_active() or code == i18n.current():

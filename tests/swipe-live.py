@@ -81,6 +81,17 @@ check("a single tab has nowhere to go", None, swipe.step(one, -200, 0, 200))
 check("a drag that began on a slider changes nothing", None,
       swipe.step(stack, 200, 0, 200, own=True))
 
+went_back = []
+stack.set_visible_child_name("audio")
+check("behind a list, finger to the right goes back", "back",
+      swipe.step(stack, 200, 0, 200, back=lambda: went_back.append(1)))
+check("and back() was called, the tab left alone", ([1], "audio"),
+      (went_back, stack.get_visible_child_name()))
+check("finger to the left still steps on", "modem",
+      swipe.step(stack, -200, 0, 200, back=lambda: went_back.append(1)))
+check("a slow drag to the right is not back", None,
+      swipe.step(stack, 200, 0, 1500, back=lambda: went_back.append(1)))
+
 box = Gtk.Box()
 scale = Gtk.Scale()
 entry = Gtk.Entry()

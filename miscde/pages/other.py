@@ -15,7 +15,7 @@ from gi.repository import Adw, Gio
 from ..i18n import _
 
 # key, title, icon - the same three a component carries for its tab.
-TAB = ("other", "Phosh", "preferences-other-symbolic")
+TAB = ("other", "Phosh", "video-display-symbolic")
 
 # The block goes between two markers, so taking it out again removes exactly
 # what was put in and nothing somebody wrote around it.

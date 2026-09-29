@@ -1048,6 +1048,56 @@ class FindsItsTools(unittest.TestCase):
             switcher.os.access, switcher.shutil.which = original_access, original_which
 
 
+class TheMenu(unittest.TestCase):
+    """The list the window opens on, and the page behind it."""
+
+    def setUp(self):
+        self.win = switcher.Window(switcher.Adw.Application())
+
+    def test_every_built_page_has_a_row_and_nothing_else_does(self):
+        self.assertEqual(sorted(k for k, p in self.win.pages.items()
+                                if p is not None),
+                         sorted(self.win.menu_rows))
+
+    def test_a_missing_tool_says_so_in_the_list(self):
+        self.win.menu_rows["gps"] = row = Recording()
+        self.win.live["gps"] = None
+        self.win.mark_installed("gps")
+        self.assertEqual("Not installed", row.subtitle)
+        self.win.live["gps"] = "/usr/bin/furios-gps-contribute"
+        self.win.mark_installed("gps")
+        self.assertEqual("", row.subtitle)
+
+    def test_the_other_page_has_no_tool_to_miss(self):
+        self.win.menu_rows["other"] = row = Recording()
+        self.win.mark_installed("other")
+        self.assertEqual("", row.subtitle)
+
+    def test_opening_pushes_the_page_once(self):
+        pushed = []
+        shown = []
+
+        class Nav:
+            visible = None
+
+            def get_visible_page(nav):
+                return nav.visible
+
+            def push(nav, page):
+                pushed.append(page)
+                nav.visible = page
+
+        class Stack:
+            def set_visible_child_name(stack, name):
+                shown.append(name)
+
+        self.win.nav, self.win.stack = Nav(), Stack()
+        self.win.open_page("modem")
+        self.win.open_page("gps")
+        self.assertEqual(["modem", "gps"], shown)
+        self.assertEqual([self.win.detail], pushed)
+
+
 class TheWindow(unittest.TestCase):
     """The window, driven through its own callbacks.
 

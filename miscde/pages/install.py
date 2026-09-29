@@ -67,6 +67,7 @@ class InstallPage:
         # The tab somebody was standing on went out with the swap, so say
         # where to stand now: on the page they just installed.
         self.stack.set_visible_child_name(comp["key"])
+        self.mark_installed(comp["key"])
         return True
 
     def pill_button(self, label):

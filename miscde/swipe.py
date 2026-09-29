@@ -91,11 +91,18 @@ def visible_page_names(stack):
     return names
 
 
-def step(stack, dx, dy, duration_ms, own=False):
+def step(stack, dx, dy, duration_ms, own=False, back=None):
     """What a finished touch does to the stack: move one tab, or nothing.
-    Returns the tab it moved to, or None."""
+    Returns the tab it moved to, or None.
+
+    With `back`, only the finger moving left changes the tab; moving right
+    calls back() instead and returns "back" (asked for 29.9.: the pages sit
+    behind a list, and right is the way back to it, as everywhere else)."""
     if own or not is_sideways_swipe(dx, dy, duration_ms):
         return None
+    if back is not None and dx > 0:
+        back()
+        return "back"
     target = neighbour(visible_page_names(stack),
                        stack.get_visible_child_name(), dx)
     if target:
@@ -134,8 +141,9 @@ class Tracker:
             self.start = None
 
 
-def attach(stack):
-    """Watch the stack's touches for sideways swipes. Returns the controller."""
+def attach(stack, back=None):
+    """Watch the stack's touches for sideways swipes. Returns the controller.
+    `back` as for step()."""
     controller = Gtk.EventControllerLegacy()
     controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
     tracker = Tracker()
@@ -184,7 +192,7 @@ def attach(stack):
             debug("  moved", moved)
             if moved:
                 dx, dy, ms, own = moved
-                debug("  step ->", step(stack, dx, dy, ms, own))
+                debug("  step ->", step(stack, dx, dy, ms, own, back))
         else:
             tracker.cancel(sequence)
         # Never stop the event: whatever is under the finger gets it as if

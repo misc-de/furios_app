@@ -32,6 +32,7 @@ TRANSLATIONS = {
     "Modem": "Modem",
     "GPS": "GPS",
     "Switches": "Schalter",
+    "Not installed": "Nicht installiert",
     "Security": "Sicherheit",
     "Battery": "Akku",
     "PipeWire talks to the Android HAL directly instead of PulseAudio: "
