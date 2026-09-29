@@ -1680,6 +1680,34 @@ class TheWindow(unittest.TestCase):
         self.win.set_busy(False)
         self.assertFalse(self.win.codec_row.sensitive)
 
+    PULSE = ("server=pulseaudio\npreference=auto\nper_device=no\n"
+             "card=bluez_card.F4_9D_8A_00_00_01\ndevice=F4:9D:8A:00:00:01\n"
+             "active=sbc\noffered=sbc sbc_xq\nchoices=auto sbc sbc_xq\n")
+
+    def test_under_pulseaudio_the_row_is_open(self):
+        self.win.busy = False
+        self.win.on_codec_status(True, self.PULSE)
+        self.assertTrue(self.win.codec_ok)
+        self.assertTrue(self.win.codec_row.sensitive)
+        self.assertFalse(self.win.codec_scope_row.visible)
+
+    def test_under_pulseaudio_only_what_it_can_switch_to_is_listed(self):
+        self.win.on_codec_status(True, self.PULSE)
+        self.assertEqual(["auto", "sbc_xq", "sbc"], self.win._codec_keys)
+        self.assertEqual(0, self.win.codec_row.get_selected())
+
+    def test_under_pulseaudio_automatic_is_not_called_the_best(self):
+        self.win.on_codec_status(True, self.PULSE)
+        self.assertIn("PulseAudio", self.win.codec_row.subtitle)
+        self.assertNotIn("best", self.win.codec_row.subtitle)
+
+    def test_a_choice_outside_the_list_stays_visible(self):
+        self.win.on_codec_status(True, self.PULSE.replace(
+            "preference=auto", "preference=aptx"))
+        self.assertIn("aptx", self.win._codec_keys)
+        self.assertEqual(self.win._codec_keys.index("aptx"),
+                         self.win.codec_row.get_selected())
+
     def test_choosing_a_codec_runs_audioctl_with_it(self):
         self.win.live["audio"] = "/usr/bin/audioctl"
         self.win.busy = False
