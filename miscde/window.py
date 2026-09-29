@@ -19,7 +19,7 @@ and is the only method that knows about all of them."""
 
 from gi.repository import Adw, GLib, Gtk
 
-from . import i18n, process, swipe, tools
+from . import combo, i18n, process, swipe, tools
 from .components import BATTERY_UNIT, COMPONENTS, SELF
 from .tools import APP_ID, DMNR
 from .pages.audio import CODECS, SERVERS, AudioPage, server_at
@@ -203,16 +203,6 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         page.add(grp)
         self._pulse_id = 0
 
-        # --- what is actually running right now ---
-        info = Adw.PreferencesGroup(title=_("Status"))
-        self.row_profile = Adw.ActionRow(title=_("Owns the Android HAL"), subtitle=_("reading …"))
-        self.row_server = Adw.ActionRow(title=_("Sound server"), subtitle="…")
-        self.row_sinks = Adw.ActionRow(title=_("Outputs"), subtitle="…")
-        for row in (self.row_profile, self.row_server, self.row_sinks):
-            row.set_subtitle_selectable(True)
-            info.add(row)
-        page.add(info)
-
         # --- what switches Bluetooth off behind everybody's back ---
         #
         # A group of its own, and deliberately not inside "Audio stack": the
@@ -233,12 +223,12 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         # Only there once a headset has been seen - see on_codec_status.
         self.codec_scope_row = Adw.ComboRow(
             title=_("Applies to"),
-            model=Gtk.StringList.new([_("All headsets")]),
+            model=Gtk.StringList.new([_("All")]),
         )
         self.codec_scope_row.set_visible(False)
         self.codec_scope_row.connect("notify::selected", self.on_codec_scope)
         bt.add(self.codec_scope_row)
-        self._codec_scope_labels = [_("All headsets")]
+        self._codec_scope_labels = [_("All")]
         self._codec_scopes = [None]
         self._codec_scope = None
         self._codec_scope_auto = True
@@ -260,6 +250,23 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         # about the adapter, not about what plays.
         bt.add(self.btsave_row)
         page.add(bt)
+
+        # Below Bluetooth (asked for 29.9.): the settings first, then what
+        # they add up to.
+        # --- what is actually running right now ---
+        info = Adw.PreferencesGroup(title=_("Status"))
+        self.row_profile = Adw.ActionRow(title=_("Owns the Android HAL"), subtitle=_("reading …"))
+        self.row_server = Adw.ActionRow(title=_("Sound server"), subtitle="…")
+        self.row_sinks = Adw.ActionRow(title=_("Outputs"), subtitle="…")
+        for row in (self.row_profile, self.row_server, self.row_sinks):
+            row.set_subtitle_selectable(True)
+            info.add(row)
+        page.add(info)
+
+
+        # The chosen value next to a long description (see combo.py).
+        for row in (self.switch_row, self.codec_scope_row, self.codec_row):
+            combo.keep_value_visible(row)
 
         # --- last resort ---
         rescue, self.rescue_btn = self.build_restore_group(

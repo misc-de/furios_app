@@ -55,7 +55,7 @@ def codec_name(key):
 
 # The first entry for a single headset: no choice of its own, it plays what
 # is set for all of them.
-FOLLOW_ALL = ("default", _("As for all headsets"), "")
+FOLLOW_ALL = ("default", _("Same as for all"), "")
 
 
 def parse_codec_status(out):
@@ -95,13 +95,13 @@ def codec_words(values):
     pref = values.get("preference", "auto")
     what = next((note for k, __, note in CODECS if k == pref), "")
     if not values.get("card"):
-        return _("%s - no headset connected") % what if what else _("no headset connected")
+        return _("%s - no device connected") % what if what else _("no device connected")
     active = values.get("active")
     offered = values.get("offered", "").split()
     if not active:
-        return _("The headset is on hands-free right now")
+        return _("The device is on hands-free right now")
     if pref != "auto" and pref not in offered:
-        return _("This headset does not offer %s - it plays %s") % (
+        return _("This device does not offer %s - it plays %s") % (
             codec_name(pref), codec_name(active))
     if pref == "auto":
         return _("Playing %s · %s") % (codec_name(active), what)
@@ -470,13 +470,15 @@ class AudioPage:
 
     @staticmethod
     def btsave_words(state):
-        """What the switch says about itself, including "no idea"."""
+        """The owner's description (29.9.), and behind it what this state
+        costs: on, a headset gets back only once the phone is woken - which
+        is why somebody comes looking for this row at all."""
+        words = _("Turns Bluetooth off when possible to save energy")
         if state is None:
-            return _("batman is not installed - nothing powers the adapter down")
+            return words + _(" · batman is not installed, so nothing does")
         if state:
-            return (_("On: the adapter goes off with the screen - a headset "
-                    "cannot get back until the phone is woken"))
-        return _("Off: the adapter stays on, a headset reconnects by itself")
+            return words + _(" · a headset reconnects only once the phone is woken")
+        return words
 
     def sync_btsave(self):
         """Follow the config file, which is the only thing that decides this.
@@ -521,7 +523,7 @@ class AudioPage:
         per_device = values.get("per_device") == "yes" and known
         scopes = [None] + ([k["addr"] for k in known] if per_device else [])
         device = values.get("device")
-        labels = [_("All headsets")] + [
+        labels = [_("All")] + [
             _("{name} · connected").format(name=k["name"])
             if k["addr"] == device else k["name"]
             for k in known if per_device]
@@ -558,9 +560,9 @@ class AudioPage:
             elif values.get("active"):
                 words = _("Playing %s") % codec_name(values["active"])
             else:
-                words = _("The headset is on hands-free right now")
+                words = _("The device is on hands-free right now")
             if chosen == "default":
-                words += _(" · all headsets: %s") % codec_name(pref)
+                words += _(" · all: %s") % codec_name(pref)
         keys = [k for k, __, __ in choices]
         self._syncing = True
         if keys != self._codec_keys:

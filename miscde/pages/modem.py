@@ -4,7 +4,7 @@
 
 from gi.repository import Adw, Gtk
 
-from .. import process, tools
+from .. import combo, process, tools
 from ..i18n import _
 
 
@@ -61,6 +61,7 @@ class ModemPage:
         self._sim_present = []
         self._sim_active = 1
         self.sim_group.add(self.sim_row)
+        combo.keep_value_visible(self.sim_row)
         self.sim_group.set_visible(False)
         mpage.add(self.sim_group)
 

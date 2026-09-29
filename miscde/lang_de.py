@@ -133,14 +133,12 @@ TRANSLATIONS = {
     "Bluetooth powersave": "Bluetooth-Energiesparen",
     "Bluetooth powersave on": "Bluetooth-Energiesparen an",
     "Bluetooth powersave off": "Bluetooth-Energiesparen aus",
-    "Off: the adapter stays on, a headset reconnects by itself":
-        "Aus: Der Adapter bleibt an, ein Headset verbindet sich von selbst wieder",
-    "On: the adapter goes off with the screen - a headset cannot get back "
-    "until the phone is woken":
-        "An: Der Adapter geht mit dem Bildschirm aus - ein Headset kommt erst "
-        "wieder, wenn das Telefon aufgeweckt wird",
-    "batman is not installed - nothing powers the adapter down":
-        "batman ist nicht installiert - nichts schaltet den Adapter ab",
+    "Turns Bluetooth off when possible to save energy":
+        "Deaktiviert Bluetooth, wenn möglich, um Energie zu sparen",
+    " · a headset reconnects only once the phone is woken":
+        " · ein Headset verbindet sich erst wieder, wenn das Telefon aufgeweckt wird",
+    " · batman is not installed, so nothing does":
+        " · batman ist nicht installiert, also tut das nichts",
     "Changing Bluetooth powersave …": "Bluetooth-Energiesparen wird geändert …",
     "Change it": "Ändern",
     "This changes one line in batman's config and restarts it, so sudo asks "
@@ -152,25 +150,25 @@ TRANSLATIONS = {
         "Bluetooth-Energiesparen konnte nicht geändert werden",
     "no password helper: {error}": "kein Passwort-Helfer: {error}",
     "Applies to": "Gilt für",
-    "All headsets": "Alle Kopfhörer",
+    "All": "Alle",
     "{name} · connected": "{name} · verbunden",
     "Music codec": "Musik-Codec",
     "Automatic": "Automatisch",
     "the best one both ends know": "der beste, den beide Seiten kennen",
-    "As for all headsets": "Wie für alle Kopfhörer",
+    "Same as for all": "Wie für alle",
     "Needs PipeWire owning the HAL and a current furios_audio":
         "Braucht PipeWire an der HAL und ein aktuelles furios_audio",
     "Playing %s": "Spielt %s",
     "Playing %s · %s": "Spielt %s · %s",
-    "%s - no headset connected": "%s - kein Kopfhörer verbunden",
-    "no headset connected": "kein Kopfhörer verbunden",
-    "This headset does not offer %s - it plays %s":
-        "Dieser Kopfhörer bietet %s nicht an - er spielt %s",
-    "The headset is on hands-free right now":
-        "Der Kopfhörer ist gerade im Freisprechmodus",
+    "%s - no device connected": "%s - kein Gerät verbunden",
+    "no device connected": "kein Gerät verbunden",
+    "This device does not offer %s - it plays %s":
+        "Dieses Gerät bietet %s nicht an - es spielt %s",
+    "The device is on hands-free right now":
+        "Das Gerät ist gerade im Freisprechmodus",
     "Not connected - applies when it connects":
-        "Nicht verbunden - gilt, sobald er sich verbindet",
-    " · all headsets: %s": " · alle Kopfhörer: %s",
+        "Nicht verbunden - gilt, sobald es sich verbindet",
+    " · all: %s": " · alle: %s",
     "Could not change the Bluetooth codec":
         "Der Bluetooth-Codec konnte nicht geändert werden",
 

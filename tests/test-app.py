@@ -883,6 +883,27 @@ class Recording:
         self.text = getattr(toast, "title", toast)
 
 
+class KeepsTheComboValueVisible(unittest.TestCase):
+    """combo.py walks a row's widgets. On 29.9.2026 that walk met the stub,
+    whose "next sibling" is never None, ran without end and grew the test
+    run to 17 GB - and the phone's shell went down with it."""
+
+    def test_a_widget_tree_without_end_is_left_after_a_bounded_walk(self):
+        class Endless:
+            made = 0
+
+            def get_first_child(self):
+                Endless.made += 1
+                return Endless()
+
+            def get_next_sibling(self):
+                Endless.made += 1
+                return Endless()
+
+        self.assertIsNone(switcher.combo.keep_value_visible(Endless()))
+        self.assertLess(Endless.made, 1000)
+
+
 class SpeaksTwoLanguages(unittest.TestCase):
     """English in the code, German beside it - and nothing on screen without
     both. Asked for on 29.9.2026: the owner describes a row in German, it is
@@ -1597,7 +1618,7 @@ class TheWindow(unittest.TestCase):
 
     def test_without_a_headset_the_choice_still_stands(self):
         self.win.on_codec_status(True, "preference=sbc_xq\n")
-        self.assertIn("no headset connected", self.win.codec_row.subtitle)
+        self.assertIn("no device connected", self.win.codec_row.subtitle)
         self.assertTrue(self.win.codec_ok)
 
     def test_no_wireplumber_setting_closes_the_row(self):
@@ -1644,7 +1665,7 @@ class TheWindow(unittest.TestCase):
         self.assertEqual(["default", "auto", "aac", "sbc_xq", "sbc"],
                          self.win._codec_keys)
         self.assertEqual(0, self.win.codec_row.get_selected())
-        self.assertIn("all headsets: SBC", self.win.codec_row.subtitle)
+        self.assertIn("all: SBC", self.win.codec_row.subtitle)
 
     def test_choosing_for_one_headset_names_it(self):
         self.win.busy = False
@@ -4484,8 +4505,9 @@ class BluetoothPowersave(unittest.TestCase):
         because they were looking for a config key."""
         on = switcher.Window.btsave_words(True)
         self.assertIn("headset", on)
-        off = switcher.Window.btsave_words(False)
-        self.assertIn("stays on", off)
+        # Off: the owner's description (29.9.) and nothing else.
+        self.assertEqual("Turns Bluetooth off when possible to save energy",
+                         switcher.Window.btsave_words(False))
 
     def test_with_no_batman_the_row_says_that_rather_than_off(self):
         self.assertIn("batman", switcher.Window.btsave_words(None))
