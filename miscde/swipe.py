@@ -60,13 +60,14 @@ def is_sideways_swipe(dx, dy, duration_ms,
 
 
 def neighbour(names, current, dx):
-    """The tab a swipe leads to, or None at either end - no wrapping round,
-    because a swipe that lands on the far side reads as a jump, not a step.
-    The finger moving left (dx < 0) brings the next tab in from the right."""
-    if current not in names:
+    """The tab a swipe leads to. Round like a carousel (asked for 29.9.):
+    past the last tab comes the first, before the first the last. The finger
+    moving left (dx < 0) brings the next tab in from the right. None only
+    when there is nowhere else to go."""
+    if current not in names or len(names) < 2:
         return None
-    i = names.index(current) + (1 if dx < 0 else -1)
-    return names[i] if 0 <= i < len(names) else None
+    i = (names.index(current) + (1 if dx < 0 else -1)) % len(names)
+    return names[i]
 
 
 def drags_by_itself(widget):

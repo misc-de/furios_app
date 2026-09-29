@@ -5,7 +5,7 @@
 
 A touch cannot be faked from here, so the controller itself is not driven. What
 is checked is everything it relies on: the decision, the order of the tabs as
-the real ViewStack reports it, hidden tabs left out, the ends not wrapping,
+the real ViewStack reports it, hidden tabs left out, the ends wrapping round,
 and a slider or a text field keeping its own drag. Needs a display; without
 one it says so and skips.
 """
@@ -72,9 +72,12 @@ stack.set_visible_child_name("audio")
 check("finger to the left: the next tab", "modem", swipe.step(stack, -200, 0, 200))
 check("and the stack shows it", "modem", stack.get_visible_child_name())
 check("a hidden tab is stepped over", "other", swipe.step(stack, -200, 0, 200))
-check("no wrapping at the last tab", None, swipe.step(stack, -200, 0, 200))
-check("and it stays there", "other", stack.get_visible_child_name())
+check("past the last tab comes the first", "audio", swipe.step(stack, -200, 0, 200))
+check("and before the first the last", "other", swipe.step(stack, 200, 0, 200))
 check("finger to the right: back", "modem", swipe.step(stack, 200, 0, 200))
+one = Adw.ViewStack()
+one.add_titled(Gtk.Label(label="x"), "only", "Only")
+check("a single tab has nowhere to go", None, swipe.step(one, -200, 0, 200))
 check("a drag that began on a slider changes nothing", None,
       swipe.step(stack, 200, 0, 200, own=True))
 
