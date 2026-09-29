@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: MIT
 """Swiping between the tabs, against the real GTK and libadwaita.
 
-A touch cannot be faked from here, so the gesture itself is not driven. What
+A touch cannot be faked from here, so the controller itself is not driven. What
 is checked is everything it relies on: the decision, the order of the tabs as
 the real ViewStack reports it, hidden tabs left out, the ends not wrapping,
 and a slider or a text field keeping its own drag. Needs a display; without
@@ -40,9 +40,26 @@ Adw.init()
 
 from miscde import swipe  # noqa: E402  (needs Gtk initialised first)
 
-check("a fast sideways flick is a swipe", True, swipe.is_sideways_swipe(-900, 100))
-check("a slow drag is not", False, swipe.is_sideways_swipe(-300, 0))
-check("scrolling with a slanted thumb is not", False, swipe.is_sideways_swipe(-900, 700))
+check("a quick sideways flick is a swipe", True, swipe.is_sideways_swipe(-150, 20, 250))
+check("a short slide is not", False, swipe.is_sideways_swipe(-40, 0, 150))
+check("a slow drag is not", False, swipe.is_sideways_swipe(-300, 0, 1500))
+check("scrolling with a slanted thumb is not", False, swipe.is_sideways_swipe(-150, 120, 250))
+
+# One finger, followed from down to up - whatever else claimed the touch.
+t = swipe.Tracker()
+t.down("a", 300, 400, 1000, False)
+check("the finger that went down is measured", (-200, 10, 200, False), t.up("a", 100, 410, 1200))
+t.down("a", 300, 400, 1000, False)
+check("another finger's end is not this one's", None, t.up("b", 100, 400, 1200))
+check("and this one still counts", (-200, 0, 200, False), t.up("a", 100, 400, 1200))
+t.down("a", 300, 400, 1000, False)
+t.down("b", 350, 400, 1010, False)
+check("two fingers are not a swipe", None, t.up("a", 100, 400, 1200))
+t.down("a", 300, 400, 1000, True)
+check("where it began is carried through", True, t.up("a", 100, 400, 1200)[3])
+t.down("a", 300, 400, 1000, False)
+t.cancel("a")
+check("a cancelled touch is forgotten", None, t.up("a", 100, 400, 1200))
 
 stack = Adw.ViewStack()
 for name in ("audio", "modem", "gps", "other"):
@@ -52,14 +69,14 @@ check("the tabs in the switcher's order, hidden ones left out",
       ["audio", "modem", "other"], swipe.visible_page_names(stack))
 
 stack.set_visible_child_name("audio")
-check("finger to the left: the next tab", "modem", swipe.step(stack, -900, 0))
+check("finger to the left: the next tab", "modem", swipe.step(stack, -200, 0, 200))
 check("and the stack shows it", "modem", stack.get_visible_child_name())
-check("a hidden tab is stepped over", "other", swipe.step(stack, -900, 0))
-check("no wrapping at the last tab", None, swipe.step(stack, -900, 0))
+check("a hidden tab is stepped over", "other", swipe.step(stack, -200, 0, 200))
+check("no wrapping at the last tab", None, swipe.step(stack, -200, 0, 200))
 check("and it stays there", "other", stack.get_visible_child_name())
-check("finger to the right: back", "modem", swipe.step(stack, 900, 0))
+check("finger to the right: back", "modem", swipe.step(stack, 200, 0, 200))
 check("a drag that began on a slider changes nothing", None,
-      swipe.step(stack, 900, 0, own=True))
+      swipe.step(stack, 200, 0, 200, own=True))
 
 box = Gtk.Box()
 scale = Gtk.Scale()
@@ -72,10 +89,11 @@ check("so does a text field", True, swipe.drags_by_itself(entry))
 check("a label does not", False, swipe.drags_by_itself(label))
 check("nothing picked is no own drag", False, swipe.drags_by_itself(None))
 
-gesture = swipe.attach(stack)
-check("the gesture only watches", Gtk.PropagationPhase.CAPTURE,
-      gesture.get_propagation_phase())
-check("and only touch", True, gesture.get_touch_only())
+controller = swipe.attach(stack)
+check("it sees touches before anything under the finger", Gtk.PropagationPhase.CAPTURE,
+      controller.get_propagation_phase())
+check("and is not a gesture a row's click could cancel", True,
+      isinstance(controller, Gtk.EventControllerLegacy))
 
 print("\n  %d checks, %d failed" % (RUN, FAILED))
 sys.exit(1 if FAILED else 0)
