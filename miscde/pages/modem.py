@@ -65,6 +65,19 @@ class ModemPage:
         self.sim_group.set_visible(False)
         mpage.add(self.sim_group)
 
+        # 5G. A switch of its own, not part of "Repairs active": it changes
+        # what the radio does rather than repairing something broken, and it
+        # costs the data call a few seconds each time it is turned on.
+        # Hidden until modemctl answers "nr" - an older one does not know it.
+        self.nr_group = Adw.PreferencesGroup(title="5G")
+        self.nr_row = Adw.SwitchRow(title=_("Allow 5G"), subtitle=_("reading …"))
+        self.nr_ok = False
+        self.nr_row.set_sensitive(False)
+        self.nr_row.connect("notify::active", self.on_nr_switch)
+        self.nr_group.add(self.nr_row)
+        self.nr_group.set_visible(False)
+        mpage.add(self.nr_group)
+
         info = Adw.PreferencesGroup(title=_("Status"))
         self.mrow_profile = Adw.ActionRow(title=_("Profile"), subtitle="…")
         self.mrow_health = Adw.ActionRow(title=_("Checks"), subtitle="…")
@@ -315,4 +328,61 @@ class ModemPage:
             self.report(out or _("No output."))
         else:
             self.toast(_("SIM switched"))
+        self.refresh()
+
+    # --- 5G ----------------------------------------------------------------
+    #
+    # "modemctl nr" is the contract: recorded (on/off) and allowed (yes, no,
+    # unknown). Its other half is tests/test-nr.sh in furios_modem_fixes.
+
+    def on_nr_status(self, ok, out):
+        found = self._keyed(out or "")
+        recorded, allowed = found.get("recorded"), found.get("allowed")
+        if recorded not in ("on", "off"):
+            self.nr_ok = False
+            self.nr_group.set_visible(False)
+            return
+        self.nr_ok = True
+        self.nr_group.set_visible(True)
+        self._syncing = True
+        self.nr_row.set_active(recorded == "on")
+        self._syncing = False
+        if recorded == "on" and allowed == "no":
+            words = _("Switched on, but the modem does not allow it right now")
+        elif recorded == "on":
+            words = _("On - used where the network offers it")
+        else:
+            words = _("Off: LTE, as FuriOS ships it")
+        self.nr_row.set_subtitle(words)
+        self.nr_row.set_sensitive(not self.busy)
+
+    def on_nr_switch(self, row, _param):
+        if self._syncing or self.busy or not self.nr_ok:
+            return
+        if not tools.PKEXEC:
+            self.toast(_("pkexec is missing - cannot ask for the rights to switch"))
+            return
+        want = "on" if row.get_active() else "off"
+        self.set_busy(True)
+        self.modem_progress.set_text(_("Switching 5G …"))
+        self.modem_revealer.set_reveal_child(True)
+        # The radio registers afresh so the network hears about it: mobile
+        # data is away for a moment.
+        self.pulse_start(_("Switching 5G - mobile data away for a few seconds …"))
+        process.run_async([tools.PKEXEC, self.live["modem"], "nr", want],
+                          self.on_nr_switched, on_line=self.on_progress_line)
+
+    def on_nr_switched(self, ok, out):
+        self.pulse_stop()
+        self.set_busy(False)
+        self.modem_revealer.set_reveal_child(False)
+        if not ok:
+            # "a call is in progress" is not a failure (modemctl waits for
+            # the next registration then), so this is a refusal or a HAL
+            # that did not answer - both are in out.
+            self.toast(_("Switching 5G failed"))
+            self.report(out or _("No output."))
+        else:
+            self.toast(_("5G switched on") if self.nr_row.get_active()
+                       else _("5G switched off"))
         self.refresh()

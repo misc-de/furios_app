@@ -60,6 +60,8 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         # Built with the modem page, so None until then.
         self.sim_row = None
         self.sim_ok = False
+        self.nr_row = None
+        self.nr_ok = False
         # Whether there is anything behind each control. A switch whose tool
         # did not answer must not look operable - and it must not become
         # operable again the moment something else finishes, which is what
@@ -515,6 +517,7 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
             process.run_async([self.live["modem"], "profile"], self.on_modem_profile)
             process.run_async([self.live["modem"], "status"], self.on_modem_status)
             process.run_async([self.live["modem"], "sim"], self.on_sim_status)
+            process.run_async([self.live["modem"], "nr"], self.on_nr_status)
         if self.live.get("gps"):
             self.refresh_gps_contrib()
         if self.live.get("switches"):
@@ -581,6 +584,8 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         # page usable and this row switched off.
         if self.sim_row is not None:
             self.sim_row.set_sensitive(not busy and self.sim_ok)
+        if self.nr_row is not None:
+            self.nr_row.set_sensitive(not busy and self.nr_ok)
         for row in self.gps_rows:
             row.set_sensitive(not busy and self.gps_ok)
         # The switches page has no tool state to be unsure about - the rows

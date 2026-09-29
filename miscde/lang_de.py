@@ -220,6 +220,15 @@ TRANSLATIONS = {
         "Wechsel auf SIM {0} - Mobilfunk etwa 30 s weg …",
     "Switching the SIM failed": "Umschalten der SIM fehlgeschlagen",
     "SIM switched": "SIM umgeschaltet",
+    "Allow 5G": "5G erlauben",
+    "Switched on, but the modem does not allow it right now": "Eingeschaltet, aber das Modem erlaubt es gerade nicht",
+    "On - used where the network offers it": "An - genutzt, wo das Netz es anbietet",
+    "Off: LTE, as FuriOS ships it": "Aus: LTE, wie FuriOS es ausliefert",
+    "Switching 5G …": "5G wird umgeschaltet …",
+    "Switching 5G - mobile data away for a few seconds …": "5G wird umgeschaltet - mobile Daten für einige Sekunden weg …",
+    "Switching 5G failed": "Umschalten von 5G fehlgeschlagen",
+    "5G switched on": "5G eingeschaltet",
+    "5G switched off": "5G ausgeschaltet",
 
     # --- GPS ---------------------------------------------------------------
     "Contribute to beaconDB": "Zu beaconDB beitragen",

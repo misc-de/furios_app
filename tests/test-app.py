@@ -1120,7 +1120,7 @@ class TheWindow(unittest.TestCase):
             names += ["modem_row", "modem_progress",
                       "modem_revealer", "mrow_profile", "mrow_health",
                       "mrow_signal", "modem_restore_btn",
-                      "sim_group", "sim_row"]
+                      "sim_group", "sim_row", "nr_group", "nr_row"]
         names.append("rescue_btn")
         # Always, unlike the others: every GPS handler asks self.live for
         # its tool, so a test says whether it is there by setting that, and
@@ -2287,8 +2287,8 @@ class TheWindow(unittest.TestCase):
         # nobody had built.
         # status, bt-codec status, bt-extras status and the echo helper's
         expected = ((3 + bool(DMNR) if AUDIOCTL else 0)
-                    # profile, status and sim
-                    + (3 if MODEMCTL else 0)
+                    # profile, status, sim and nr
+                    + (4 if MODEMCTL else 0)
                     # status of the contribution tool, and of the Firefox
                     # one beside it when that is installed too
                     + (1 if CONTRIB else 0)
@@ -3995,6 +3995,52 @@ class TheWindow(unittest.TestCase):
         self.assertEqual(before, len(self.ran), "switched to a slot with no card")
         self.assertEqual(0, win.sim_row.get_selected())
         self.assertIn("No card in slot 2", str(win.toasts.text))
+
+    # --- 5G ----------------------------------------------------------------
+    #
+    # "modemctl nr" is the contract: recorded and allowed. Its other half is
+    # tests/test-nr.sh in furios_modem_fixes.
+
+    def test_5g_off_shows_the_switch_off_and_usable(self):
+        win = self.modem_win()
+        win.busy = False
+        win.on_nr_status(True, "recorded: off\nallowed: no\n")
+        self.assertTrue(win.nr_group.visible)
+        self.assertFalse(win.nr_row.get_active())
+        self.assertTrue(win.nr_row.sensitive)
+        self.assertIn("LTE", win.nr_row.subtitle)
+
+    def test_5g_on_but_taken_away_is_said(self):
+        win = self.modem_win()
+        win.on_nr_status(True, "recorded: on\nallowed: no\n")
+        self.assertTrue(win.nr_row.get_active())
+        self.assertIn("does not allow", win.nr_row.subtitle)
+        win.on_nr_status(True, "recorded: on\nallowed: yes\n")
+        self.assertIn("network offers", win.nr_row.subtitle)
+
+    def test_reading_the_state_switches_nothing(self):
+        win = self.modem_win()
+        win.busy = False
+        before = len(self.ran)
+        win.on_nr_status(True, "recorded: on\nallowed: yes\n")
+        self.assertEqual(before, len(self.ran), "showing the state ran modemctl nr on")
+
+    def test_an_older_modemctl_without_nr_hides_the_row(self):
+        win = self.modem_win()
+        win.on_nr_status(False, "unknown command: nr\nmodemctl 0.1.0 - ...")
+        self.assertFalse(win.nr_group.visible)
+        win.set_busy(False)
+        self.assertFalse(win.nr_row.sensitive, "set_busy made it usable again")
+
+    def test_switching_5g_asks_for_rights_and_says_which_way(self):
+        win = self.modem_win()
+        win.busy = False
+        win.on_nr_status(True, "recorded: off\nallowed: no\n")
+        win.nr_row.set_active(True)
+        win.on_nr_switch(win.nr_row, None)
+        argv = self.ran[-1][0]
+        self.assertIn("pkexec", argv[0])
+        self.assertEqual(["nr", "on"], argv[2:])
 
     def test_no_card_anywhere_greys_the_list(self):
         win = self.modem_win()
