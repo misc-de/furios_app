@@ -11,6 +11,7 @@ from gi.repository import Adw, Gtk
 from .. import askpass, components, process, tools
 from ..tools import DMNR
 from ..words import profile_in_words, server_in_words
+from ..i18n import _
 
 
 # batman, the battery manager that ships with the phone, keeps its settings
@@ -29,7 +30,7 @@ SERVERS = [
 # The A2DP codecs "audioctl bt-codec" takes. Names only - the page does not
 # rate them (decided 27.9.2026).
 CODECS = [
-    ("auto", "Automatic", "the best one both ends know"),
+    ("auto", _("Automatic"), _("the best one both ends know")),
     ("aac", "AAC", ""),
     ("sbc_xq", "SBC-XQ", ""),
     ("sbc", "SBC", ""),
@@ -49,12 +50,12 @@ def server_at(index):
 
 
 def codec_name(key):
-    return next((name for k, name, _ in CODECS if k == key), key)
+    return next((name for k, name, __ in CODECS if k == key), key)
 
 
 # The first entry for a single headset: no choice of its own, it plays what
 # is set for all of them.
-FOLLOW_ALL = ("default", "As for all headsets", "")
+FOLLOW_ALL = ("default", _("As for all headsets"), "")
 
 
 def parse_codec_status(out):
@@ -92,19 +93,19 @@ def codec_words(values):
     a dict. What is chosen, and what a connected headset really plays -
     which is not the same when the headset does not offer the choice."""
     pref = values.get("preference", "auto")
-    what = next((note for k, _, note in CODECS if k == pref), "")
+    what = next((note for k, __, note in CODECS if k == pref), "")
     if not values.get("card"):
-        return "%s - no headset connected" % what if what else "no headset connected"
+        return _("%s - no headset connected") % what if what else _("no headset connected")
     active = values.get("active")
     offered = values.get("offered", "").split()
     if not active:
-        return "The headset is on hands-free right now"
+        return _("The headset is on hands-free right now")
     if pref != "auto" and pref not in offered:
-        return "This headset does not offer %s - it plays %s" % (
+        return _("This headset does not offer %s - it plays %s") % (
             codec_name(pref), codec_name(active))
     if pref == "auto":
-        return "Playing %s · %s" % (codec_name(active), what)
-    return "Playing %s" % codec_name(active)
+        return _("Playing %s · %s") % (codec_name(active), what)
+    return _("Playing %s") % codec_name(active)
 BATMAN_UNIT = "batman.service"
 
 # Everything it works on comes in as an argument: the file as $1, the unit as
@@ -163,11 +164,16 @@ def needs_a_password(out):
 
 
 class AudioPage:
+    # The owner's descriptions (29.9.) - what the row is for, whatever state
+    # it is in. What differs by state is added behind them.
+    DMNR_WORDS = _("Suppresses the echo in speakerphone calls")
+    PERSIST_WORDS = _("Saves the options above")
+
     def on_dmnr_status(self, ok, out):
         if not ok:
             self.dmnr_ok = False
             self.dmnr_row.set_sensitive(False)
-            self.dmnr_row.set_subtitle("not available on this device")
+            self.dmnr_row.set_subtitle(_("not available on this device"))
             return
         self.dmnr_ok = True
         on = "state=on" in out
@@ -179,11 +185,12 @@ class AudioPage:
         remembered = "persistent=yes" in out
         if on:
             self.dmnr_row.set_subtitle(
-                "On, remembered" if remembered else "On until the next reboot")
+                self.DMNR_WORDS if remembered else
+                self.DMNR_WORDS + _(" · until the next reboot"))
         else:
             self.dmnr_row.set_subtitle(
-                "Off, and stays off" if not remembered else
-                "Off now - but comes back at the next reboot")
+                self.DMNR_WORDS if not remembered else
+                self.DMNR_WORDS + _(" · on again after the next reboot"))
 
     def on_status(self, ok, out):
         profile, persistent, server, sinks = "unknown", "unknown", "-", "-"
@@ -219,10 +226,10 @@ class AudioPage:
         # the shipped state, so it would be a plausible, wrong one.
         self.audio_ok = profile != "unknown"
         if not self.audio_ok:
-            self.row_profile.set_subtitle("audioctl did not answer")
+            self.row_profile.set_subtitle(_("audioctl did not answer"))
             self.row_server.set_subtitle(server_in_words(server))
-            self.row_sinks.set_subtitle(sinks.replace(",", ", ") or "none")
-            self.persist_row.set_subtitle("audioctl did not answer")
+            self.row_sinks.set_subtitle(sinks.replace(",", ", ") or _("none"))
+            self.persist_row.set_subtitle(_("audioctl did not answer"))
             self.set_busy(self.busy)
             return
 
@@ -230,9 +237,10 @@ class AudioPage:
         if persistent == "unknown":
             pass
         elif sticks:
-            text += " - permanent"
+            text += _(" - permanent")
         else:
-            text += f" - until the next reboot, then {profile_in_words(persistent)}"
+            text += _(" - until the next reboot, then {profile}").format(
+                profile=profile_in_words(persistent))
         if warn:
             text += f" | {warn}"
         if fell_back:
@@ -240,11 +248,12 @@ class AudioPage:
             # the chosen one gave no sound - most likely after an update. The
             # switch shows the result; this says why it moved by itself.
             when, _sp, was = fell_back.rpartition(" ")
-            text += (f" | fell back by itself on {when}: "
-                     f"{profile_in_words(was)} gave no sound at boot")
+            text += _(" | fell back by itself on {when}: {profile} gave "
+                      "no sound at boot").format(
+                when=when, profile=profile_in_words(was))
         self.row_profile.set_subtitle(text)
         self.row_server.set_subtitle(server_in_words(server))
-        self.row_sinks.set_subtitle(sinks.replace(",", ", ") or "none")
+        self.row_sinks.set_subtitle(sinks.replace(",", ", ") or _("none"))
 
         # Follow the switch without triggering a toggle while doing it.
         self._syncing = True
@@ -254,14 +263,12 @@ class AudioPage:
         # "set" and "try" for the next switch.
         self.persist_row.set_active(sticks)
         self._syncing = False
-        if persistent == "unknown":
-            self.persist_row.set_subtitle("Off: a reboot returns to the shipped state")
-        elif sticks:
-            self.persist_row.set_subtitle("On: this is what the phone comes back to")
+        if sticks or persistent == "unknown":
+            self.persist_row.set_subtitle(self.PERSIST_WORDS)
         else:
             self.persist_row.set_subtitle(
-                f"Off: a reboot returns to {profile_in_words(persistent)}"
-            )
+                self.PERSIST_WORDS + _(" · a reboot returns to {profile}").format(
+                    profile=profile_in_words(persistent)))
         # Re-applied, not released. This answer arrives from every refresh,
         # and refreshes run while other things are in flight - a battery
         # change, the first one at start-up - so releasing here handed the
@@ -281,18 +288,18 @@ class AudioPage:
         argv = ([audioctl, mode, "pw-hal"] if want_pw
                 else [audioctl, "set", "standard"])
         self.set_busy(True)
-        self.pulse_start("Switching …")
+        self.pulse_start(_("Switching …"))
         process.run_async(argv, self.on_switched, on_line=self.on_progress_line)
 
     def on_switched(self, ok, out):
         self.pulse_stop()
         self.set_busy(False)
         if not ok:
-            self.toast("Switching failed")
-            self.report(out or "No output.")
+            self.toast(_("Switching failed"))
+            self.report(out or _("No output."))
         else:
             last = [l for l in out.splitlines() if l.strip()]
-            self.toast(last[-1].strip() if last else "Done")
+            self.toast(last[-1].strip() if last else _("Done"))
         self.refresh()
 
     def on_btx_status(self, ok, out):
@@ -310,16 +317,14 @@ class AudioPage:
         self.btx_ok = True
         self._syncing = True
         self.btx_row.set_active(values.get("bt-extras") == "on")
-        if values.get("profile") == "pw-hal":
-            self.btx_row.set_subtitle(
-                "Calls on the headset, its microphone, reconnect, pause when it "
-                "disconnects" if effective == "all" else
-                "Off: WirePlumber's own Bluetooth - music plays, a call may "
-                "stay on the phone")
-        else:
-            self.btx_row.set_subtitle(
-                "With PulseAudio only reconnect and pause when it disconnects - "
-                "not tested there yet. The rest needs PipeWire")
+        # The description is the owner's (29.9.). Under PulseAudio it says
+        # what is missing there, because the row looks the same.
+        words = _("Enables the helper that makes sure audio and microphone "
+                  "are set correctly")
+        if values.get("profile") != "pw-hal":
+            words += _(" - with PulseAudio only reconnect and pause, not "
+                       "tested there yet")
+        self.btx_row.set_subtitle(words)
         self._syncing = False
         self.btx_row.set_sensitive(self.btx_ok and not self.busy)
 
@@ -335,11 +340,11 @@ class AudioPage:
     def on_btx_done(self, ok, out):
         self.set_busy(False)
         if not ok:
-            self.toast("Could not change the Bluetooth helpers")
-            self.report(out or "No output.")
+            self.toast(_("Could not change the Bluetooth helpers"))
+            self.report(out or _("No output."))
         else:
             last = [l for l in (out or "").splitlines() if l.strip()]
-            self.toast(last[-1].strip() if last else "Done")
+            self.toast(last[-1].strip() if last else _("Done"))
         self.refresh()
 
     def on_dmnr(self, row, _param):
@@ -369,14 +374,14 @@ class AudioPage:
             self._dmnr_askpass = askpass.Askpass(secret)
             helper = self._dmnr_askpass.start()
             if helper is None:
-                self.toast("no password helper: " +
-                           str(self._dmnr_askpass.error))
+                self.toast(_("no password helper: {error}").format(
+                    error=self._dmnr_askpass.error))
                 self._dmnr_askpass = None
                 self.refresh()
                 return
             env = components.installer_env(helper)
         self.set_busy(True)
-        self.pulse_start("Switching echo suppression …")
+        self.pulse_start(_("Switching echo suppression …"))
         process.run_async(argv,
                           lambda ok, out: self.on_dmnr_done(
                               ok, out, asked=secret is not None),
@@ -395,24 +400,24 @@ class AudioPage:
             self.ask_dmnr_password()
             return
         if not ok:
-            self.toast("Could not switch echo suppression")
-            self.report(out or "No output.")
+            self.toast(_("Could not switch echo suppression"))
+            self.report(out or _("No output."))
         else:
-            self.toast("Echo suppression changed - try a call")
+            self.toast(_("Echo suppression changed - try a call"))
         self.refresh()
 
     def ask_dmnr_password(self):
-        entry = Adw.PasswordEntryRow(title="Your password (for sudo)")
+        entry = Adw.PasswordEntryRow(title=_("Your password (for sudo)"))
         group = Adw.PreferencesGroup()
         group.add(entry)
         dlg = Adw.AlertDialog(
-            heading="Echo suppression",
-            body="This lays tuning files over the vendor's and opens the "
+            heading=_("Echo suppression"),
+            body=_("This lays tuning files over the vendor's and opens the "
                  "modem's tuning memory to the audio group, so sudo asks for "
-                 "a password. It goes to sudo and nowhere else.")
+                 "a password. It goes to sudo and nowhere else."))
         dlg.set_extra_child(group)
-        dlg.add_response("go", "Switch")
-        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("go", _("Switch"))
+        dlg.add_response("cancel", _("Cancel"))
         dlg.set_default_response("cancel")
         dlg.set_close_response("cancel")
         self._dmnr_pending = entry
@@ -434,7 +439,7 @@ class AudioPage:
         if self.busy:
             return
         self.set_busy(True)
-        self.pulse_start("Restoring …")
+        self.pulse_start(_("Restoring …"))
         # The same recovery as on the command line - one truth, not two
         # versions that can drift apart.
         process.run_async([self.live["audio"], "rescue"], self.on_rescued,
@@ -444,12 +449,12 @@ class AudioPage:
         self.pulse_stop()
         self.set_busy(False)
         self.toast(
-            "Shipped state, speaker, 65 %"
+            _("Shipped state, speaker, 65 %")
             if ok
-            else "Restore failed"
+            else _("Restore failed")
         )
         if not ok:
-            self.report(out or "No output.")
+            self.report(out or _("No output."))
         self.refresh()
 
     # --- Bluetooth powersave ---
@@ -467,11 +472,11 @@ class AudioPage:
     def btsave_words(state):
         """What the switch says about itself, including "no idea"."""
         if state is None:
-            return "batman is not installed - nothing powers the adapter down"
+            return _("batman is not installed - nothing powers the adapter down")
         if state:
-            return ("On: the adapter goes off with the screen - a headset "
-                    "cannot get back until the phone is woken")
-        return "Off: the adapter stays on, a headset reconnects by itself"
+            return (_("On: the adapter goes off with the screen - a headset "
+                    "cannot get back until the phone is woken"))
+        return _("Off: the adapter stays on, a headset reconnects by itself")
 
     def sync_btsave(self):
         """Follow the config file, which is the only thing that decides this.
@@ -499,12 +504,12 @@ class AudioPage:
         # Unsupported is its own answer: WirePlumber is not running (the
         # shipped profile) or does not know the setting (an older
         # furios_audio). "Automatic" would claim a choice nobody can make.
-        if not ok or pref not in [k for k, _, _ in CODECS]:
+        if not ok or pref not in [k for k, __, __ in CODECS]:
             self.codec_ok = False
             self.codec_row.set_sensitive(False)
             self.codec_scope_row.set_visible(False)
             self.codec_row.set_subtitle(
-                "Needs PipeWire owning the HAL and a current furios_audio")
+                _("Needs PipeWire owning the HAL and a current furios_audio"))
             return
         self.codec_ok = True
         self._codec_values = values
@@ -516,8 +521,9 @@ class AudioPage:
         per_device = values.get("per_device") == "yes" and known
         scopes = [None] + ([k["addr"] for k in known] if per_device else [])
         device = values.get("device")
-        labels = ["All headsets"] + [
-            k["name"] + (" · connected" if k["addr"] == device else "")
+        labels = [_("All headsets")] + [
+            _("{name} · connected").format(name=k["name"])
+            if k["addr"] == device else k["name"]
             for k in known if per_device]
         self._syncing = True
         if labels != self._codec_scope_labels:
@@ -548,14 +554,14 @@ class AudioPage:
             chosen = known["choice"]
             choices = device_codec_choices(known["offered"], chosen)
             if scope != values.get("device"):
-                words = "Not connected - applies when it connects"
+                words = _("Not connected - applies when it connects")
             elif values.get("active"):
-                words = "Playing %s" % codec_name(values["active"])
+                words = _("Playing %s") % codec_name(values["active"])
             else:
-                words = "The headset is on hands-free right now"
+                words = _("The headset is on hands-free right now")
             if chosen == "default":
-                words += " · all headsets: %s" % codec_name(pref)
-        keys = [k for k, _, _ in choices]
+                words += _(" · all headsets: %s") % codec_name(pref)
+        keys = [k for k, __, __ in choices]
         self._syncing = True
         if keys != self._codec_keys:
             self.codec_row.set_model(Gtk.StringList.new(
@@ -592,8 +598,8 @@ class AudioPage:
     def on_codec_done(self, ok, out):
         self.set_busy(False)
         if not ok:
-            self.toast("Could not change the Bluetooth codec")
-            self.report(out or "No output.")
+            self.toast(_("Could not change the Bluetooth codec"))
+            self.report(out or _("No output."))
         self.refresh()
 
     def on_btsave(self, row, _param):
@@ -603,7 +609,7 @@ class AudioPage:
 
     def apply_btsave(self, wanted, secret=None):
         self.set_busy(True)
-        self.pulse_start("Changing Bluetooth powersave …")
+        self.pulse_start(_("Changing Bluetooth powersave …"))
         process.run_async(
             btsave_argv(wanted, secret),
             lambda ok, out: self.on_btsave_done(ok, out, wanted),
@@ -618,24 +624,25 @@ class AudioPage:
             self.ask_btsave_password(wanted)
             return
         if not ok:
-            self.toast("Could not change Bluetooth powersave")
-            self.report(out or "No output.")
+            self.toast(_("Could not change Bluetooth powersave"))
+            self.report(out or _("No output."))
         else:
-            self.toast("Bluetooth powersave " + ("on" if wanted else "off"))
+            self.toast(_("Bluetooth powersave on") if wanted
+                       else _("Bluetooth powersave off"))
         self.sync_btsave()
 
     def ask_btsave_password(self, wanted):
-        entry = Adw.PasswordEntryRow(title="Your password (for sudo)")
+        entry = Adw.PasswordEntryRow(title=_("Your password (for sudo)"))
         group = Adw.PreferencesGroup()
         group.add(entry)
         dlg = Adw.AlertDialog(
-            heading="Bluetooth powersave",
-            body="This changes one line in batman's config and restarts it, "
+            heading=_("Bluetooth powersave"),
+            body=_("This changes one line in batman's config and restarts it, "
                  "so sudo asks for a password. It goes to sudo through a "
-                 "pipe and nowhere else.")
+                 "pipe and nowhere else."))
         dlg.set_extra_child(group)
-        dlg.add_response("go", "Change it")
-        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("go", _("Change it"))
+        dlg.add_response("cancel", _("Cancel"))
         dlg.set_default_response("cancel")
         dlg.set_close_response("cancel")
         self._btsave_pending = (wanted, entry)

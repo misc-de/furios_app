@@ -13,6 +13,7 @@ import os
 from gi.repository import Adw
 
 from .. import process
+from ..i18n import _
 
 
 def firefox_tool(contribute):
@@ -32,23 +33,23 @@ class GpsPage:
         # No description on the group: one paragraph here lifts the heading
         # above every other tab's, which was measured on the phone. What has
         # to be said sits in the row it is about.
-        contribution = Adw.PreferencesGroup(title="Contribute to beaconDB")
+        contribution = Adw.PreferencesGroup(title=_("Contribute to beaconDB"))
         self.gps_contrib = Adw.SwitchRow(
-            title="Send my observations",
-            subtitle="reading …",
+            title=_("Send my observations"),
+            subtitle=_("reading …"),
         )
         self.gps_contrib.connect("notify::active", self.on_gps_contrib)
         contribution.add(self.gps_contrib)
         self.gps_contrib_stats = Adw.ActionRow(
-            title="Sent so far", subtitle="—",
+            title=_("Sent so far"), subtitle="—",
         )
         contribution.add(self.gps_contrib_stats)
         gpage.add(contribution)
 
-        browser = Adw.PreferencesGroup(title="Firefox and web apps")
+        browser = Adw.PreferencesGroup(title=_("Firefox and web apps"))
         self.gps_firefox = Adw.SwitchRow(
-            title="Wait for the satellite fix",
-            subtitle="reading …",
+            title=_("Wait for the satellite fix"),
+            subtitle=_("reading …"),
         )
         self.gps_firefox.connect("notify::active", self.on_gps_firefox)
         browser.add(self.gps_firefox)
@@ -58,9 +59,9 @@ class GpsPage:
         # on some pages and not on others is one somebody has to go looking
         # for - so it is here too.
         back, self.gps_restore_btn = self.build_restore_group(
-            "Switches sending off - nothing more is collected, and what is "
-            "still waiting is not sent - and gives Firefox back its "
-            "12-second limit.",
+            _("Switches sending off - nothing more is collected, and what is "
+              "still waiting is not sent - and gives Firefox back its "
+              "12-second limit."),
             self.on_gps_restore)
         gpage.add(back)
 
@@ -82,8 +83,8 @@ class GpsPage:
     def on_gps_contrib_done(self, ok, out):
         self.set_busy(False)
         if not ok:
-            self.toast("Could not change the contribution setting")
-            self.report(out or "No output.")
+            self.toast(_("Could not change the contribution setting"))
+            self.report(out or _("No output."))
         self.refresh_gps_contrib()
 
     def on_gps_firefox(self, row, _param):
@@ -99,13 +100,13 @@ class GpsPage:
     def on_gps_firefox_done(self, ok, out):
         self.set_busy(False)
         if not ok:
-            self.toast("Could not change the Firefox setting")
-            self.report(out or "No output.")
+            self.toast(_("Could not change the Firefox setting"))
+            self.report(out or _("No output."))
         self.refresh_gps_contrib()
 
     def on_gps_firefox_status(self, ok, out):
         if not ok:
-            self.gps_firefox.set_subtitle("did not answer")
+            self.gps_firefox.set_subtitle(_("did not answer"))
             return
         values = dict(z.split("=", 1) for z in out.splitlines() if "=" in z)
         an = values.get("firefox_wait") == "yes"
@@ -116,18 +117,18 @@ class GpsPage:
         profiles = values.get("profiles", "0")
         if an:
             self.gps_firefox.set_subtitle(
-                "Up to 3 minutes instead of 12 seconds - %s of %s profiles. "
-                "An open app needs a restart"
+                _("Up to 3 minutes instead of 12 seconds - %s of %s profiles. "
+                "An open app needs a restart")
                 % (values.get("patched", "0"), profiles))
         elif values.get("leftover", "0") != "0":
             # Off was asked for, but an open profile still has the values.
             self.gps_firefox.set_subtitle(
-                "Off - %s open app(s) keep it until the next login"
+                _("Off - %s open app(s) keep it until the next login")
                 % values["leftover"])
         else:
             self.gps_firefox.set_subtitle(
-                "Off - Firefox gives up after 12 seconds, before a cold fix "
-                "arrives")
+                _("Off - Firefox gives up after 12 seconds, before a cold fix "
+                "arrives"))
 
     def refresh_gps_contrib(self):
         ff = firefox_tool(self.live.get("gps"))
@@ -138,7 +139,7 @@ class GpsPage:
             self.gps_firefox.set_active(False)
             self._syncing = False
             self.gps_firefox.set_sensitive(False)
-            self.gps_firefox.set_subtitle("not installed")
+            self.gps_firefox.set_subtitle(_("not installed"))
         tool = self.live.get("gps")
         if not tool:
             # Not installed is not "off": saying "off" would claim we looked.
@@ -146,14 +147,14 @@ class GpsPage:
             self.gps_contrib.set_active(False)
             self._syncing = False
             self.gps_contrib.set_sensitive(False)
-            self.gps_contrib.set_subtitle("not installed")
+            self.gps_contrib.set_subtitle(_("not installed"))
             self.gps_contrib_stats.set_subtitle("—")
             return
         process.run_async([tool, "status"], self.on_gps_contrib_status)
 
     def on_gps_contrib_status(self, ok, out):
         if not ok:
-            self.gps_contrib.set_subtitle("did not answer")
+            self.gps_contrib.set_subtitle(_("did not answer"))
             return
         values = dict(z.split("=", 1) for z in out.splitlines() if "=" in z)
         an = values.get("contributing") == "yes"
@@ -167,19 +168,19 @@ class GpsPage:
         runs = values.get("running") == "yes"
         if an and not runs:
             self.gps_contrib.set_subtitle(
-                "Switched on, but the service is not running - "
-                "nothing is being collected")
+                _("Switched on, but the service is not running - "
+                "nothing is being collected"))
         elif an:
             self.gps_contrib.set_subtitle(
-                "Networks in range with the satellite position, over Wi-Fi only")
+                _("Networks in range with the satellite position, over Wi-Fi only"))
         else:
             self.gps_contrib.set_subtitle(
-                "Off - nothing is collected or sent. On: networks in range, "
-                "never hidden or _nomap ones")
+                _("Off - nothing is collected or sent. On: networks in range, "
+                "never hidden or _nomap ones"))
         # Both numbers, because they answer different questions: whether it is
         # measuring at all, and whether any of it has reached beaconDB.
         self.gps_contrib_stats.set_subtitle(
-            "%s sent, %s waiting" % (values.get("submitted", "0"),
+            _("%s sent, %s waiting") % (values.get("submitted", "0"),
                                      values.get("queued", "0")))
 
     def on_gps_restore(self, _btn):
@@ -195,8 +196,8 @@ class GpsPage:
     def on_gps_restored(self, ok, out):
         self.set_busy(False)
         if ok:
-            self.toast("Sending to beaconDB is off, Firefox as shipped")
+            self.toast(_("Sending to beaconDB is off, Firefox as shipped"))
         else:
-            self.toast("Could not switch sending off")
-            self.report(out or "No output.")
+            self.toast(_("Could not switch sending off"))
+            self.report(out or _("No output."))
         self.refresh_gps_contrib()

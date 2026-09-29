@@ -3,6 +3,7 @@
 """Running a helper without freezing the window."""
 
 from gi.repository import Gio, GLib
+from .i18n import _
 
 
 
@@ -73,7 +74,8 @@ def run_async(argv, on_done, on_line=None, timeout=CALL_TIMEOUT, cwd=None,
         # Handed to settle either way rather than checked twice here. Whether
         # an answer is too late is one question and it has one place to be
         # asked, which is also the place a reader answering twice runs into.
-        settle(False, f"{argv[0]} did not answer within {timeout} seconds")
+        settle(False, _("{program} did not answer within {seconds} seconds").format(
+            program=argv[0], seconds=timeout))
         return False
 
     if timeout:

@@ -5,6 +5,7 @@
 from gi.repository import Adw, Gtk
 
 from .. import process, tools
+from ..i18n import _
 
 
 class ModemPage:
@@ -19,10 +20,10 @@ class ModemPage:
         # the heading of every other tab. What it said is in the row below
         # ("Off: the state the phone shipped in") and, in full, at the foot of
         # the page under "Back to how it shipped".
-        grp = Adw.PreferencesGroup(title="Modem")
+        grp = Adw.PreferencesGroup(title=_("Modem"))
         self.modem_row = Adw.SwitchRow(
-            title="Repairs active",
-            subtitle="reading …",
+            title=_("Repairs active"),
+            subtitle=_("reading …"),
         )
         self.modem_row.connect("notify::active", self.on_modem_switch)
         grp.add(self.modem_row)
@@ -47,10 +48,10 @@ class ModemPage:
         # because the slots have numbers, not an on and an off. Always
         # remembered - a SIM that went back at the next boot would be a
         # surprise, not a try.
-        self.sim_group = Adw.PreferencesGroup(title="SIM")
+        self.sim_group = Adw.PreferencesGroup(title=_("SIM"))
         self.sim_row = Adw.ComboRow(
-            title="Active SIM",
-            subtitle="reading …",
+            title=_("Active SIM"),
+            subtitle=_("reading …"),
             model=Gtk.StringList.new(["SIM 1", "SIM 2"]),
         )
         self.sim_ok = False
@@ -63,10 +64,10 @@ class ModemPage:
         self.sim_group.set_visible(False)
         mpage.add(self.sim_group)
 
-        info = Adw.PreferencesGroup(title="Status")
-        self.mrow_profile = Adw.ActionRow(title="Profile", subtitle="…")
-        self.mrow_health = Adw.ActionRow(title="Checks", subtitle="…")
-        self.mrow_signal = Adw.ActionRow(title="Signal", subtitle="…")
+        info = Adw.PreferencesGroup(title=_("Status"))
+        self.mrow_profile = Adw.ActionRow(title=_("Profile"), subtitle="…")
+        self.mrow_health = Adw.ActionRow(title=_("Checks"), subtitle="…")
+        self.mrow_signal = Adw.ActionRow(title=_("Signal"), subtitle="…")
         for row in (self.mrow_profile, self.mrow_health, self.mrow_signal):
             row.set_subtitle_selectable(True)
             info.add(row)
@@ -76,9 +77,9 @@ class ModemPage:
         # brings something back, this one takes function away. Same button,
         # and the description carries the difference.
         back, self.modem_restore_btn = self.build_restore_group(
-            "Takes every repair out, restarts the modem stack and remembers "
-            "it. With Wi-Fi off there is then no route out and no name "
-            "resolution.",
+            _("Takes every repair out, restarts the modem stack and remembers "
+              "it. With Wi-Fi off there is then no route out and no name "
+              "resolution."),
             self.on_modem_restore)
         mpage.add(back)
 
@@ -111,52 +112,53 @@ class ModemPage:
         if not recorded or not actual:
             self.modem_ok = False
             self.modem_row.set_sensitive(False)
-            self.mrow_profile.set_subtitle("modemctl did not answer")
+            self.mrow_profile.set_subtitle(_("modemctl did not answer"))
             return
         self.modem_ok = True
 
         if actual == "fixed":
-            words = "the repairs are in place"
+            words = _("the repairs are in place")
         elif actual == "shipped":
-            words = "FuriOS as it came"
+            words = _("FuriOS as it came")
         else:
             # "mixed" is a real state and saying either of the other two would
             # be wrong in both directions.
-            words = "half repaired - use \"Repairs active\" to settle it"
+            words = _("half repaired - use \"Repairs active\" to settle it")
         if recorded != actual and actual in ("fixed", "shipped"):
-            words += f" · not remembered, the next boot returns to \"{recorded}\""
+            words += _(" · not remembered, the next boot returns to \"{recorded}\"").format(
+                recorded=recorded)
         self.mrow_profile.set_subtitle(words)
 
         self._syncing = True
         self.modem_row.set_active(actual == "fixed")
         self._syncing = False
         self.modem_row.set_subtitle(
-            "On: patched, with a route and a resolver that work without Wi-Fi"
+            _("On: patched, with a route and a resolver that work without Wi-Fi")
             if actual == "fixed"
-            else "Off: as it shipped - no route and no resolver without Wi-Fi"
+            else _("Off: as it shipped - no route and no resolver without Wi-Fi")
         )
 
     def on_modem_status(self, ok, out):
         if not ok and not out:
-            self.mrow_health.set_subtitle("modemctl did not answer")
+            self.mrow_health.set_subtitle(_("modemctl did not answer"))
             return
         bad = sum(1 for line in out.splitlines() if "FAIL" in line)
         good = sum(1 for line in out.splitlines() if " ok " in line)
         self.mrow_health.set_subtitle(
-            f"{good} in place" if bad == 0 else f"{good} in place, {bad} not"
+            _('{0} in place').format(good) if bad == 0 else _('{0} in place, {1} not').format(good, bad)
         )
         for line in out.splitlines():
             if "signal quality" in line:
                 self.mrow_signal.set_subtitle(line.split("signal quality", 1)[1].strip())
                 break
         else:
-            self.mrow_signal.set_subtitle("not readable")
+            self.mrow_signal.set_subtitle(_("not readable"))
 
     def on_modem_switch(self, row, _param):
         if self._syncing or self.busy:
             return
         if not tools.PKEXEC:
-            self.toast("pkexec is missing - cannot ask for the rights to switch")
+            self.toast(_("pkexec is missing - cannot ask for the rights to switch"))
             return
         # Always "set": the repairs are what makes mobile data work, and a
         # switch that quietly fell back at the next boot was one more thing
@@ -165,9 +167,9 @@ class ModemPage:
         mode = "set"
         want = "fixed" if row.get_active() else "shipped"
         self.set_busy(True)
-        self.modem_progress.set_text("Switching …")
+        self.modem_progress.set_text(_("Switching …"))
         self.modem_revealer.set_reveal_child(True)
-        self.pulse_start("Switching the modem …")
+        self.pulse_start(_("Switching the modem …"))
         process.run_async([tools.PKEXEC, self.live["modem"], mode, want], self.on_modem_switched,
                   on_line=self.on_progress_line)
 
@@ -175,12 +177,12 @@ class ModemPage:
         if self.busy:
             return
         if not tools.PKEXEC:
-            self.toast("pkexec is missing - cannot ask for the rights to switch")
+            self.toast(_("pkexec is missing - cannot ask for the rights to switch"))
             return
         self.set_busy(True)
-        self.modem_progress.set_text("Restoring …")
+        self.modem_progress.set_text(_("Restoring …"))
         self.modem_revealer.set_reveal_child(True)
-        self.pulse_start("Back to the shipped state …")
+        self.pulse_start(_("Back to the shipped state …"))
         # "set", not "try": the same promise the audio button makes - what it
         # restores is what the phone comes back to. And the same command a
         # person would type, so there is one truth about what this does.
@@ -192,10 +194,10 @@ class ModemPage:
         self.set_busy(False)
         self.modem_revealer.set_reveal_child(False)
         if ok:
-            self.toast("Shipped state - no network without Wi-Fi")
+            self.toast(_("Shipped state - no network without Wi-Fi"))
         else:
-            self.toast("Could not restore the shipped state")
-            self.report(out or "No output.")
+            self.toast(_("Could not restore the shipped state"))
+            self.report(out or _("No output."))
         self.refresh()
 
     def on_modem_switched(self, ok, out):
@@ -205,11 +207,11 @@ class ModemPage:
         if not ok:
             # A refusal from polkit looks like any other failure from here, and
             # it is the likely one on a phone where this is not authorised.
-            self.toast("Switching the modem failed")
-            self.report(out or "No output.")
+            self.toast(_("Switching the modem failed"))
+            self.report(out or _("No output."))
         else:
             last = [l for l in out.splitlines() if l.strip()]
-            self.toast(last[-1].strip() if last else "Done")
+            self.toast(last[-1].strip() if last else _("Done"))
         self.refresh()
 
     # --- which SIM ---------------------------------------------------------
@@ -223,7 +225,7 @@ class ModemPage:
         labels = []
         for n in (1, 2):
             if n not in present:
-                labels.append(f"SIM {n} · no card")
+                labels.append(_("SIM {n} · no card").format(n=n))
             elif names.get(n):
                 labels.append(f"SIM {n} · {names[n]}")
             else:
@@ -264,13 +266,14 @@ class ModemPage:
         self.sim_row.set_selected(active - 1)
         self._syncing = False
         if len(present) >= 2:
-            words = "One at a time - both slots share one radio"
+            words = _("One at a time - both slots share one radio")
         elif not present:
-            words = "No card detected - is the tray pushed all the way in?"
+            words = _("No card detected - is the tray pushed all the way in?")
         elif active not in present:
-            words = f"No card in slot {active} - pick the other one to get the network back"
+            words = _("No card in slot {n} - pick the other one to get the "
+                      "network back").format(n=active)
         else:
-            words = "Insert a second card to choose between them"
+            words = _("Insert a second card to choose between them")
         self.sim_row.set_subtitle(words)
         self.sim_row.set_sensitive(self.sim_ok and not self.busy)
 
@@ -278,7 +281,7 @@ class ModemPage:
         if self._syncing or self.busy or not self.sim_ok:
             return
         if not tools.PKEXEC:
-            self.toast("pkexec is missing - cannot ask for the rights to switch")
+            self.toast(_("pkexec is missing - cannot ask for the rights to switch"))
             return
         slot = row.get_selected() + 1
         # Nothing to do for the slot already in use, and never a switch to a
@@ -287,17 +290,17 @@ class ModemPage:
         if slot == self._sim_active:
             return
         if slot not in self._sim_present:
-            self.toast(f"No card in slot {slot}")
+            self.toast(_('No card in slot {0}').format(slot))
             self._syncing = True
             row.set_selected(self._sim_active - 1)
             self._syncing = False
             return
         self.set_busy(True)
-        self.modem_progress.set_text("Switching SIM …")
+        self.modem_progress.set_text(_("Switching SIM …"))
         self.modem_revealer.set_reveal_child(True)
         # About half a minute: oFono comes back on the other slot, then
         # ModemManager and NetworkManager are put in order behind it.
-        self.pulse_start(f"Switching to SIM {slot} - mobile network away for about 30 s …")
+        self.pulse_start(_('Switching to SIM {0} - mobile network away for about 30 s …').format(slot))
         process.run_async([tools.PKEXEC, self.live["modem"], "sim", str(slot)],
                           self.on_sim_switched, on_line=self.on_progress_line)
 
@@ -307,8 +310,8 @@ class ModemPage:
         self.modem_revealer.set_reveal_child(False)
         if not ok:
             # "a call is in progress" is the likely refusal, and it is in out.
-            self.toast("Switching the SIM failed")
-            self.report(out or "No output.")
+            self.toast(_("Switching the SIM failed"))
+            self.report(out or _("No output."))
         else:
-            self.toast("SIM switched")
+            self.toast(_("SIM switched"))
         self.refresh()

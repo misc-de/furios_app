@@ -7,6 +7,7 @@ import json
 from gi.repository import Adw
 
 from .. import process
+from ..i18n import _
 
 
 class SwitchesPage:
@@ -32,10 +33,10 @@ class SwitchesPage:
         # The icons are a phosh plugin, and this switch is the shell's own list
         # of them. That is why there is no "remember this" beside it any more:
         # the list IS the memory, and the shell follows it while it runs.
-        grp = Adw.PreferencesGroup(title="Indicator")
+        grp = Adw.PreferencesGroup(title=_("Indicator"))
         self.sw_row = Adw.SwitchRow(
-            title="Icons for the camera and network switch",
-            subtitle="reading …")
+            title=_("Icons for the camera and network switch"),
+            subtitle=_("reading …"))
         self.sw_row.connect("notify::active", self.on_indicator_switch)
         grp.add(self.sw_row)
         spage.add(grp)
@@ -43,28 +44,28 @@ class SwitchesPage:
         # The camera and microphone groups are gone (28.9., on request):
         # they only described what the sliders do, and nothing there could be
         # changed. What is left is what this page actually sets.
-        net = Adw.PreferencesGroup(title="Network switch")
+        net = Adw.PreferencesGroup(title=_("Network switch"))
         # Shown as a switch like the other two, but fixed on: the Android side
         # stops the RIL before any program here learns the slider moved. The
         # only way to "deselect" it would be to start the modem back up behind
         # the switch - undermining the very thing somebody flipped it for.
         self.sw_modem = Adw.SwitchRow(
-            title="The mobile network goes with the switch",
-            subtitle="always, and not ours to change - firmware does it. "
-            "(Settings switches mobile data off separately, any time.)",
+            title=_("The mobile network goes with the switch"),
+            subtitle=_("always, and not ours to change - firmware does it. "
+            "(Settings switches mobile data off separately, any time.)"),
             active=True,
         )
         self.sw_modem.set_sensitive(False)
         net.add(self.sw_modem)
         self.sw_wifi = Adw.SwitchRow(
-            title="Take Wi-Fi down with it as well",
-            subtitle="reading …",
+            title=_("Take Wi-Fi down with it as well"),
+            subtitle=_("reading …"),
         )
         self.sw_wifi.connect("notify::active", self.on_extra_wifi)
         net.add(self.sw_wifi)
         self.sw_bt = Adw.SwitchRow(
-            title="Take Bluetooth down with it as well",
-            subtitle="reading …",
+            title=_("Take Bluetooth down with it as well"),
+            subtitle=_("reading …"),
         )
         self.sw_bt.connect("notify::active", self.on_extra_bt)
         net.add(self.sw_bt)
@@ -75,10 +76,10 @@ class SwitchesPage:
         # page added is the indicator and the two extra radios, and that is
         # exactly what goes away again.
         back, self.sw_restore_btn = self.build_restore_group(
-            "Takes the icons out of the top bar, stops the service behind "
+            _("Takes the icons out of the top bar, stops the service behind "
             "them and leaves Wi-Fi and Bluetooth out of the network switch. "
             "The sliders themselves keep doing what they do - that is "
-            "hardware, and nothing here reaches it.",
+            "hardware, and nothing here reaches it."),
             self.on_switches_restore)
         spage.add(back)
 
@@ -88,12 +89,12 @@ class SwitchesPage:
 
     def on_switches_status(self, ok, out):
         if not ok:
-            self.sw_row.set_subtitle("killswitch-indicator did not answer")
+            self.sw_row.set_subtitle(_("killswitch-indicator did not answer"))
             return
         try:
             data = json.loads(out)
         except ValueError:
-            self.sw_row.set_subtitle("unreadable answer")
+            self.sw_row.set_subtitle(_("unreadable answer"))
             return
 
         icons = data.get("icons")
@@ -106,11 +107,11 @@ class SwitchesPage:
         # either), and blaming phosh's plugin list for that sends somebody
         # looking in the one place that is fine.
         self.sw_row.set_subtitle(
-            "in the top bar, at the left end of the indicators" if icons else
-            "not shown" if icons is False else
-            "this killswitch-indicator is too old to switch them - update it"
+            _("in the top bar, at the left end of the indicators") if icons else
+            _("not shown") if icons is False else
+            _("this killswitch-indicator is too old to switch them - update it")
             if "icons" not in data else
-            "phosh's plugin list is not readable here")
+            _("phosh's plugin list is not readable here"))
 
         extras = data.get("network_extras", {})
         self._radios = data.get("radios", {})
@@ -130,10 +131,10 @@ class SwitchesPage:
         radios = getattr(self, "_radios", {})
         for row, key in ((self.sw_wifi, "wifi"), (self.sw_bt, "bluetooth")):
             state = radios.get(key)
-            text = ("currently on" if state else
-                    "currently off" if state is False else "not reachable")
+            text = (_("currently on") if state else
+                    _("currently off") if state is False else _("not reachable"))
             if getattr(self, "_daemon_active", True) is False:
-                text += " - but the service that would act is not running"
+                text += _(" - but the service that would act is not running")
             row.set_subtitle(text)
 
     def on_indicator_active(self, ok, out):
@@ -153,12 +154,12 @@ class SwitchesPage:
     def after_indicator(self, ok, out, value):
         if not ok:
             self.toasts.add_toast(
-                Adw.Toast(title=f"Could not switch the icons {value}"))
+                Adw.Toast(title=_('Could not switch the icons {0}').format(value)))
         elif value == "on":
             # Said once, here, because it is the one thing about this switch
             # that surprises: phosh looks for new plugins only when it starts.
             self.toasts.add_toast(Adw.Toast(
-                title="On. After a fresh install they appear at the next boot."))
+                title=_("On. After a fresh install they appear at the next boot.")))
         self.refresh()
 
     def on_extra_wifi(self, row, _param):
@@ -176,12 +177,12 @@ class SwitchesPage:
 
     def after_extra(self, ok, radio, value):
         if not ok:
-            self.toasts.add_toast(Adw.Toast(title=f"Could not change {radio}"))
+            self.toasts.add_toast(Adw.Toast(title=_('Could not change {0}').format(radio)))
             self.refresh()
             return
         if value == "on":
             self.toasts.add_toast(Adw.Toast(
-                title=f"{radio} will go off with the network switch"))
+                title=_('{0} will go off with the network switch').format(radio)))
 
     def on_switches_restore(self, _btn):
         """Everything this page added, taken back out - in one go.
@@ -204,9 +205,9 @@ class SwitchesPage:
     def on_switches_restored(self, ok, out):
         self.set_busy(False)
         if ok:
-            self.toast("Shipped state - no icons, and the switch takes only "
-                       "the modem")
+            self.toast(_("Shipped state - no icons, and the switch takes only "
+                       "the modem"))
         else:
-            self.toast("Could not restore the shipped state")
-            self.report(out or "No output.")
+            self.toast(_("Could not restore the shipped state"))
+            self.report(out or _("No output."))
         self.refresh()

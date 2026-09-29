@@ -8,6 +8,7 @@ from gi.repository import Adw, GLib, Gtk
 
 from .. import process
 from ..components import BATTERY_UNIT
+from ..i18n import _
 
 
 class BatteryPage:
@@ -27,29 +28,29 @@ class BatteryPage:
     # furniture, and which pair belonged to which switch was a thing to work
     # out rather than to see.
     BATTERY_OPTIONS = (
-        ("charging", "While charging", "Colour the bolt", None, (
-            ("Green", "charge_green_w", 1.0, 12.0, 0.5, 1, "W"),
-            ("Amber", "charge_amber_w", 0.5, 11.0, 0.5, 1, "W"))),
-        ("level", "Charge level", "Colour the filling", None, (
-            ("Amber", "level_amber_pct", 20.0, 95.0, 5.0, 0, "%"),
-            ("Red", "level_red_pct", 5.0, 90.0, 5.0, 0, "%"))),
-        ("discharging", "Drain", "Colour the frame", None, (
-            ("Amber", "drain_amber_w", 0.5, 8.0, 0.5, 1, "W"),
-            ("Red", "drain_red_w", 1.0, 12.0, 0.5, 1, "W"))),
+        ("charging", _("While charging"), _("Colour the bolt"), None, (
+            (_("Green"), "charge_green_w", 1.0, 12.0, 0.5, 1, "W"),
+            (_("Amber"), "charge_amber_w", 0.5, 11.0, 0.5, 1, "W"))),
+        ("level", _("Charge level"), _("Colour the filling"), None, (
+            (_("Amber"), "level_amber_pct", 20.0, 95.0, 5.0, 0, "%"),
+            (_("Red"), "level_red_pct", 5.0, 90.0, 5.0, 0, "%"))),
+        ("discharging", _("Drain"), _("Colour the frame"), None, (
+            (_("Amber"), "drain_amber_w", 0.5, 8.0, 0.5, 1, "W"),
+            (_("Red"), "drain_red_w", 1.0, 12.0, 0.5, 1, "W"))),
         # No sliders on these two: there is nothing to set, only whether it
         # is shown.
         # It is shown by the phosh plugin, left of the battery icon; the
         # strip that stood in the percentage's place is gone. battctl
         # status says when the plugin is missing or not loaded yet.
-        ("runtime", "Time left", "Show it in the top bar",
-         "how long the battery lasts, as 00:00, left of the battery icon", ()),
+        ("runtime", _("Time left"), _("Show it in the top bar"),
+         _("how long the battery lasts, as 00:00, left of the battery icon"), ()),
         # Its own switch, not part of the one above: "how long does it last"
         # and "how long until it is full" are two questions, and somebody may
         # want one without the other. Off, there is no time while the cable
         # is in.
-        ("charge_time", "Charging time", "While the cable is in",
-         "how long until full, in the same place - off, there is no time "
-         "while charging", ()),
+        ("charge_time", _("Charging time"), _("While the cable is in"),
+         _("how long until full, in the same place - off, there is no time "
+           "while charging"), ()),
     )
 
     # Which threshold has to stay below which, and by how much.
@@ -64,7 +65,7 @@ class BatteryPage:
         Watts and percent in the same column of controls, and no sentence
         anywhere to say which is which - so each threshold carries its
         unit."""
-        return "%.*f %s" % (digits, value, unit)
+        return _("%.*f %s") % (digits, value, unit)
 
     def build_stepper(self, adj, low, high, digits, unit):
         """- value + for one threshold, one step per tap.
@@ -77,9 +78,9 @@ class BatteryPage:
         """
         box = Gtk.Box(spacing=6, valign=Gtk.Align.CENTER)
         minus = Gtk.Button(icon_name="list-remove-symbolic",
-                           tooltip_text="Lower")
+                           tooltip_text=_("Lower"))
         plus = Gtk.Button(icon_name="list-add-symbolic",
-                          tooltip_text="Higher")
+                          tooltip_text=_("Higher"))
         value = Gtk.Label(width_chars=7)
         for btn in (minus, plus):
             btn.add_css_class("circular")
@@ -156,9 +157,9 @@ class BatteryPage:
             bpage.add(grp)
 
         back, self.batt_restore_btn = self.build_restore_group(
-            "Stops the colouring and the time left, takes them out of the "
-            "next boot and out of the top bar. What the battery reports is "
-            "untouched - that is the kernel's.",
+            _("Stops the colouring and the time left, takes them out of the "
+              "next boot and out of the top bar. What the battery reports is "
+              "untouched - that is the kernel's."),
             self.on_battery_restore)
         bpage.add(back)
         self.batt_rows.append(self.batt_restore_btn)
@@ -309,7 +310,7 @@ class BatteryPage:
 
     def after_battery(self, ok, out, verb):
         if not ok:
-            self.toast("Could not %s the colouring" % verb)
+            self.toast(_("Could not change the colouring"))
             if out:
                 self.report(out)
         self.refresh()
@@ -332,8 +333,8 @@ class BatteryPage:
     def on_battery_restored(self, ok, out):
         self.set_busy(False)
         if ok:
-            self.toast("Shipped state - no colouring")
+            self.toast(_("Shipped state - no colouring"))
         else:
-            self.toast("Could not restore the shipped state")
-            self.report(out or "No output.")
+            self.toast(_("Could not restore the shipped state"))
+            self.report(out or _("No output."))
         self.refresh()

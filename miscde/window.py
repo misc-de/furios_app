@@ -19,7 +19,7 @@ and is the only method that knows about all of them."""
 
 from gi.repository import Adw, GLib, Gtk
 
-from . import process, swipe, tools
+from . import i18n, process, swipe, tools
 from .components import BATTERY_UNIT, COMPONENTS, SELF
 from .tools import APP_ID, DMNR
 from .pages.audio import CODECS, SERVERS, AudioPage, server_at
@@ -30,6 +30,7 @@ from .pages.modem import ModemPage
 from .pages.other import TAB as OTHER_TAB, OtherPage
 from .pages.security import SecurityPage
 from .pages.switches import SwitchesPage
+from .i18n import _
 
 
 class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
@@ -108,19 +109,39 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         zeile.append(self.update_label)
         self.update_btn.set_child(zeile)
         self.update_btn.set_visible(False)
-        self.update_btn.connect("clicked", lambda *_: self.ask_updates())
+        self.update_btn.connect("clicked", lambda *__: self.ask_updates())
         header.pack_start(self.update_btn)
+
+        # The language, top right (asked for 29.9.). A menu of two, the
+        # current one ticked. Choosing restarts the window in that language -
+        # the same restart an update of the app uses - so nothing already on
+        # screen stays in the old one.
+        self.lang_btn = Gtk.MenuButton(
+            icon_name="preferences-desktop-locale-symbolic",
+            tooltip_text=_("Language"))
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        group = None
+        for code, name in i18n.LANGUAGES:
+            check = Gtk.CheckButton(label=name, active=code == i18n.current())
+            if group is None:
+                group = check
+            else:
+                check.set_group(group)
+            check.connect("toggled", self.on_language, code)
+            box.append(check)
+        self.lang_btn.set_popover(Gtk.Popover(child=box))
+        header.pack_end(self.lang_btn)
 
 
         page = Adw.PreferencesPage()
 
         # --- the switch itself ---
-        grp = Adw.PreferencesGroup(title="Audio stack")
+        grp = Adw.PreferencesGroup(title=_("Audio stack"))
         # A choice between two servers, not an on/off: both are complete
         # stacks, and "off" for one of them read as "no sound".
         self.switch_row = Adw.ComboRow(
-            title="Sound server",
-            subtitle="reading …",
+            title=_("Sound server"),
+            subtitle=_("reading …"),
             model=Gtk.StringList.new([name for _k, name in SERVERS]),
         )
         self.switch_row.connect("notify::selected", self.on_switch)
@@ -131,8 +152,8 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         # PulseAudio only the two that need no WirePlumber can run, and they
         # are marked as not tested there yet.
         self.btx_row = Adw.SwitchRow(
-            title="Bluetooth helpers",
-            subtitle="reading …",
+            title=_("Bluetooth helpers"),
+            subtitle=_("reading …"),
         )
         self.btx_ok = False
         self.btx_row.set_sensitive(False)
@@ -147,8 +168,8 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         # disabled for calls on this device although the chip could do it,
         # and this lays a modified tuning file over the vendor's.
         self.dmnr_row = Adw.SwitchRow(
-            title="Handsfree echo suppression (DMNR)",
-            subtitle="Vendor setting: off",
+            title=_("Handsfree echo suppression (DMNR)"),
+            subtitle=self.DMNR_WORDS,
         )
         self.dmnr_row.connect("notify::active", self.on_dmnr)
         grp.add(self.dmnr_row)
@@ -159,8 +180,8 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         # asking twice whether to keep them would be two questions about one
         # thing.
         self.persist_row = Adw.SwitchRow(
-            title="Remember these choices",
-            subtitle="Off: a reboot returns to the shipped state",
+            title=_("Remember these choices"),
+            subtitle=self.PERSIST_WORDS,
         )
         grp.add(self.persist_row)
 
@@ -183,10 +204,10 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         self._pulse_id = 0
 
         # --- what is actually running right now ---
-        info = Adw.PreferencesGroup(title="Status")
-        self.row_profile = Adw.ActionRow(title="Owns the Android HAL", subtitle="reading …")
-        self.row_server = Adw.ActionRow(title="Sound server", subtitle="…")
-        self.row_sinks = Adw.ActionRow(title="Outputs", subtitle="…")
+        info = Adw.PreferencesGroup(title=_("Status"))
+        self.row_profile = Adw.ActionRow(title=_("Owns the Android HAL"), subtitle=_("reading …"))
+        self.row_server = Adw.ActionRow(title=_("Sound server"), subtitle="…")
+        self.row_sinks = Adw.ActionRow(title=_("Outputs"), subtitle="…")
         for row in (self.row_profile, self.row_server, self.row_sinks):
             row.set_subtitle_selectable(True)
             info.add(row)
@@ -198,10 +219,10 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         # switch above it that says how long a choice lasts does not apply
         # here. This one is a line in another program's config file and is
         # permanent the moment it is written.
-        bt = Adw.PreferencesGroup(title="Bluetooth")
+        bt = Adw.PreferencesGroup(title=_("Bluetooth"))
         self.btsave_row = Adw.SwitchRow(
-            title="Bluetooth powersave",
-            subtitle="reading …",
+            title=_("Bluetooth powersave"),
+            subtitle=_("reading …"),
         )
         self.btsave_row.connect("notify::active", self.on_btsave)
 
@@ -211,13 +232,13 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         # Which headset the codec below is for: all of them, or one alone.
         # Only there once a headset has been seen - see on_codec_status.
         self.codec_scope_row = Adw.ComboRow(
-            title="Applies to",
-            model=Gtk.StringList.new(["All headsets"]),
+            title=_("Applies to"),
+            model=Gtk.StringList.new([_("All headsets")]),
         )
         self.codec_scope_row.set_visible(False)
         self.codec_scope_row.connect("notify::selected", self.on_codec_scope)
         bt.add(self.codec_scope_row)
-        self._codec_scope_labels = ["All headsets"]
+        self._codec_scope_labels = [_("All headsets")]
         self._codec_scopes = [None]
         self._codec_scope = None
         self._codec_scope_auto = True
@@ -226,8 +247,8 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         self._codec_keys = [k for k, _name, _note in CODECS]
 
         self.codec_row = Adw.ComboRow(
-            title="Music codec",
-            subtitle="reading …",
+            title=_("Music codec"),
+            subtitle=_("reading …"),
             model=Gtk.StringList.new(
                 [name for _k, name, _note in CODECS]),
         )
@@ -242,9 +263,9 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
 
         # --- last resort ---
         rescue, self.rescue_btn = self.build_restore_group(
-            "Returns to the shipped state and sends sound to the speaker - "
-            "audible volume, unmuted. This is also the one to press when you "
-            "hear nothing at all.",
+            _("Returns to the shipped state and sends sound to the speaker - "
+              "audible volume, unmuted. This is also the one to press when you "
+              "hear nothing at all."),
             self.on_rescue)
         page.add(rescue)
 
@@ -321,8 +342,20 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         # four connections every time.
         self.check_updates()
 
-    RESTORE_TITLE = "Back to how it shipped"
-    RESTORE_LABEL = "Restore shipped state"
+    def on_language(self, check, code):
+        if not check.get_active() or code == i18n.current():
+            return
+        if not i18n.save(code):
+            self.toast(_("Could not save the language"))
+            return
+        # Not while something runs: a restart would cut it off half way.
+        if self.busy:
+            self.toast(_("Saved - takes effect when the window is opened again"))
+            return
+        self.restart_self()
+
+    RESTORE_TITLE = _("Back to how it shipped")
+    RESTORE_LABEL = _("Restore shipped state")
 
     def build_restore_group(self, description, handler):
         """The group and the button; the caller adds the group to its page.
@@ -355,7 +388,7 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         # round on a narrow screen, so this is what puts Cancel on top, under
         # the thumb, and the acting answer below it. Checked on the phone.
         dlg.add_response("restore", self.RESTORE_LABEL)
-        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("cancel", _("Cancel"))
         dlg.set_default_response("cancel")
         dlg.set_close_response("cancel")
         dlg.connect("response", self.on_restore_response)
@@ -484,16 +517,14 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
             if rows.get("button") is not None:
                 rows["button"].set_sensitive(not busy)
         if busy:
-            self.switch_row.set_subtitle("Switching, this takes a moment …")
+            self.switch_row.set_subtitle(_("Switching, this takes a moment …"))
         elif not self.audio_ok:
-            self.switch_row.set_subtitle("audioctl did not answer")
-        elif server_at(self.switch_row.get_selected()) == "pw-hal":
-            self.switch_row.set_subtitle(
-                "PipeWire with our changes: Bluetooth calls, headset "
-                "microphone, reconnect")
+            self.switch_row.set_subtitle(_("audioctl did not answer"))
         else:
+            # The owner's description (29.9.). Which server runs is the
+            # selection itself, and the status rows below say the rest.
             self.switch_row.set_subtitle(
-                "PulseAudio exactly as shipped - our Bluetooth helpers are off")
+                _("Choose the main service for your audio input and output"))
 
     def on_progress_line(self, line):
         """Shows the step audioctl is currently reporting - shortened so it
@@ -505,8 +536,8 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         self.toasts.add_toast(Adw.Toast(title=text, timeout=4))
 
     def report(self, text):
-        dlg = Adw.AlertDialog(heading="Something went wrong", body=text)
-        dlg.add_response("ok", "Got it")
+        dlg = Adw.AlertDialog(heading=_("Something went wrong"), body=text)
+        dlg.add_response("ok", _("Got it"))
         dlg.present(self)
 
 

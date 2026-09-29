@@ -17,6 +17,7 @@ from .other import TAB as OTHER_TAB
 from ..components import (CLONE_HOME, COMPONENTS, SELF, behind_count,
                          clone_path, component_steps, installer_said,
                          source_steps)
+from ..i18n import _
 
 
 class InstallPage:
@@ -29,7 +30,7 @@ class InstallPage:
                 else self.build_missing_page(comp))
         self.pages[comp["key"]] = page
         self.stack.add_titled_with_icon(
-            page, comp["key"], comp["page"], comp["icon"])
+            page, comp["key"], _(comp["page"]), comp["icon"])
         return page
 
     def swap_in_page(self, comp):
@@ -51,7 +52,7 @@ class InstallPage:
         keys = [c["key"] for c in COMPONENTS]
         after = COMPONENTS[keys.index(comp["key"]):]
         # The Other tab sits behind all of them and has to go back last.
-        tail = [(c["key"], c["page"], c["icon"]) for c in after[1:]]
+        tail = [(c["key"], _(c["page"]), c["icon"]) for c in after[1:]]
         tail.append(OTHER_TAB)
         for key in [c["key"] for c in after] + [OTHER_TAB[0]]:
             if self.pages.get(key) is not None:
@@ -94,21 +95,24 @@ class InstallPage:
         """
         page = Adw.PreferencesPage()
         grp = Adw.PreferencesGroup(
-            title=comp["page"] + " · not installed",
-            description="This tab drives " + comp["tool"] + ", and that is not "
-            "on this phone. It can be fetched and installed from here; until "
-            "then there is nothing to show.",
+            title=_("{page} · not installed").format(page=_(comp["page"])),
+            description=_("This tab drives {tool}, and that is not on this "
+                          "phone. It can be fetched and installed from here; "
+                          "until then there is nothing to show.").format(
+                              tool=comp["tool"]),
         )
         rows = {}
-        rows["does"] = Adw.ActionRow(title="What it would do",
-                                       subtitle=comp["does"])
-        rows["from"] = Adw.ActionRow(title="Comes from", subtitle=comp["url"])
+        rows["does"] = Adw.ActionRow(title=_("What it would do"),
+                                       subtitle=_(comp["does"]))
+        rows["from"] = Adw.ActionRow(title=_("Comes from"), subtitle=comp["url"])
         rows["state"] = Adw.ActionRow(
-            title="What will happen",
-            subtitle=("fetched to " + clone_path(comp) + ", then "
-                      + installer_said(comp))
-            + (" - that one needs root, so sudo will ask for your password"
-               if comp["root"] else " - no root needed"))
+            title=_("What will happen"),
+            subtitle=(_("fetched to {path}, then {installer} - that one needs "
+                        "root, so sudo will ask for your password")
+                      if comp["root"] else
+                      _("fetched to {path}, then {installer} - no root needed")
+                      ).format(path=clone_path(comp),
+                               installer=installer_said(comp)))
         for row in rows.values():
             row.set_subtitle_selectable(True)
             grp.add(row)
@@ -147,7 +151,7 @@ class InstallPage:
         """
         count = len(self.updates)
         self.update_label.set_text(
-            "%d Update" % count if count == 1 else "%d Updates" % count)
+            _("%d Update") % count if count == 1 else _("%d Updates") % count)
         self.update_btn.set_visible(count > 0)
         self.update_btn.set_sensitive(count > 0 and not self.busy)
 
@@ -188,7 +192,7 @@ class InstallPage:
         def counted(ok, out):
             behind = behind_count(out) if ok else None
             if behind:
-                self.offer_update(comp, "%d new commit(s)" % behind, mine)
+                self.offer_update(comp, _("%d new commit(s)") % behind, mine)
             elif other:
                 other()
 
@@ -230,8 +234,8 @@ class InstallPage:
             return                             # nothing to compare, nothing said
         if theirs != ours:
             self.offer_update(
-                comp, "the misc-de in this clone is not the program that "
-                "is running", source, "reinstall")
+                comp, _("the misc-de in this clone is not the program that "
+                        "is running"), source, "reinstall")
 
     def offer_update(self, comp, words, path, state="update"):
         """Write down that this one has something waiting, and count it.
@@ -267,7 +271,7 @@ class InstallPage:
                 if other:
                     other()
                 return                         # nothing to say, so nothing said
-            self.offer_update(comp, "something new on the server", foreign_path)
+            self.offer_update(comp, _("something new on the server"), foreign_path)
 
         def upstream_read(ok, out):
             head = (out or "").split()
@@ -299,30 +303,31 @@ class InstallPage:
         root = any(u["comp"]["root"] for u in waiting)
         body = "\n".join(lines) + "\n\n"
         if root:
-            body += ("Some of them write to /usr/local, so sudo will ask - "
-                     "once, below, for all of them. It goes to sudo and "
-                     "nowhere else, and the ticket is dropped at the end.")
+            body += _("Some of them write to /usr/local, so sudo will ask - "
+                      "once, below, for all of them. It goes to sudo and "
+                      "nowhere else, and the ticket is dropped at the end.")
         else:
-            body += "None of them needs root."
-        body += "\n\nThe app restarts when they are in."
+            body += _("None of them needs root.")
+        body += "\n\n" + _("The app restarts when they are in.")
         eigene = [u for u in waiting
                   if not u["path"].startswith(CLONE_HOME)]
         if eigene:
-            body += ("\n\nSome of these are your own clones. With anything "
-                     "uncommitted in one, that one is left alone.")
+            body += "\n\n" + _("Some of these are your own clones. With "
+                                 "anything uncommitted in one, that one is "
+                                 "left alone.")
 
         dlg = Adw.AlertDialog(
-            heading="%d update%s" % (len(waiting),
-                                     "" if len(waiting) == 1 else "s"),
+            heading=(_("1 update") if len(waiting) == 1
+                     else _("%d updates") % len(waiting)),
             body=body)
         entry = None
         if root:
-            entry = Adw.PasswordEntryRow(title="Your password (for sudo)")
+            entry = Adw.PasswordEntryRow(title=_("Your password (for sudo)"))
             grp = Adw.PreferencesGroup()
             grp.add(entry)
             dlg.set_extra_child(grp)
-        dlg.add_response("go", "Update and restart")
-        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("go", _("Update and restart"))
+        dlg.add_response("cancel", _("Cancel"))
         dlg.set_default_response("cancel")
         dlg.set_close_response("cancel")
         self._updates_pending = entry
@@ -356,7 +361,8 @@ class InstallPage:
         self.askpass = askpass.Askpass(secret) if root else None
         helper = self.askpass.start() if self.askpass else None
         if self.askpass is not None and helper is None and self.askpass.error:
-            self.toast("no password helper: " + self.askpass.error)
+            self.toast(_("no password helper: {error}").format(
+                error=self.askpass.error))
 
         rest = []
         for u in waiting:
@@ -364,7 +370,7 @@ class InstallPage:
                                            u["path"], helper):
                 rest.append((u["comp"], schritt))
         self.set_busy(True)
-        self.update_progress("working …")
+        self.update_progress(_("working …"))
 
         def step(ok=True, out=""):
             if not ok or not rest:
@@ -409,10 +415,10 @@ class InstallPage:
         self.set_busy(False)
         if not ok:
             self.show_update_count()
-            self.toast("Could not install the updates")
+            self.toast(_("Could not install the updates"))
             # A wrong password shows up here as sudo's own words, which say
             # it better than anything this window could invent.
-            self.report(out or "No output.")
+            self.report(out or _("No output."))
             return
         # Nothing is left waiting, and the window that is running is now the
         # old program - possibly of itself. Restarting is the only way the
@@ -431,30 +437,31 @@ class InstallPage:
             return
         path = self.comp_rows.get(comp["tool"], {}).get("path") or clone_path(comp)
         steps = [source_steps(comp, state, path)[1],
-                    "run %s from that clone" % installer_said(comp)]
+                    _("run %s from that clone") % installer_said(comp)]
         text = "\n".join("%d. %s" % (n, t) for n, t in enumerate(steps, 1))
-        body = text + "\n\nThat is code from the internet, running on this "
+        body = text + "\n\n"
         if comp["root"]:
-            body += ("phone. The installer writes to /usr/local, so sudo will "
-                     "ask for your password below - it goes to sudo and "
-                     "nowhere else, and the ticket is dropped when this is "
-                     "done.")
+            body += _("That is code from the internet, running on this phone. "
+                      "The installer writes to /usr/local, so sudo will ask "
+                      "for your password below - it goes to sudo and nowhere "
+                      "else, and the ticket is dropped when this is done.")
         else:
-            body += "phone. Nothing here needs root."
+            body += _("That is code from the internet, running on this phone. "
+                      "Nothing here needs root.")
         if state == "update" and not path.startswith(CLONE_HOME):
-            body += ("\n\nThis is your own clone. With anything uncommitted "
-                     "in it, nothing is touched at all.")
+            body += "\n\n" + _("This is your own clone. With anything "
+                                 "uncommitted in it, nothing is touched at all.")
 
         dlg = Adw.AlertDialog(heading=comp["tool"] + "?", body=body)
         entry = None
         if comp["root"]:
-            entry = Adw.PasswordEntryRow(title="Your password (for sudo)")
+            entry = Adw.PasswordEntryRow(title=_("Your password (for sudo)"))
             grp = Adw.PreferencesGroup()
             grp.add(entry)
             dlg.set_extra_child(grp)
-        dlg.add_response("go", "Fetch and install" if state == "install"
-                         else "Update")
-        dlg.add_response("cancel", "Cancel")
+        dlg.add_response("go", _("Fetch and install") if state == "install"
+                         else _("Update"))
+        dlg.add_response("cancel", _("Cancel"))
         dlg.set_default_response("cancel")
         dlg.set_close_response("cancel")
         self._comp_pending = (comp, state, entry, path)
@@ -485,8 +492,8 @@ class InstallPage:
         # But it is the reason an install can stop at its first sudo line, so
         # it is said out loud rather than left to be guessed at.
         if self.askpass is not None and helper is None and self.askpass.error:
-            self.component_says(comp, "no password helper: " + self.askpass.error)
-        self.component_says(comp, "working …")
+            self.component_says(comp, _("no password helper: {error}").format(error=self.askpass.error))
+        self.component_says(comp, _("working …"))
         self.set_busy(True)
 
         rest = list(steps)
@@ -546,24 +553,26 @@ class InstallPage:
         if ok and self.live.get(comp["key"]):
             # Already there before this ran - so this was not a fetch of
             # something missing. Nothing to swap in; say so and stop.
-            self.toast(comp["tool"] + " is up to date")
+            self.toast(_("{tool} is up to date").format(tool=comp["tool"]))
         elif ok:
             # The page first, the words after it: if the tab is already the
             # real one by the time the toast is read, the sentence is a
             # description and not a promise.
             if self.swap_in_page(comp):
-                self.toast(comp["tool"] + " is in place - this tab is live")
+                self.toast(_("{tool} is in place - this tab is live").format(
+                    tool=comp["tool"]))
             else:
                 # Everything ran and the tool is still not findable. There is
                 # no sentence this window can invent that beats what the
                 # installer said, so show that.
-                self.toast(comp["tool"] + " ran, but is not on the phone")
-                self.report(out or "No output.")
+                self.toast(_("{tool} ran, but is not on the phone").format(
+                    tool=comp["tool"]))
+                self.report(out or _("No output."))
         else:
-            self.toast("Could not set up " + comp["tool"])
+            self.toast(_("Could not set up {tool}").format(tool=comp["tool"]))
             # A wrong password shows up here as sudo's own words, which say it
             # better than anything this window could invent.
-            self.report(out or "No output.")
+            self.report(out or _("No output."))
         self.refresh()
 
     def restart_self(self):
@@ -579,4 +588,4 @@ class InstallPage:
         try:
             os.execv(prog, [prog])
         except OSError as err:                 # then at least say so
-            self.toast("Could not restart: " + str(err))
+            self.toast(_("Could not restart: {error}").format(error=err))

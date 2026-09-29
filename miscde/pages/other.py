@@ -12,6 +12,7 @@ import os
 import re
 
 from gi.repository import Adw, Gio
+from ..i18n import _
 
 # key, title, icon - the same three a component carries for its tab.
 TAB = ("other", "Phosh", "preferences-other-symbolic")
@@ -288,14 +289,14 @@ def set_prompter_fixed(on, service=None, shim=None):
 class OtherPage:
     def build_other_page(self):
         page = Adw.PreferencesPage()
-        grp = Adw.PreferencesGroup(title="Home screen")
+        grp = Adw.PreferencesGroup(title=_("Home screen"))
         # The subtitle says when it takes effect, because nothing happens
         # when the switch moves: phosh reads gtk.css once, at start. Restarting
         # it from here is not an option - its unit takes the session down
         # with it when it fails.
         self.search_row = Adw.SwitchRow(
-            title="Hide the search field",
-            subtitle="In the app overview · after the next login")
+            title=_("Hide the search field"),
+            subtitle=_("In the app overview · after the next login"))
         self._loading = True
         self.search_row.set_active(search_hidden())
         self._loading = False
@@ -305,14 +306,14 @@ class OtherPage:
         # Off and closed without the plugin: a switch that only writes a
         # name phosh cannot find would look like it did something.
         self.dock_settings = plugin_settings()
-        self.dock_row = Adw.SwitchRow(title="Folders at the bottom")
+        self.dock_row = Adw.SwitchRow(title=_("Folders at the bottom"))
         if not dock_installed() or self.dock_settings is None:
             self.dock_row.set_subtitle(
-                "Needs the folder-dock plugin from furios_phosh")
+                _("Needs the folder-dock plugin from furios_phosh"))
             self.dock_row.set_sensitive(False)
         else:
             self.dock_row.set_subtitle(
-                "Held in a bar at the bottom edge of the app overview")
+                _("Held in a bar at the bottom edge of the app overview"))
             self._loading = True
             self.dock_row.set_active(dock_enabled(self.dock_settings))
             self._loading = False
@@ -320,8 +321,8 @@ class OtherPage:
         grp.add(self.dock_row)
 
         self.row_row = Adw.SwitchRow(
-            title="Folders in one row",
-            subtitle="Scrolls sideways instead of growing upwards")
+            title=_("Folders in one row"),
+            subtitle=_("Scrolls sideways instead of growing upwards"))
         self._loading = True
         self.row_row.set_active(dock_one_row())
         self._loading = False
@@ -332,8 +333,8 @@ class OtherPage:
         # The plugin does this too - it is the one thing in the shell that
         # reaches the app buttons - so it needs the dock switched on.
         self.labels_row = Adw.SwitchRow(
-            title="Hide app names",
-            subtitle="Icons only, like the favorites · folders keep theirs")
+            title=_("Hide app names"),
+            subtitle=_("Icons only, like the favorites · folders keep theirs"))
         self._loading = True
         self.labels_row.set_active(dock_setting(HIDE_LABELS))
         self._loading = False
@@ -342,10 +343,10 @@ class OtherPage:
         grp.add(self.labels_row)
         page.add(grp)
 
-        grp = Adw.PreferencesGroup(title="Unlock")
+        grp = Adw.PreferencesGroup(title=_("Unlock"))
         self.prompter_row = Adw.SwitchRow(
-            title="Keyring prompt in phosh style",
-            subtitle="Instead of the light window after a restart")
+            title=_("Keyring prompt in phosh style"),
+            subtitle=_("Instead of the light window after a restart"))
         self._loading = True
         self.prompter_row.set_active(prompter_fixed())
         self._loading = False
@@ -364,7 +365,7 @@ class OtherPage:
             self._loading = True
             row.set_active(not want)
             self._loading = False
-            self.report("Could not write %s:\n%s"
+            self.report(_("Could not write %s:\n%s")
                         % (prompter_service_path(), e))
 
     def on_dock_one_row(self, row, _pspec):
@@ -383,7 +384,7 @@ class OtherPage:
             self._loading = True
             row.set_active(not want)
             self._loading = False
-            self.report("Could not write %s:\n%s" % (dock_config_path(), e))
+            self.report(_("Could not write %s:\n%s") % (dock_config_path(), e))
 
     def on_dock_enabled(self, row, _pspec):
         for name in ("row_row", "labels_row"):
@@ -403,6 +404,6 @@ class OtherPage:
             self._loading = True
             row.set_active(not want)
             self._loading = False
-            self.report("Could not write %s:\n%s" % (gtk_css_path(), e))
+            self.report(_("Could not write %s:\n%s") % (gtk_css_path(), e))
             return
-        self.toast("Takes effect after the next login")
+        self.toast(_("Takes effect after the next login"))

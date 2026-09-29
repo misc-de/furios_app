@@ -43,7 +43,7 @@ import shutil
 
 from gi.repository import Adw, Gio, GLib, Gtk
 
-from . import askpass, components, process, tools, words
+from . import askpass, components, i18n, process, tools, words
 from .askpass import ASKPASS_HELPER, Askpass
 from .components import (BATTERY_UNIT, CLONE_HOME, COMPONENTS, OWN_CLONES,
                          SELF, behind_count, clone_elsewhere, clone_path,

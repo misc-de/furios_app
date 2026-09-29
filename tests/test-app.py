@@ -883,6 +883,93 @@ class Recording:
         self.text = getattr(toast, "title", toast)
 
 
+class SpeaksTwoLanguages(unittest.TestCase):
+    """English in the code, German beside it - and nothing on screen without
+    both. Asked for on 29.9.2026: the owner describes a row in German, it is
+    written in English, and the German goes into miscde/lang_de.py. This is
+    what keeps the second half from being forgotten."""
+
+    PLACEHOLDER = re.compile(r"\{[^{}]*\}|%[-#0 +]*(?:\*|\d+)?(?:\.(?:\*|\d+))?[sdfr]")
+
+    @staticmethod
+    def keys():
+        import ast
+        found = []
+        for path in sorted((ROOT / "miscde").rglob("*.py")):
+            for node in ast.walk(ast.parse(path.read_text())):
+                if (isinstance(node, ast.Call)
+                        and getattr(node.func, "id", None) == "_"
+                        and node.args
+                        and isinstance(node.args[0], ast.Constant)
+                        and isinstance(node.args[0].value, str)):
+                    found.append((str(path.relative_to(ROOT)), node.lineno,
+                                  node.args[0].value))
+        # Shown through _() at the place they are displayed, so the text is
+        # not a literal there: the tab names and what each tool does.
+        for comp in switcher.COMPONENTS + [switcher.SELF]:
+            for field in ("page", "does"):
+                if comp.get(field):
+                    found.append(("miscde/components.py", 0, comp[field]))
+        return found
+
+    def test_every_text_has_its_german(self):
+        from miscde.lang_de import TRANSLATIONS
+        missing = sorted({"%s:%d  %r" % (f, n, k) for f, n, k in self.keys()
+                          if k not in TRANSLATIONS})
+        self.assertEqual([], missing,
+                         "no German for these - add them to miscde/lang_de.py")
+
+    def test_the_german_keeps_every_placeholder(self):
+        """A German text that drops or renames {tool} or %s would raise when
+        it is filled in - on the phone, in German only."""
+        from miscde.lang_de import TRANSLATIONS
+        wrong = []
+        for en, de in TRANSLATIONS.items():
+            if sorted(self.PLACEHOLDER.findall(en)) != sorted(self.PLACEHOLDER.findall(de)):
+                wrong.append((en, de))
+        self.assertEqual([], wrong)
+
+    def test_nothing_in_the_table_is_left_over(self):
+        """An entry no code uses any more is a translation of nothing - and
+        usually the sign that the English was changed without the German."""
+        from miscde.lang_de import TRANSLATIONS
+        used = {k for _f, _n, k in self.keys()}
+        self.assertEqual([], sorted(set(TRANSLATIONS) - used))
+
+    def test_the_choice_is_kept_and_nonsense_is_english(self):
+        i18n = switcher.i18n
+        self.assertEqual("en", i18n.load())
+        self.assertTrue(i18n.save("de"))
+        self.assertEqual("de", i18n.load())
+        with open(i18n.config_file(), "w") as f:
+            f.write("klingon\n")
+        self.assertEqual("en", i18n.load())
+        self.assertFalse(i18n.save("klingon"))
+        os.remove(i18n.config_file())
+
+    def test_the_window_builds_in_german(self):
+        """A fresh process, the way the phone starts after choosing: every
+        page built, in German, without one exception."""
+        cfg = tempfile.mkdtemp(prefix="miscde-test-")
+        os.makedirs(os.path.join(cfg, "misc-de"))
+        with open(os.path.join(cfg, "misc-de", "language"), "w") as f:
+            f.write("de\n")
+        script = (
+            "import sys; sys.path[:0] = [%r, %r]\n"
+            "import gi_stub; rec = gi_stub.install()\n"
+            "import miscde\n"
+            "miscde.Window(miscde.Adw.Application())\n"
+            "titles = [str(c[2].get('title', '')) for c in rec.calls]\n"
+            "print('\\n'.join(titles))\n" % (str(ROOT / "tests"), str(ROOT)))
+        env = dict(os.environ, XDG_CONFIG_HOME=cfg)
+        out = subprocess_real.run([sys.executable, "-c", script], env=env,
+                                  capture_output=True, text=True, timeout=60)
+        self.assertEqual(0, out.returncode, out.stderr[-2000:])
+        self.assertIn("Soundserver", out.stdout)
+        self.assertIn("Musik-Codec", out.stdout)
+        self.assertNotIn("Sound server", out.stdout)
+
+
 class FindsItsTools(unittest.TestCase):
     """Which "audioctl" the app starts.
 
@@ -1046,7 +1133,8 @@ class TheWindow(unittest.TestCase):
         self.assertIn("permanent", self.win.row_profile.subtitle)
         self.assertTrue(self.win.persist_row.active,
                         "a permanent profile was shown as not remembered")
-        self.assertIn("comes back to", self.win.persist_row.subtitle)
+        # The owner's description (29.9.), and nothing added: it holds.
+        self.assertEqual(self.win.PERSIST_WORDS, self.win.persist_row.subtitle)
 
     def test_a_profile_that_only_holds_until_the_reboot_says_what_returns(self):
         self.win.on_status(True, self.STATUS)
@@ -1086,7 +1174,7 @@ class TheWindow(unittest.TestCase):
         self.win.on_status(False, "")
         self.win.on_status(True, self.PERMANENT)
         self.assertTrue(self.win.switch_row.sensitive)
-        self.assertIn("PipeWire", self.win.switch_row.subtitle)
+        self.assertIn("main service", self.win.switch_row.subtitle)
 
     def test_an_echo_switch_with_no_script_behind_it_stays_off_limits(self):
         self.win.on_dmnr_status(False, "")
@@ -1372,7 +1460,9 @@ class TheWindow(unittest.TestCase):
         whatever the switch said - so neither may be read off the other."""
         self.win.on_dmnr_status(True, "state=on\npersistent=yes\n")
         self.assertTrue(self.win.dmnr_row.active)
-        self.assertIn("remembered", self.win.dmnr_row.subtitle)
+        # The owner's description (29.9.); only a state that will not last
+        # adds to it.
+        self.assertEqual(self.win.DMNR_WORDS, self.win.dmnr_row.subtitle)
 
         self.win.on_dmnr_status(True, "state=on\npersistent=no\n")
         self.assertTrue(self.win.dmnr_row.active)
@@ -1380,13 +1470,13 @@ class TheWindow(unittest.TestCase):
 
         self.win.on_dmnr_status(True, "state=off\npersistent=no\n")
         self.assertFalse(self.win.dmnr_row.active)
-        self.assertIn("stays off", self.win.dmnr_row.subtitle)
+        self.assertEqual(self.win.DMNR_WORDS, self.win.dmnr_row.subtitle)
 
         # Switched off now but still marked: the next boot brings it back, and
         # a subtitle saying only "off" would be a lie by omission.
         self.win.on_dmnr_status(True, "state=off\npersistent=yes\n")
         self.assertFalse(self.win.dmnr_row.active)
-        self.assertIn("comes back", self.win.dmnr_row.subtitle)
+        self.assertIn("on again after the next reboot", self.win.dmnr_row.subtitle)
 
     def test_the_echo_switch_is_remembered_when_the_persist_switch_is_on(self):
         """The same switch governs both rows above it, so the echo control
@@ -1430,10 +1520,10 @@ class TheWindow(unittest.TestCase):
         self.assertTrue(self.win.btx_row.visible)
         self.assertTrue(self.win.btx_row.get_active())
         self.assertTrue(self.win.btx_row.sensitive)
-        self.assertIn("Calls on the headset", self.win.btx_row.subtitle)
+        self.assertIn("audio and microphone", self.win.btx_row.subtitle)
+        self.assertNotIn("PulseAudio", self.win.btx_row.subtitle)
         self.win.on_btx_status(True, "bt-extras=off\nprofile=pw-hal\neffective=none\n")
         self.assertFalse(self.win.btx_row.get_active())
-        self.assertIn("WirePlumber's own", self.win.btx_row.subtitle)
 
     def test_switching_them_off_under_pipewire_runs_audioctl(self):
         self.win.busy = False
@@ -4017,10 +4107,11 @@ class TheWindow(unittest.TestCase):
         self.win.switch_row.selected = 1
         self.win.set_busy(False)
         self.assertTrue(self.win.switch_row.sensitive)
-        self.assertIn("our changes", self.win.switch_row.subtitle)
+        # The owner's description (29.9.) once it is done, whichever server.
+        self.assertIn("main service", self.win.switch_row.subtitle)
         self.win.switch_row.selected = 0
         self.win.set_busy(False)
-        self.assertIn("as shipped", self.win.switch_row.subtitle)
+        self.assertIn("main service", self.win.switch_row.subtitle)
 
     def test_an_audio_status_does_not_hand_back_controls_mid_switch(self):
         """Every refresh ends in on_status, and refreshes overlap other work -

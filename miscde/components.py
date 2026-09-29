@@ -9,6 +9,7 @@ read on its own, and to check without starting anything."""
 import os
 
 from .tools import phone_has_switches
+from .i18n import _
 
 
 
@@ -98,7 +99,8 @@ COMPONENTS = [
         "dir": "furios_security",
         "root": True,
         "does": "fewer routes into the kernel: unprivileged BPF, modules "
-                "that load themselves, and SSH reachable over mobile",
+                "that load themselves - and a lock screen that locks after "
+                "wrong PINs",
     },
     {
         "tool": "battctl",
@@ -212,8 +214,8 @@ def source_steps(comp, state, path):
         # Nothing to fetch: what is wanted is what is already in the clone.
         # A pull here would be the wrong question, and with uncommitted work
         # in that clone its guard would refuse the install as well.
-        return ([], "nothing is fetched - the clone in " + path
-                + " is used exactly as it is")
+        return ([], _("nothing is fetched - the clone in {path} is used "
+                      "exactly as it is").format(path=path))
     if state == "update":
         guard = (["bash", "-c",
                   'test -z "$(git -C "$1" status --porcelain)" || '
@@ -222,7 +224,7 @@ def source_steps(comp, state, path):
                   'again."; exit 1; }', "guard", path], None, None, None)
         return ([guard,
                  (["git", "-C", path, "pull", "--ff-only"], None, None, None)],
-                "git pull --ff-only in " + path)
+                _("git pull --ff-only in {path}").format(path=path))
     if is_clone_of(path, comp["url"]):
         # Ours, from an earlier press. Bring it up to date if that works and
         # install from it either way: no network is a reason to install what
@@ -231,8 +233,8 @@ def source_steps(comp, state, path):
                    'git -C "$1" pull --ff-only || echo "Could not update the '
                    'clone - installing what is already in it."',
                    "retry", path], None, None, None)],
-                "the clone in " + path + " is already here - update it if "
-                "possible, install from it either way")
+                _("the clone in {path} is already here - update it if "
+                  "possible, install from it either way").format(path=path))
     if os.path.exists(path):
         # Not a clone of this repository, and not ours to delete.
         return ([(["bash", "-c",
@@ -240,9 +242,10 @@ def source_steps(comp, state, path):
                    '$2. Nothing was touched - move it aside, then try '
                    'again."; exit 1', "in_the_way", path, comp["url"]],
                   None, None, None)],
-                path + " is in the way - it is not a clone of " + comp["url"])
+                _("{path} is in the way - it is not a clone of {url}").format(
+                    path=path, url=comp["url"]))
     return ([(["git", "clone", comp["url"], path], None, None, None)],
-            "git clone " + comp["url"] + " to " + path)
+            _("git clone {url} to {path}").format(url=comp["url"], path=path))
 
 
 def installer_env(askpass):
