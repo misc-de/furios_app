@@ -419,18 +419,7 @@ TRANSLATIONS = {
     "the misc-de in this clone is not the program that is running":
         "das misc-de in diesem Klon ist nicht das laufende Programm",
     "something new on the server": "etwas Neues auf dem Server",
-    "Some of them write to /usr/local, so sudo will ask - once, below, for all "
-    "of them. It goes to sudo and nowhere else, and the ticket is dropped at "
-    "the end.":
-        "Einige davon schreiben nach /usr/local, also fragt sudo - einmal, unten, "
-        "für alle. Es geht an sudo und nirgendwo sonst hin, und das Ticket wird "
-        "am Ende verworfen.",
-    "None of them needs root.": "Keines davon braucht root.",
     "The app restarts when they are in.": "Die App startet neu, wenn sie drin sind.",
-    "Some of these are your own clones. With anything uncommitted in one, that "
-    "one is left alone.":
-        "Einige davon sind deine eigenen Klone. Ist in einem etwas nicht "
-        "committet, bleibt dieser unberührt.",
     "Update and restart": "Aktualisieren und neu starten",
     "Could not install the updates": "Die Updates konnten nicht installiert werden",
     "working …": "arbeitet …",

@@ -300,22 +300,11 @@ class InstallPage:
         if self.busy or not self.updates:
             return
         waiting = list(self.updates.values())
-        lines = ["• %s - %s" % (u["comp"]["tool"], u["words"]) for u in waiting]
+        # Just the names: how many commits, or why the app counts, is detail
+        # nobody decides on - the answer is the same "take what is waiting".
+        lines = ["• %s" % u["comp"]["tool"] for u in waiting]
         root = any(u["comp"]["root"] for u in waiting)
-        body = "\n".join(lines) + "\n\n"
-        if root:
-            body += _("Some of them write to /usr/local, so sudo will ask - "
-                      "once, below, for all of them. It goes to sudo and "
-                      "nowhere else, and the ticket is dropped at the end.")
-        else:
-            body += _("None of them needs root.")
-        body += "\n\n" + _("The app restarts when they are in.")
-        eigene = [u for u in waiting
-                  if not u["path"].startswith(CLONE_HOME)]
-        if eigene:
-            body += "\n\n" + _("Some of these are your own clones. With "
-                                 "anything uncommitted in one, that one is "
-                                 "left alone.")
+        body = "\n".join(lines) + "\n\n" + _("The app restarts when they are in.")
 
         dlg = Adw.AlertDialog(
             heading=(_("1 update") if len(waiting) == 1

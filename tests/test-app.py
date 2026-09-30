@@ -2961,7 +2961,9 @@ class TheWindow(unittest.TestCase):
         body = str(dialogs[0][2].get("body", ""))
         self.assertIn("misc-de", body)
         self.assertIn(self.component()["tool"], body)
-        self.assertIn("9 new commit(s)", body)
+        self.assertNotIn("commit", body, "one name per line, no detail")
+        self.assertNotIn("sudo", body)
+        self.assertNotIn("your own clones", body)
         self.assertNotIn("http", body, "the list names repositories by URL")
         self.assertIn("restarts", body)
         answers = [str(c[1][1]) for c in recorder.calls
