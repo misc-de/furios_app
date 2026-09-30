@@ -5249,6 +5249,45 @@ class SwitchesPutBackWhatWasThere(unittest.TestCase):
                              path, "BTSAVE", "", ""], check=True)
         self.assertEqual("A=1\nB=2\n", Path(path).read_text())
 
+    # --- the colouring daemon ---
+
+    def battery_window(self, enabled):
+        win = switcher.Window(switcher.Adw.Application())
+        win.live = dict(win.live, battery="battctl")
+        win.batt_switches = {k: Recording() for k in ("charging", "level")}
+        win.batt_enabled, win.batt_running = enabled, enabled
+        chains = []
+        self.enterContext(mock.patch.object(
+            switcher.Window, "run_chain",
+            lambda self, steps, done: chains.append(steps)))
+        return win, chains
+
+    def test_a_unit_that_was_disabled_is_disabled_again(self):
+        win, chains = self.battery_window(False)
+        row = win.batt_switches["charging"]
+        row.active = True
+        win.on_battery_option(row, None, "charging")
+        row.active = False
+        win.on_battery_option(row, None, "charging")
+        self.assertIn("disable", " ".join(chains[-1][-1]))
+
+    def test_a_unit_somebody_had_enabled_stays_enabled(self):
+        win, chains = self.battery_window(True)
+        row = win.batt_switches["charging"]
+        row.active = True
+        win.on_battery_option(row, None, "charging")
+        row.active = False
+        win.on_battery_option(row, None, "charging")
+        self.assertFalse(any("disable" in " ".join(step) for step in chains[-1]))
+
+    def test_enabled_by_an_earlier_option_is_not_an_original(self):
+        win, chains = self.battery_window(True)
+        win.batt_switches["level"].active = True
+        row = win.batt_switches["charging"]
+        row.active = True
+        win.on_battery_option(row, None, "charging")
+        self.assertIsNone(original.load(original.unit_ident(switcher.BATTERY_UNIT)))
+
 
 class TheLauncherIcon(unittest.TestCase):
     """The icon file, as GdkPixbuf sees it.

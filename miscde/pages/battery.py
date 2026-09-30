@@ -6,7 +6,7 @@ import json
 
 from gi.repository import Adw, GLib, Gtk
 
-from .. import process
+from .. import original, process
 from ..components import BATTERY_UNIT
 from ..i18n import _
 
@@ -223,14 +223,35 @@ class BatteryPage:
         self.show_sliders(row, wanted)
         steps = [[self.live["battery"], "config", key,
                   "on" if wanted else "off"]]
+        ident = original.unit_ident(BATTERY_UNIT)
         if wanted:
+            # How the unit stood before this page first enabled it - known
+            # from the last refresh; not known yet, nothing is written down
+            # rather than a guess. Enabled while another option is already
+            # on is this page's own doing from before records existed (or
+            # battctl's, which enables it with an option too), not an
+            # original.
+            enabled = getattr(self, "batt_enabled", None)
+            others = any(r.get_active() for k, r in self.batt_switches.items()
+                         if k != key)
+            if enabled is not None and not (enabled and others):
+                try:
+                    original.remember_unit(BATTERY_UNIT, enabled,
+                                           getattr(self, "batt_running", False))
+                except OSError:
+                    pass
             steps.append(["systemctl", "--user", "enable", "--now",
                           BATTERY_UNIT])
         elif not any(r.get_active() for r in self.batt_switches.values()):
-            # Nothing left to colour: the daemon goes, and with it the
-            # colour and the time it wrote.
-            steps.append(["systemctl", "--user", "disable", "--now",
-                          BATTERY_UNIT])
+            # Nothing left to colour: the unit goes back to how it was
+            # before this page first enabled it - disabled and stopped, as
+            # battctl's installer leaves it, unless somebody had enabled it
+            # themselves; that stays. Without a record, disabled as before.
+            record = original.load(ident)
+            if record is None or not record.get("enabled"):
+                steps.append(["systemctl", "--user", "disable", "--now",
+                              BATTERY_UNIT])
+            original.forget(ident)
         self.run_chain(steps, lambda ok, out: self.after_battery(
             ok, out, "change"))
 
