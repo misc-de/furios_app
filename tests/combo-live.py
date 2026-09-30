@@ -50,6 +50,39 @@ check("the value list is found", isinstance(view, Gtk.ListView))
 need = combo.widest(["PulseAudio", "PipeWire"])
 check("and is at least as wide as its widest entry", view.get_size_request()[0] >= need,
       "(%s < %s)" % (view.get_size_request()[0], need))
+
+# 30.9.: a short value in a list sized for a long one is drawn at the right
+# edge, where every other row's value ends - and the popup keeps its look.
+check("the value is drawn by our factory", row.get_factory() is not None
+      and row.get_list_factory() is not None
+      and row.get_factory() is not row.get_list_factory())
+item_label = None
+box = Gtk.ListBox()
+box.append(row)
+win = Gtk.Window(child=box, default_width=360)
+win.present()
+ctx = GLib.MainContext.default()
+for _ in range(200):
+    ctx.iteration(False)
+w = view
+stack = [view]
+while stack:
+    w = stack.pop()
+    if isinstance(w, Gtk.Label):
+        item_label = w
+        break
+    c = w.get_first_child()
+    while c is not None:
+        stack.append(c)
+        c = c.get_next_sibling()
+check("and it is right-aligned", item_label is not None
+      and item_label.get_xalign() == 1.0,
+      "(%s)" % (item_label and item_label.get_xalign()))
+check("across the whole width of the list", item_label is not None
+      and item_label.get_width() >= view.get_width() - 2 * combo.PADDING,
+      "(%s < %s)" % (item_label and item_label.get_width(), view.get_width()))
+win.destroy()
+box.remove(row)
 row.set_model(Gtk.StringList.new(["A much longer entry than before"]))
 check("a new list is measured again",
       view.get_size_request()[0] >= combo.widest(["A much longer entry than before"]))

@@ -8,6 +8,11 @@ column is given the width first; the small list that shows the chosen value
 wanted 64 px and got 26, and no amount of re-measuring changed that. What
 does change it is a minimum width on that list - as wide as its widest
 entry, so switching to a longer one does not cut it either.
+
+That width has a second effect: a short value in a list sized for a long
+one sits at the left of it, away from the edge where every other row's
+value ends ("All" under "Applies to", 30.9.2026). So the value in the row is
+drawn right-aligned; the list that opens keeps libadwaita's own look.
 """
 
 from gi.repository import Gtk
@@ -73,4 +78,27 @@ def keep_value_visible(row):
 
     fit()
     row.connect("notify::model", fit)
+    right_align_value(row)
     return view
+
+
+def right_align_value(row):
+    """Draw the chosen value right-aligned. The popup gets the row's own
+    factory back as its list factory, so it looks exactly as before - check
+    mark and all."""
+    shipped = row.get_factory()
+    if row.get_list_factory() is None and shipped is not None:
+        row.set_list_factory(shipped)
+
+    def setup(_factory, item):
+        item.set_child(Gtk.Label(xalign=1.0))
+
+    def bind(_factory, item):
+        entry = item.get_item()
+        text = entry.get_string() if isinstance(entry, Gtk.StringObject) else ""
+        item.get_child().set_label(text)
+
+    factory = Gtk.SignalListItemFactory()
+    factory.connect("setup", setup)
+    factory.connect("bind", bind)
+    row.set_factory(factory)
