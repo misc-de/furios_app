@@ -51,6 +51,10 @@ KNOWN_WRITERS = {
     ("pages/other.py", "set_prompter_fixed"): "the keyring prompter shim",
     ("pages/other.py", "set_portals_fixed"):
         "~/.config/xdg-desktop-portal/phosh-portals.conf",
+    # The records of what was there before, in ~/.config/misc-de/original/,
+    # and the originals they put back - each where it was recorded.
+    ("original.py", "save"): "a record under ~/.config/misc-de/original",
+    ("original.py", "put_back_file"): "the recorded original of a file",
 }
 FS_CALLS = {"makedirs", "mkdir", "replace", "rename", "chmod", "mkdtemp",
             "mkstemp", "copy", "copy2", "copyfile", "copytree", "symlink",

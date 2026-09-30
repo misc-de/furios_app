@@ -408,6 +408,8 @@ TRANSLATIONS = {
     "Instead of the light window after a restart":
         "Statt des hellen Fensters nach einem Neustart",
     "Could not write %s:\n%s": "%s konnte nicht geschrieben werden:\n%s",
+    "Changed since misc-de wrote it, so left as it is:\n{paths}":
+        "Seit misc-de es geschrieben hat verändert, deshalb so gelassen:\n{paths}",
 
     # --- installing and updating -------------------------------------------
     "{page} · not installed": "{page} · nicht installiert",

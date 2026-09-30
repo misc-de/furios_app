@@ -70,6 +70,14 @@ os.environ["XDG_CACHE_HOME"] = tempfile.mkdtemp(prefix="miscde-test-")
 os.environ["XDG_DATA_HOME"] = os.path.join(
     tempfile.mkdtemp(prefix="miscde-test-"), "share")
 switcher = importlib.import_module("miscde")
+# The records of what was there before a switch first changed anything
+# (miscde/original.py). They live under the XDG_CONFIG_HOME above, shared by
+# every test in this process - so a test that cares starts without them.
+original = importlib.import_module("miscde.original")
+
+
+def forget_all_records():
+    shutil_real.rmtree(original.state_dir(), ignore_errors=True)
 # The install offers ask dpkg what is installed. What this machine has must
 # not decide whether a test sees a password field or a list of packages, so
 # nothing is missing unless a test says so; the real function is kept for
@@ -1140,6 +1148,8 @@ class TheWindow(unittest.TestCase):
     """
 
     def setUp(self):
+        # What an earlier test recorded as "before" is not this one's.
+        forget_all_records()
         self.win = switcher.Window(switcher.Adw.Application())
         names = ["row_profile", "row_server", "row_sinks", "switch_row",
                  "persist_row", "dmnr_row", "btsave_row", "codec_row",
@@ -4939,6 +4949,236 @@ class BluetoothPowersave(unittest.TestCase):
 
     def test_with_no_batman_the_row_says_that_rather_than_off(self):
         self.assertIn("batman", switcher.Window.btsave_words(None))
+
+
+def snapshot(base):
+    """Every path under base with its content and mode - "as it was" in the
+    one sense that counts: nothing can be told apart afterwards."""
+    found = {}
+    for p in sorted(Path(base).rglob("*")):
+        found[str(p.relative_to(base))] = (
+            p.read_bytes() if p.is_file() else "dir", p.stat().st_mode & 0o7777)
+    return found
+
+
+class FakeDconf(FakePluginSettings):
+    """A key that can be unset (the default applies) or set, as in dconf."""
+
+    def __init__(self, default, user=None):
+        super().__init__(user if user is not None else default)
+        self.default, self.user = list(default), user
+
+    def get_user_value(self, key):
+        assert key == "status-icons"
+        return None if self.user is None else types.SimpleNamespace(
+            unpack=lambda: list(self.user))
+
+    def set_strv(self, key, names):
+        super().set_strv(key, names)
+        self.user = list(names)
+
+    def reset(self, key):
+        assert key == "status-icons"
+        self.user, self.names = None, list(self.default)
+
+
+class SwitchesPutBackWhatWasThere(unittest.TestCase):
+    """The owner's rule (30.9.2026), switch by switch, from the outside:
+    snapshot, on, off, and the snapshot again - for what was absent, for
+    what was there with a value of its own, and for what somebody changed
+    after us, which stays theirs. The record is written once: a second
+    round must not replace the first original."""
+
+    def setUp(self):
+        forget_all_records()
+        self.addCleanup(forget_all_records)
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil_real.rmtree, self.dir, True)
+        self.other = switcher.pages.other
+        self.audio = importlib.import_module("miscde.pages.audio")
+
+    def path(self, *parts):
+        return os.path.join(self.dir, *parts)
+
+    # --- gtk.css ---
+
+    def test_css_that_was_not_there_goes_with_its_directory(self):
+        css = self.path("gtk-3.0", "gtk.css")
+        before = snapshot(self.dir)
+        self.other.set_search_hidden(True, css)
+        self.other.set_search_hidden(False, css)
+        self.assertEqual(before, snapshot(self.dir))
+
+    def test_css_comes_back_byte_for_byte(self):
+        """No final newline, and an empty file that is a file."""
+        for text in ("window { color: red; }", ""):
+            with self.subTest(text=text):
+                css = self.path("gtk-3.0", "gtk.css")
+                os.makedirs(os.path.dirname(css), exist_ok=True)
+                Path(css).write_text(text)
+                os.chmod(css, 0o600)
+                before = snapshot(self.dir)
+                self.other.set_search_hidden(True, css)
+                self.other.set_search_hidden(False, css)
+                self.assertEqual(before, snapshot(self.dir))
+
+    def test_an_empty_gtk3_directory_of_somebodys_stays(self):
+        os.makedirs(self.path("gtk-3.0"))
+        before = snapshot(self.dir)
+        css = self.path("gtk-3.0", "gtk.css")
+        self.other.set_search_hidden(True, css)
+        self.other.set_search_hidden(False, css)
+        self.assertEqual(before, snapshot(self.dir))
+
+    def test_css_changed_after_us_keeps_the_change(self):
+        css = self.path("gtk-3.0", "gtk.css")
+        self.other.set_search_hidden(True, css)
+        Path(css).write_text(Path(css).read_text() + "label { color: blue; }\n")
+        self.other.set_search_hidden(False, css)
+        self.assertEqual("label { color: blue; }\n", Path(css).read_text())
+
+    def test_the_first_original_is_the_one_kept(self):
+        css = self.path("gtk-3.0", "gtk.css")
+        os.makedirs(os.path.dirname(css))
+        Path(css).write_text("a {}\n")
+        self.other.set_search_hidden(True, css)
+        Path(css).write_text(Path(css).read_text() + "b {}\n")
+        self.other.set_search_hidden(False, css)    # theirs now: record stays
+        self.other.set_search_hidden(True, css)     # a second round
+        record = original.load(original.file_ident(css))
+        self.assertEqual("a {}\n", record["content"])
+
+    # --- the dock's key file ---
+
+    def test_dock_config_that_was_not_there_goes(self):
+        path = self.path("cfg", "furios-folder-dock.conf")
+        before = snapshot(self.dir)
+        self.other.set_dock_setting(self.other.ONE_ROW, True, path)
+        self.other.set_dock_setting(self.other.HIDE_LABELS, True, path)
+        self.other.set_dock_setting(self.other.ONE_ROW, False, path)
+        self.other.set_dock_setting(self.other.HIDE_LABELS, False, path)
+        self.assertEqual(before, snapshot(self.dir))
+
+    def test_somebodys_dock_config_comes_back_as_it_was(self):
+        """A comment, a key the plugin may read one day, one-row=false: the
+        old switch rewrote the file from its two keys and lost all three."""
+        path = self.path("furios-folder-dock.conf")
+        Path(path).write_text("# mine\n[dock]\none-row=false\nspeed=3\n")
+        before = snapshot(self.dir)
+        self.other.set_dock_setting(self.other.ONE_ROW, True, path)
+        self.assertIn("speed=3", Path(path).read_text())
+        self.assertIn("# mine", Path(path).read_text())
+        self.assertTrue(self.other.dock_one_row(path))
+        self.other.set_dock_setting(self.other.ONE_ROW, False, path)
+        self.assertEqual(before, snapshot(self.dir))
+
+    def test_a_dock_config_the_old_switch_wrote_is_not_an_original(self):
+        path = self.path("furios-folder-dock.conf")
+        Path(path).write_text("[dock]\none-row=true\n")
+        self.other.set_dock_setting(self.other.HIDE_LABELS, True, path)
+        self.assertIsNone(original.load(original.file_ident(path)))
+        self.other.set_dock_setting(self.other.HIDE_LABELS, False, path)
+        self.other.set_dock_setting(self.other.ONE_ROW, False, path)
+        self.assertFalse(os.path.exists(path))
+
+    # --- the keyring prompter ---
+
+    def test_a_prompter_service_of_somebodys_comes_back_with_its_mode(self):
+        service = self.path("share", "dbus-1", "services", "p.service")
+        shim = self.path("libexec", "keyring-prompter-wait")
+        os.makedirs(os.path.dirname(service))
+        Path(service).write_text("[D-BUS Service]\nName=x\nExec=/opt/mine\n")
+        os.chmod(service, 0o600)
+        before = snapshot(self.dir)
+        self.other.set_prompter_fixed(True, service, shim)
+        self.assertTrue(self.other.prompter_fixed(service, shim))
+        self.other.set_prompter_fixed(False, service, shim)
+        self.assertEqual(before, snapshot(self.dir))
+
+    def test_a_prompter_file_changed_after_us_stays_and_is_named(self):
+        service = self.path("share", "dbus-1", "services", "p.service")
+        shim = self.path("libexec", "keyring-prompter-wait")
+        self.other.set_prompter_fixed(True, service, shim)
+        Path(service).write_text(Path(service).read_text() + "User=me\n")
+        with self.assertRaises(original.ChangedSince) as caught:
+            self.other.set_prompter_fixed(False, service, shim)
+        self.assertEqual([service], caught.exception.paths)
+        self.assertTrue(Path(service).read_text().endswith("User=me\n"))
+        self.assertFalse(os.path.exists(shim), "the untouched shim stayed")
+
+    # --- the portals file ---
+
+    def test_an_empty_portal_directory_of_somebodys_stays(self):
+        for existing in (True, False):
+            with self.subTest(existing=existing):
+                shutil_real.rmtree(self.path("xdg-desktop-portal"), True)
+                if existing:
+                    os.makedirs(self.path("xdg-desktop-portal"))
+                path = self.path("xdg-desktop-portal", "phosh-portals.conf")
+                before = snapshot(self.dir)
+                self.other.set_portals_fixed(True, path, os.devnull)
+                self.other.set_portals_fixed(False, path, os.devnull)
+                self.assertEqual(before, snapshot(self.dir))
+
+    def test_a_portals_file_changed_after_us_stays(self):
+        path = self.path("xdg-desktop-portal", "phosh-portals.conf")
+        self.other.set_portals_fixed(True, path, os.devnull)
+        Path(path).write_text(Path(path).read_text() + "# mine\n")
+        with self.assertRaises(original.ChangedSince):
+            self.other.set_portals_fixed(False, path, os.devnull)
+        self.assertTrue(os.path.exists(path))
+
+    def test_an_empty_portals_file_of_somebodys_is_not_taken(self):
+        path = self.path("phosh-portals.conf")
+        Path(path).write_text("")
+        with self.assertRaises(OSError):
+            self.other.set_portals_fixed(True, path, os.devnull)
+        self.assertEqual("", Path(path).read_text())
+
+    def test_the_switch_says_changed_rather_than_could_not_write(self):
+        win = switcher.Window(switcher.Adw.Application())
+        said = []
+        self.enterContext(mock.patch.object(switcher.Window, "report",
+                                            lambda self, text: said.append(text)))
+        row = Recording()
+        row.set_active(False)
+        win._loading = False
+        with mock.patch.object(self.other, "set_portals_fixed",
+                               side_effect=original.ChangedSince(["/x"])):
+            win.on_portals_fixed(row, None)
+        self.assertTrue(row.get_active(), "the switch claims it went off")
+        self.assertIn("left as it is", said[0])
+        self.assertIn("/x", said[0])
+
+    # --- phosh's plugin list ---
+
+    def test_an_unset_key_is_reset_not_written(self):
+        s = FakeDconf(["wifi-hotspot"])
+        self.other.set_dock_enabled(True, s)
+        self.assertEqual(["wifi-hotspot", "furios-folder-dock"], s.names)
+        self.other.set_dock_enabled(False, s)
+        self.assertIsNone(s.user, "the default was pinned into dconf")
+        self.assertEqual(["wifi-hotspot"], s.names)
+
+    def test_a_key_set_to_the_default_stays_set(self):
+        """The case "compare with the default" got wrong: set, by somebody,
+        to exactly the default's value."""
+        s = FakeDconf(["wifi-hotspot"], user=["wifi-hotspot"])
+        self.other.set_dock_enabled(True, s)
+        self.other.set_dock_enabled(False, s)
+        self.assertEqual(["wifi-hotspot"], s.user)
+
+    def test_another_plugin_added_after_us_stays(self):
+        s = FakeDconf([])
+        self.other.set_dock_enabled(True, s)
+        s.set_strv("status-icons", s.names + ["furios-lockout"])
+        self.other.set_dock_enabled(False, s)
+        self.assertEqual(["furios-lockout"], s.user)
+
+    def test_off_without_our_name_writes_nothing(self):
+        s = FakeDconf(["wifi-hotspot"])
+        self.other.set_dock_enabled(False, s)
+        self.assertIsNone(s.user)
 
 
 class TheLauncherIcon(unittest.TestCase):

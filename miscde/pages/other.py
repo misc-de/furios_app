@@ -11,6 +11,7 @@ import os
 import re
 
 from gi.repository import Adw, Gio
+from .. import original
 from ..components import PHOSH, folder_dock_plugin
 from ..i18n import _
 
@@ -70,13 +71,29 @@ def search_hidden(path=None):
 def set_search_hidden(hidden, path=None):
     """Write the block in or take it out; everything else stays as it was.
 
-    A file that ends up empty is removed rather than left behind, but only
-    when it held nothing except our block - somebody's own gtk.css is never
-    deleted.
+    Before the block goes in for the first time, the file as it was is
+    recorded (miscde/original.py): its text, or that there was none, and
+    which directories had to be made for it. Off puts exactly that back
+    while the file, with our block out, is still that original - the
+    newline added after a last line that had none goes too, and so does a
+    gtk-3.0 directory we made. Changed by somebody since: only our block
+    comes out, and the rest is theirs.
+
+    Without a record (the block was written by a version before records,
+    or by hand) off takes the block out as it always did, and a file that
+    held nothing else is removed - somebody's own gtk.css never is.
     """
     path = path or gtk_css_path()
     old = _read(path)
     new = _strip(old)
+    if hidden and not search_hidden(path):
+        # block: uninstall.sh takes only this out of a file changed since.
+        original.remember_file(path, block=[BEGIN, END])
+    if not hidden:
+        record = original.load(original.file_ident(path))
+        if record is not None and original.block_back(record, new):
+            original.put_back_file(record)
+            return
     if hidden:
         if new and not new.endswith("\n"):
             new += "\n"
@@ -131,17 +148,53 @@ def dock_guard_path():
     return os.path.join(base, DOCK_GUARD)
 
 
+def _user_value(settings):
+    """The list in the user's dconf, or None while the key is unset and the
+    schema's default applies."""
+    get = getattr(settings, "get_user_value", None)
+    value = get(PLUGINS_KEY) if get is not None else None
+    return None if value is None else list(value.unpack())
+
+
 def set_dock_enabled(on, settings):
     """Add or remove our name only; every other plugin in the list stays
-    where it is."""
-    names = [n for n in settings.get_strv(PLUGINS_KEY) if n != DOCK_PLUGIN]
+    where it is.
+
+    Before our name goes in for the first time, the key is recorded as it
+    was - unset, or set to which list. Off with our name gone again and the
+    list what it was then puts that back: reset where it was unset, so the
+    key follows what a later phosh ships instead of being pinned to today's
+    default. Another plugin that put itself in since makes the list a
+    different one; then only our name comes out. Off with our name not in
+    the list writes nothing at all.
+
+    The crash mark is the plugin's own, and removing it is what "on" means
+    (try again); it is not put back, because it would switch the plugin off.
+    """
+    current = settings.get_strv(PLUGINS_KEY)
+    names = [n for n in current if n != DOCK_PLUGIN]
     if on:
+        if DOCK_PLUGIN not in current:
+            original.remember_setting(PLUGINS_SCHEMA, PLUGINS_KEY,
+                                      _user_value(settings), list(current))
         try:
             os.remove(dock_guard_path())
         except FileNotFoundError:
             pass
         names.append(DOCK_PLUGIN)
-    settings.set_strv(PLUGINS_KEY, names)
+        settings.set_strv(PLUGINS_KEY, names)
+        return
+    if DOCK_PLUGIN not in current:
+        return
+    ident = original.setting_ident(PLUGINS_SCHEMA, PLUGINS_KEY)
+    record = original.load(ident)
+    action, value = original.setting_back(record, names)
+    if action == "reset":
+        settings.reset(PLUGINS_KEY)
+    else:
+        settings.set_strv(PLUGINS_KEY, value)
+    if record is not None and names == record.get("value"):
+        original.forget(ident)
 
 
 # The plugin's settings: every folder in a single row that scrolls sideways,
@@ -174,25 +227,95 @@ def dock_setting(key, path=None):
     return key in _dock_settings(path or dock_config_path())
 
 
+def _dock_text(keys):
+    """The whole file as this switch wrote it before 30.9.2026."""
+    return "[%s]\n" % DOCK_GROUP + "".join("%s=true\n" % k for k in keys)
+
+
+# Every file the switches ever wrote. One of these found without a record was
+# made by an older version of this app, so it is not an original to keep.
+DOCK_OWN_FORMS = {_dock_text(k) for k in
+                  ([ONE_ROW], [HIDE_LABELS], [ONE_ROW, HIDE_LABELS])}
+
+
+def _dock_edit(text, keys):
+    """text with our two keys in [dock] set to exactly keys - every other
+    line, group and comment kept where it was. None when nothing but an
+    empty [dock] would be left: no key at all is no file."""
+    out, group, seen = [], None, False
+    for line in (text or "").splitlines():
+        s = line.strip()
+        if s.startswith("[") and s.endswith("]"):
+            group = s[1:-1].strip()
+            out.append(line)
+            if group == DOCK_GROUP and not seen:
+                seen = True
+                out.extend("%s=true" % k for k in keys)
+            continue
+        if (group == DOCK_GROUP
+                and s.split("=", 1)[0].strip() in (ONE_ROW, HIDE_LABELS)):
+            continue
+        out.append(line)
+    if not seen and keys:
+        out.append("[%s]" % DOCK_GROUP)
+        out.extend("%s=true" % k for k in keys)
+    if not any(l.strip() and l.strip() != "[%s]" % DOCK_GROUP for l in out):
+        return None
+    return "\n".join(out) + "\n"
+
+
 def set_dock_setting(key, on, path=None):
-    """One key on or off, the other left as it is. Written by hand in the
-    form GKeyFile reads, one line per key that is on."""
+    """One key on or off, the other left as it is, in the form GKeyFile
+    reads - and nothing else in the file touched.
+
+    The file is shared with the plugin (furios_phosh), so what was there
+    before the first change is recorded first. Once both keys are back to
+    what that original said, it is put back as it was, byte for byte, or
+    taken away when there was none. A file found in exactly a form this
+    switch used to write is ours from an older version: no record for that
+    one, and off works as it did."""
     path = path or dock_config_path()
+    text = original.read_text(path)
     keys = [k for k in _dock_settings(path) if k != key]
     if on:
         keys.append(key)
     keys = [k for k in (ONE_ROW, HIDE_LABELS) if k in keys]
-    if not keys:
+    new = _dock_edit(text, keys)
+    if new == text:
+        return
+    if text not in DOCK_OWN_FORMS:
+        original.remember_file(path)
+    record = original.load(original.file_ident(path))
+    if record is not None and text in (record.get("content"),
+                                       record.get("written", False)):
+        before = [k for k in (ONE_ROW, HIDE_LABELS)
+                  if k in _dock_keys_of(record.get("content"))]
+        if keys == before:
+            original.put_back_file(record)
+            return
+    if new is None:
         try:
             os.remove(path)
         except FileNotFoundError:
             pass
-        return
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + ".misc-de.tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.write("[%s]\n" % DOCK_GROUP + "".join("%s=true\n" % k for k in keys))
-    os.replace(tmp, path)
+    else:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".misc-de.tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(new)
+        os.replace(tmp, path)
+    original.wrote_file(path)
+
+
+def _dock_keys_of(text):
+    """The keys that are on in a text rather than a file."""
+    parser = configparser.ConfigParser()
+    try:
+        parser.read_string(text or "")
+        return [k for k in (ONE_ROW, HIDE_LABELS)
+                if parser.getboolean(DOCK_GROUP, k, fallback=False)]
+    except (configparser.Error, ValueError):
+        return []
 
 
 def dock_one_row(path=None):
@@ -265,25 +388,49 @@ def prompter_fixed(service=None, shim=None):
 
 
 def set_prompter_fixed(on, service=None, shim=None):
+    """On writes the shim and the service file that starts it; off takes
+    both back.
+
+    Both paths can hold something before we come: a service file of the
+    same name somebody wrote, a shim of theirs. So each is recorded before
+    the first write (unless it is ours already, from a version before
+    records), and off puts back exactly what was there - their file, or no
+    file, and the directories we made. A file changed after we wrote it is
+    left as it is and named. Without a record, off removes what is ours by
+    its content, as before."""
     service = service or prompter_service_path()
     shim = shim or prompter_shim_path()
+    service_text = "[D-BUS Service]\nName=%s\nExec=%s\n" % (PROMPTER_NAME, shim)
     if on:
+        if not _is_our_shim(shim):
+            original.remember_file(shim)
+        if ("Exec=%s\n" % shim) not in _read(service):
+            original.remember_file(service)
         for path, text, mode in (
                 (shim, "#!/bin/sh\n" + PROMPTER_SHIM, 0o755),
-                (service, "[D-BUS Service]\nName=%s\nExec=%s\n"
-                 % (PROMPTER_NAME, shim), 0o644)):
+                (service, service_text, 0o644)):
             os.makedirs(os.path.dirname(path), exist_ok=True)
             tmp = path + ".misc-de.tmp"
             with open(tmp, "w", encoding="utf-8") as f:
                 f.write(text)
             os.chmod(tmp, mode)
             os.replace(tmp, path)
+            original.wrote_file(path)
         return
     # The service file first: without it nothing starts the shim any more.
-    if ("Exec=%s\n" % shim) in _read(service):
+    changed = []
+    state = original.restore_file(service)
+    if state is None and ("Exec=%s\n" % shim) in _read(service):
         os.remove(service)
-    if _is_our_shim(shim):
+    elif state == "changed":
+        changed.append(service)
+    state = original.restore_file(shim)
+    if state is None and _is_our_shim(shim):
         os.remove(shim)
+    elif state == "changed":
+        changed.append(shim)
+    if changed:
+        raise original.ChangedSince(changed)
 
 
 # --- apps that start at once -------------------------------------------------
@@ -339,25 +486,39 @@ def portals_text(shipped):
 
 def set_portals_fixed(on, path=None, shipped=PORTALS_SHIPPED):
     """On writes the file, off removes it - but only ours: a portals.conf
-    somebody wrote is neither overwritten nor taken away."""
+    somebody wrote is neither overwritten nor taken away, not even an empty
+    one.
+
+    That there was no file, and which directories had to be made, is
+    recorded before the first write; off puts exactly that back - an
+    xdg-desktop-portal directory that was there before stays, even empty -
+    unless the file was changed after we wrote it, which is then left
+    alone and named. Without a record (written by an older version), off
+    removes our file and the directory while it is empty, as before."""
     path = path or portals_path()
-    current = _read(path)
-    if current and PORTALS_MARK not in current:
+    current = original.read_text(path)
+    if current is not None and PORTALS_MARK not in current:
         raise OSError("%s is not ours - left as it is" % path)
     if not on:
-        if current:
+        state = original.restore_file(path)
+        if state == "changed":
+            raise original.ChangedSince([path])
+        if state is None and current is not None:
             os.remove(path)
             try:
                 os.rmdir(os.path.dirname(path))
             except OSError:
                 pass
         return
+    if current is None:
+        original.remember_file(path)
     text = portals_text(_read(shipped))
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".misc-de.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         f.write(text)
     os.replace(tmp, path)
+    original.wrote_file(path)
 
 
 class OtherPage:
@@ -474,6 +635,9 @@ class OtherPage:
         want = row.get_active()
         try:
             set_portals_fixed(want)
+        except original.ChangedSince as e:
+            self._report_changed(row, want, e)
+            return
         except OSError as e:
             self._loading = True
             row.set_active(not want)
@@ -482,12 +646,24 @@ class OtherPage:
             return
         self.toast(_("Takes effect after the next login"))
 
+    def _report_changed(self, row, want, error):
+        """Off found our file changed by somebody since: it stays, and so
+        does the switch - it is still on, and saying otherwise would be the
+        switch claiming what it did not do."""
+        self._loading = True
+        row.set_active(not want)
+        self._loading = False
+        self.report(_("Changed since misc-de wrote it, so left as it is:\n"
+                      "{paths}").format(paths="\n".join(error.paths)))
+
     def on_prompter_fixed(self, row, _pspec):
         if self._loading:
             return
         want = row.get_active()
         try:
             set_prompter_fixed(want)
+        except original.ChangedSince as e:
+            self._report_changed(row, want, e)
         except OSError as e:
             self._loading = True
             row.set_active(not want)
