@@ -41,10 +41,13 @@ Puts `misc-de` in `/usr/local/bin`, the `miscde` package it starts in
 appears in the app grid, or starts with `misc-de`. From the clone, `./misc-de.py`
 runs what is checked out rather than what is installed.
 
-`./uninstall.sh` takes those three away again. It leaves the five tools and
-the clones where they are and says so: each tool was its own decision and has
-its own uninstaller, and two of them hold this phone's sound and its data
-connection.
+`./uninstall.sh` takes those three away again, together with everything the
+window wrote (its language, the Phosh tab's switches, the keyring prompter
+shim) and its own clones in `~/.local/share/misc-de/` - a clone with
+uncommitted or unpushed work in it is named and kept. Afterwards a new
+install behaves as on a new phone. It leaves the tools behind the tabs where
+they are and says so: each tool was its own decision and has its own
+uninstaller, and two of them hold this phone's sound and its data connection.
 
 Keep the clone: the app updates itself out of it, and the icon in the header
 bar offers the next version when there is one. The five tools behind the tabs

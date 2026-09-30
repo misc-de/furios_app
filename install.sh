@@ -36,30 +36,33 @@ HINT
 python3 -c "import gi; gi.require_version('Adw','1')" 2>/dev/null \
   || { echo "libadwaita bindings missing: apt install python3-gi gir1.2-adw-1"; exit 1; }
 
+# DESTDIR, as in make: a staged root instead of /, for the tests.
+PREFIX="${DESTDIR:-}/usr/local"
+
 echo "1) program"
 # Two parts since 15.9.2026, where there used to be one file: the launcher in
 # bin, and the package it starts beside it. rsync --delete rather than a plain
 # copy, because a page that was deleted upstream has to disappear here too -
 # left behind it would still be imported, and the fingerprint the app compares
 # itself against would never match the clone again.
-sudo install -m755 misc-de.py /usr/local/bin/misc-de
-sudo rm -rf /usr/local/lib/misc-de/miscde
-sudo install -d -m755 /usr/local/lib/misc-de
-sudo cp -r miscde /usr/local/lib/misc-de/miscde
-sudo find /usr/local/lib/misc-de/miscde -name __pycache__ -prune -exec rm -rf {} +
-sudo chmod -R a+rX /usr/local/lib/misc-de
+sudo install -m755 misc-de.py "$PREFIX/bin/misc-de"
+sudo rm -rf "$PREFIX/lib/misc-de/miscde"
+sudo install -d -m755 "$PREFIX/lib/misc-de"
+sudo cp -r miscde "$PREFIX/lib/misc-de/miscde"
+sudo find "$PREFIX/lib/misc-de/miscde" -name __pycache__ -prune -exec rm -rf {} +
+sudo chmod -R a+rX "$PREFIX/lib/misc-de"
 
 echo "2) icon"
 sudo install -Dm644 de.misc-de.tools.svg \
-    /usr/local/share/icons/hicolor/scalable/apps/de.misc-de.tools.svg
+    "$PREFIX/share/icons/hicolor/scalable/apps/de.misc-de.tools.svg"
 
 echo "3) launcher entry"
 sudo install -Dm644 de.misc-de.tools.desktop \
-    /usr/local/share/applications/de.misc-de.tools.desktop
+    "$PREFIX/share/applications/de.misc-de.tools.desktop"
 
 # So Phosh picks up icon and entry right away.
-sudo gtk-update-icon-cache -qtf /usr/local/share/icons/hicolor 2>/dev/null || true
-sudo update-desktop-database -q /usr/local/share/applications 2>/dev/null || true
+sudo gtk-update-icon-cache -qtf "$PREFIX/share/icons/hicolor" 2>/dev/null || true
+sudo update-desktop-database -q "$PREFIX/share/applications" 2>/dev/null || true
 
 echo
 echo "Done. It appears in the app grid as \"misc-de\"."

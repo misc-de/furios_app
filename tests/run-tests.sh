@@ -42,6 +42,10 @@ run "the askpass socket, against the real GLib" python3 "$HERE/askpass-live.py"
 run "swiping between the tabs, against the real GTK" python3 "$HERE/swipe-live.py"
 run "the chosen value of a combo row, against the real GTK" python3 "$HERE/combo-live.py"
 
+# install.sh and uninstall.sh for real, into a staged root and a home of
+# their own: afterwards nothing may be left that a new phone does not have.
+run "uninstall leaves the phone as it shipped" python3 "$HERE/uninstall-live.py"
+
 printf '\n\033[1m== shell\033[0m\n'
 if command -v shellcheck >/dev/null; then
     for f in "$ROOT"/*.sh "$HERE"/*.sh; do
