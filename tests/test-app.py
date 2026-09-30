@@ -362,7 +362,7 @@ class ComponentTable(unittest.TestCase):
         comp = self.comp()
         foreign = tempfile.mkdtemp()
         self.addCleanup(shutil_real.rmtree, foreign, True)
-        with open(os.path.join(foreign, "meins.txt"), "w") as fh:
+        with open(os.path.join(foreign, "mine.txt"), "w") as fh:
             fh.write("not ours")
         steps = switcher.component_steps(comp, "install", "x", foreign)
         self.assertEqual([], [a for a, _s, _c, _e in steps
@@ -371,7 +371,7 @@ class ComponentTable(unittest.TestCase):
         self.assertNotEqual(0, done_.returncode)
         self.assertIn("in the way", done_.stdout.decode())
         self.assertIn(foreign, done_.stdout.decode())
-        self.assertTrue(os.path.exists(os.path.join(foreign, "meins.txt")))
+        self.assertTrue(os.path.exists(os.path.join(foreign, "mine.txt")))
 
     def test_the_password_never_reaches_a_command_line(self):
         """It goes to sudo through the pipe. In argv every "ps" on the phone
@@ -460,13 +460,13 @@ class ComponentTable(unittest.TestCase):
     def test_an_update_works_in_the_clone_it_was_given(self):
         """Not always our own directory: the clone may be the one somebody
         keeps in ~/Projekte, and that is where the pull has to happen."""
-        steps = switcher.component_steps(self.comp(), "update", None, "/woanders")
+        steps = switcher.component_steps(self.comp(), "update", None, "/elsewhere")
         for argv, _s, cwd, _e in steps:
             with self.subTest(argv=argv):
                 if argv[0] == "git":
-                    self.assertIn("/woanders", argv)
+                    self.assertIn("/elsewhere", argv)
                 if argv[0].endswith("install.sh"):
-                    self.assertEqual("/woanders", cwd)
+                    self.assertEqual("/elsewhere", cwd)
 
 
 class FakeProcess:

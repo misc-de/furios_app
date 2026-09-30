@@ -109,13 +109,13 @@ class GpsPage:
             self.gps_firefox.set_subtitle(_("did not answer"))
             return
         values = dict(z.split("=", 1) for z in out.splitlines() if "=" in z)
-        an = values.get("firefox_wait") == "yes"
+        on = values.get("firefox_wait") == "yes"
         self._syncing = True
-        self.gps_firefox.set_active(an)
+        self.gps_firefox.set_active(on)
         self._syncing = False
         self.gps_firefox.set_sensitive(True)
         profiles = values.get("profiles", "0")
-        if an:
+        if on:
             self.gps_firefox.set_subtitle(
                 _("Up to 3 minutes instead of 12 seconds - %s of %s profiles. "
                 "An open app needs a restart")
@@ -157,20 +157,20 @@ class GpsPage:
             self.gps_contrib.set_subtitle(_("did not answer"))
             return
         values = dict(z.split("=", 1) for z in out.splitlines() if "=" in z)
-        an = values.get("contributing") == "yes"
+        on = values.get("contributing") == "yes"
         self._syncing = True
-        self.gps_contrib.set_active(an)
+        self.gps_contrib.set_active(on)
         self._syncing = False
         self.gps_contrib.set_sensitive(True)
         # Asked for and actually happening are two facts, and the row must not
         # pass the first off as the second: the service exits when the marker
         # is missing, so "on" with nothing running is a state that exists.
         runs = values.get("running") == "yes"
-        if an and not runs:
+        if on and not runs:
             self.gps_contrib.set_subtitle(
                 _("Switched on, but the service is not running - "
                 "nothing is being collected"))
-        elif an:
+        elif on:
             self.gps_contrib.set_subtitle(
                 _("Networks in range with the satellite position, over Wi-Fi only"))
         else:

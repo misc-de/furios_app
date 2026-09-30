@@ -191,10 +191,10 @@ class BatteryPage:
         self._loading = True
         for key, _heading, _title, _subtitle, sliders in self.BATTERY_OPTIONS:
             row = self.batt_switches[key]
-            an = bool(cfg.get(key)) and getattr(self, "batt_running", True)
+            on = bool(cfg.get(key)) and getattr(self, "batt_running", True)
             row.set_sensitive(True)
-            row.set_active(an)
-            self.show_sliders(row, an)
+            row.set_active(on)
+            self.show_sliders(row, on)
             for _label, ckey, _lo, _hi, _st, _di, _un in sliders:
                 if ckey in cfg:
                     self.batt_scales[ckey].set_value(float(cfg[ckey]))

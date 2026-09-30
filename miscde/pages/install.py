@@ -367,9 +367,9 @@ class InstallPage:
 
         rest = []
         for u in waiting:
-            for schritt in component_steps(u["comp"], u["mode"], secret,
+            for step in component_steps(u["comp"], u["mode"], secret,
                                            u["path"], helper):
-                rest.append((u["comp"], schritt))
+                rest.append((u["comp"], step))
         self.set_busy(True)
         self.update_progress(_("working …"))
 

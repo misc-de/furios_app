@@ -38,6 +38,8 @@ if not Gtk.init_check():
 Adw.init()
 from miscde import combo  # noqa: E402
 
+# German on purpose: the translation from lang_de.py is the longest wording
+# this row ever carries, and the width has to hold for that one.
 row = Adw.ComboRow(
     title="Soundserver",
     subtitle="Wähle den primären Dienst für deine Audio-Ein- und -Ausgabe aus",

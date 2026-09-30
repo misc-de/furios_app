@@ -105,11 +105,11 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         # evening's updates, and no way to see at a glance whether anything
         # was waiting at all. A count says that in one word.
         self.update_btn = Gtk.Button()
-        zeile = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        zeile.append(Gtk.Image.new_from_icon_name("dialog-warning-symbolic"))
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        box.append(Gtk.Image.new_from_icon_name("dialog-warning-symbolic"))
         self.update_label = Gtk.Label(label="")
-        zeile.append(self.update_label)
-        self.update_btn.set_child(zeile)
+        box.append(self.update_label)
+        self.update_btn.set_child(box)
         self.update_btn.set_visible(False)
         self.update_btn.connect("clicked", lambda *__: self.ask_updates())
         header.pack_start(self.update_btn)
