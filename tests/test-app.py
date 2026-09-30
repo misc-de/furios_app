@@ -70,6 +70,12 @@ os.environ["XDG_CACHE_HOME"] = tempfile.mkdtemp(prefix="miscde-test-")
 os.environ["XDG_DATA_HOME"] = os.path.join(
     tempfile.mkdtemp(prefix="miscde-test-"), "share")
 switcher = importlib.import_module("miscde")
+# The install offers ask dpkg what is installed. What this machine has must
+# not decide whether a test sees a password field or a list of packages, so
+# nothing is missing unless a test says so; the real function is kept for
+# the tests of it.
+REAL_MISSING_PACKAGES = switcher.components.missing_packages
+switcher.components.missing_packages = lambda comp: []
 
 
 # Which of the optional tools this machine has. The app holds no constants for
@@ -4436,6 +4442,104 @@ class OffersTheFolderDock(unittest.TestCase):
         self.assertIn("not on the phone", said[-1])
 
 
+class AsksForPackagesFirst(unittest.TestCase):
+    """An installer is not started while a package it needs is missing: a
+    list and the apt line instead of a build that dies half-way."""
+
+    def test_dpkg_says_which_are_installed(self):
+        out = ("git install ok installed\n"
+               "gcc:arm64 install ok installed\n"
+               "phosh-dev deinstall ok config-files\n")
+        self.assertEqual({"git", "gcc"},
+                         switcher.components.installed_packages(out))
+
+    def test_what_dpkg_does_not_know_is_missing(self):
+        """dpkg-query exits 1 for an unknown name and still prints the rest -
+        so the output decides, not the exit code."""
+        done = subprocess_real.CompletedProcess(
+            [], 1, stdout="git install ok installed\n", stderr="no packages")
+        with mock.patch.object(switcher.components.subprocess, "run",
+                               lambda *a, **k: done):
+            self.assertEqual(["phosh-dev"], REAL_MISSING_PACKAGES(
+                {"packages": ["phosh-dev"]}))
+
+    def test_git_is_needed_by_every_one(self):
+        for comp in switcher.COMPONENTS + [switcher.PHOSH]:
+            self.assertEqual("git", switcher.components.packages_needed(comp)[0])
+
+    def test_no_dpkg_means_nothing_is_claimed_missing(self):
+        def fails(*a, **k):
+            raise OSError("no dpkg-query")
+        with mock.patch.object(switcher.components.subprocess, "run", fails):
+            self.assertEqual([], REAL_MISSING_PACKAGES(switcher.PHOSH))
+
+    def window_missing(self, missing):
+        self.enterContext(mock.patch.object(
+            switcher.components, "missing_packages", lambda comp: missing))
+        return switcher.Window(switcher.Adw.Application())
+
+    def test_a_missing_package_stops_the_install_before_anything_runs(self):
+        win = self.window_missing(["phosh-dev", "libgtk-3-dev"])
+        recorder.reset()
+        started = []
+        self.enterContext(mock.patch.object(
+            switcher.Window, "run_component",
+            lambda self, *a: started.append(a)))
+        win.ask_component(switcher.PHOSH, "install")
+        self.assertEqual([], [c for c in recorder.calls
+                              if c[0] == "Adw.PasswordEntryRow"])
+        self.assertEqual([], started)
+        missing, command = win.missing_shown
+        self.assertEqual(["phosh-dev", "libgtk-3-dev"], missing)
+        self.assertEqual("sudo apt install phosh-dev libgtk-3-dev", command)
+
+    def test_updates_are_held_back_too(self):
+        win = self.window_missing(["gcc"])
+        win.busy = False
+        win.updates = {"secctl": {"comp": self_comp("secctl"), "words": "",
+                                  "path": "/x", "mode": "update"}}
+        recorder.reset()
+        win.ask_updates()
+        self.assertEqual([], [c for c in recorder.calls
+                              if c[0] == "Adw.PasswordEntryRow"])
+        self.assertEqual("sudo apt install gcc", win.missing_shown[1])
+
+    def test_every_package_an_installer_names_is_in_the_list(self):
+        """Read from the installers, not from what the table believes: a
+        package one of them asks for and the app does not check would be
+        the old failure again - a dialog full of make output."""
+        homes = [os.path.expanduser("~/Projekte"),
+                 os.path.expanduser("~/Projekte/.dev"),
+                 os.path.expanduser("~/.local/share/misc-de")]
+        seen = 0
+        for comp in switcher.COMPONENTS + [switcher.PHOSH]:
+            for home in homes:
+                top = os.path.join(home, comp["dir"], comp.get("sub", ""))
+                script = os.path.join(top, "install.sh")
+                if not os.path.isfile(script):
+                    continue
+                seen += 1
+                texts = [Path(script).read_text()]
+                texts += [p.read_text() for p in Path(top).glob("tools/*/build.sh")]
+                named = set()
+                for text in texts:
+                    for m in re.finditer(r"apt install ([\w.+ -]+?)(?:\)|\"|$| or)",
+                                         text, re.M):
+                        named.update(m.group(1).split())
+                    named.update(re.findall(r"\(Paket ([\w.+-]+)\)", text))
+                    named.update(re.findall(r'missing\+=\("([a-z0-9][\w.+-]+)"\)',
+                                            text))
+                self.assertEqual(set(), named - set(
+                    switcher.components.packages_needed(comp)), comp["tool"])
+                break
+        if not seen:
+            self.skipTest("no clone of any installer on this machine")
+
+
+def self_comp(tool):
+    return next(c for c in switcher.COMPONENTS if c["tool"] == tool)
+
+
 class HidesTheSearchField(unittest.TestCase):
     """The Other page's one switch, against a gtk.css of its own."""
 
@@ -4880,7 +4984,35 @@ class TheLauncher(unittest.TestCase):
 
     def test_it_finds_the_package_and_hands_the_app_over(self):
         mod = load(ROOT / "misc-de.py", "launcher_under_test")
-        self.assertIs(switcher.App, mod.App)
+        ran = []
+        with mock.patch.object(switcher.App, "run",
+                               lambda self, argv: ran.append(argv) or 0):
+            self.assertEqual(0, mod.main(["misc-de"]))
+        self.assertEqual([["misc-de"]], ran)
+
+    def test_it_finds_the_dependency_check_beside_the_package(self):
+        mod = load(ROOT / "misc-de.py", "launcher_under_test")
+        self.assertEqual(str(ROOT / "miscde" / "deps.py"), mod._deps().__file__)
+
+    def test_a_missing_package_stops_it_before_the_window(self):
+        """Said, not crashed: started from the app grid, a traceback about
+        a missing typelib goes nowhere anybody looks."""
+        mod = load(ROOT / "misc-de.py", "launcher_under_test")
+        told = []
+
+        class Deps:
+            @staticmethod
+            def check():
+                told.append(True)
+                return False
+
+        ran = []
+        with mock.patch.object(mod, "_deps", lambda: Deps), \
+                mock.patch.object(switcher.App, "run",
+                                  lambda self, argv: ran.append(argv) or 0):
+            self.assertEqual(1, mod.main(["misc-de"]))
+        self.assertEqual([True], told)
+        self.assertEqual([], ran)
 
     def test_it_looks_beside_itself_first(self):
         """From the clone, ./misc-de.py has to run the clone - not whatever
@@ -4890,6 +5022,41 @@ class TheLauncher(unittest.TestCase):
         text = (ROOT / "misc-de.py").read_text()
         here = text.index("HERE")
         self.assertLess(here, text.index("/usr/local/lib/misc-de"))
+
+
+class TheStartCheck(unittest.TestCase):
+    """miscde/deps.py: what the window needs before it can open."""
+
+    def setUp(self):
+        self.deps = load(ROOT / "miscde" / "deps.py", "deps_under_test")
+
+    def test_everything_there_is_nothing_missing(self):
+        self.assertEqual([], self.deps.missing(lambda name, version: True))
+
+    def test_each_missing_library_names_its_package(self):
+        self.assertEqual(["gir1.2-adw-1"],
+                         self.deps.missing(lambda name, version: name != "Adw"))
+        self.assertEqual(["gir1.2-gtk-4.0", "gir1.2-adw-1"],
+                         self.deps.missing(lambda name, version: False))
+
+    def test_the_message_lists_them_and_how_to_install_them(self):
+        heading, text = self.deps.message(["gir1.2-gtk-4.0", "gir1.2-adw-1"])
+        self.assertIn("gir1.2-gtk-4.0", text)
+        self.assertIn("sudo apt install gir1.2-gtk-4.0 gir1.2-adw-1", text)
+
+    def test_it_imports_nothing_of_the_package(self):
+        """The package imports GTK first - loading it would be the crash
+        this is there to prevent."""
+        text = (ROOT / "miscde" / "deps.py").read_text()
+        self.assertNotRegex(text, r"(?m)^\s*from \.|^\s*import miscde|from miscde")
+
+    def test_its_texts_have_their_german(self):
+        from miscde.lang_de import TRANSLATIONS
+        heading, text = self.deps.message(["p"])
+        for key in ("misc-de cannot start", "Got it",
+                    "These packages are missing:\n\n{packages}\n\nInstall "
+                    "them in a terminal with:\n\n{command}"):
+            self.assertIn(key, TRANSLATIONS)
 
 
 class SourceDigest(unittest.TestCase):

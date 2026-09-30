@@ -15,6 +15,17 @@ TRANSLATIONS = {
     "Back to how it shipped": "Zurück zum Auslieferungszustand",
     "Restore shipped state": "Auslieferungszustand herstellen",
     "Got it": "Verstanden",
+    "Missing packages": "Fehlende Pakete",
+    "{tool} needs packages this phone does not have:":
+        "{tool} braucht Pakete, die auf diesem Telefon fehlen:",
+    "The updates need packages this phone does not have:":
+        "Die Updates brauchen Pakete, die auf diesem Telefon fehlen:",
+    "Install them in a terminal, then try again:":
+        "In einem Terminal installieren, dann noch einmal versuchen:",
+    # --- before the window: miscde/deps.py -------------------------------
+    "misc-de cannot start": "misc-de kann nicht starten",
+    "These packages are missing:\n\n{packages}\n\nInstall them in a terminal with:\n\n{command}":
+        "Diese Pakete fehlen:\n\n{packages}\n\nIn einem Terminal installieren mit:\n\n{command}",
     "Something went wrong": "Etwas ist schiefgegangen",
     "{program} did not answer within {seconds} seconds":
         "{program} hat nicht innerhalb von {seconds} Sekunden geantwortet",

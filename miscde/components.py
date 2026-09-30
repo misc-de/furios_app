@@ -8,6 +8,7 @@ read on its own, and to check without starting anything."""
 
 import glob
 import os
+import subprocess
 
 from .tools import phone_has_switches
 from .i18n import _
@@ -49,6 +50,8 @@ COMPONENTS = [
         "icon": "audio-speakers-symbolic",
         "url": "https://github.com/misc-de/furios_audio",
         "dir": "furios_audio",
+        # The build packages it fetches itself (tools/build-plugin.sh).
+        "packages": ["wireplumber"],
         "root": True,
         "does": "PipeWire talks to the Android HAL directly instead of "
                 "PulseAudio: playback, recording, calls and Bluetooth audio",
@@ -60,6 +63,9 @@ COMPONENTS = [
         "icon": "network-cellular-symbolic",
         "url": "https://github.com/misc-de/furios_modem_fixes",
         "dir": "furios_modem_fixes",
+        # nrprobe is compiled on the phone (tools/5g/build.sh).
+        "packages": ["gcc", "pkg-config", "libglib2.0-dev", "libgbinder-dev",
+                     "libglibutil-dev"],
         "root": True,
         "does": "the modem repairs: mobile data without Wi-Fi, signal bars "
                 "that move, 26 cell broadcast channels instead of 8",
@@ -83,6 +89,8 @@ COMPONENTS = [
         "icon": "changes-prevent-symbolic",
         "url": "https://github.com/misc-de/furios_killswitch",
         "dir": "furios_killswitch",
+        "packages": ["build-essential", "pkg-config", "phosh-dev", "libgtk-3-dev",
+                     "python3-gi"],
         # The installer itself runs as the user, but since the icons became
         # a phosh plugin it has one sudo line of its own (make install into
         # /usr/lib) - without the ticket and the helper it dies on it.
@@ -101,6 +109,7 @@ COMPONENTS = [
         "icon": "security-high-symbolic",
         "url": "https://github.com/misc-de/furios_security",
         "dir": "furios_security",
+        "packages": ["nftables", "iproute2", "kmod", "gcc", "libpam0g-dev"],
         "root": True,
         "does": "fewer routes into the kernel: unprivileged BPF, modules "
                 "that load themselves - and a lock screen that locks after "
@@ -113,6 +122,7 @@ COMPONENTS = [
         "icon": "battery-good-charging-symbolic",
         "url": "https://github.com/misc-de/furios_misc",
         "dir": "furios_misc",
+        "packages": ["libglib2.0-bin", "python3-gi"],
         # furios_misc is a collection of small things, so the installer is
         # not at the root of the clone. The only component with this, and
         # the reason it is a key rather than a rule: the next small thing
@@ -148,6 +158,7 @@ PHOSH = {
     "icon": "video-display-symbolic",
     "url": "https://github.com/misc-de/furios_phosh",
     "dir": "furios_phosh",
+    "packages": ["build-essential", "pkg-config", "phosh-dev", "libgtk-3-dev"],
     "sub": "folder-dock",
     # make install into phosh's plugin directory, and the guard into /etc.
     "root": True,
@@ -187,6 +198,47 @@ SELF = {
     "root": True,
     "does": "this window - the tabs and the switches on them",
 }
+
+
+# ------------------------------------------------------------ packages
+#
+# What an installer needs before it can run, as Debian packages - asked
+# before it is started, so a missing compiler is a list with an apt command
+# instead of an installer that dies half-way with its error in a dialog.
+# git fetches every one of them. Checked by name with dpkg-query, like the
+# audio installer checks its own build packages.
+ALWAYS = ["git"]
+
+
+def packages_needed(comp):
+    return ALWAYS + [p for p in comp.get("packages", []) if p not in ALWAYS]
+
+
+def installed_packages(out):
+    """The names dpkg-query reported as installed, from
+    `dpkg-query -W -f '${Package} ${Status}\\n' ...`."""
+    names = set()
+    for line in (out or "").splitlines():
+        parts = line.split()
+        if len(parts) >= 4 and parts[1:4] == ["install", "ok", "installed"]:
+            names.add(parts[0].split(":")[0])
+    return names
+
+
+def missing_packages(comp):
+    """The packages this component's installer needs and the phone lacks.
+
+    One dpkg-query for all of them; it exits 1 when any is unknown and still
+    prints the ones it knows, so the exit code says nothing here."""
+    wanted = packages_needed(comp)
+    try:
+        out = subprocess.run(
+            ["dpkg-query", "-W", "-f", "${Package} ${Status}\n"] + wanted,
+            capture_output=True, text=True, timeout=30).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return []                  # nothing to ask - the installer still checks
+    have = installed_packages(out)
+    return [p for p in wanted if p not in have]
 
 
 def clone_path(comp):

@@ -300,6 +300,13 @@ class InstallPage:
         if self.busy or not self.updates:
             return
         waiting = list(self.updates.values())
+        missing = []
+        for u in waiting:
+            missing += [p for p in components.missing_packages(u["comp"])
+                        if p not in missing]
+        if missing:
+            self.say_missing_packages(missing)
+            return
         # Just the names: how many commits, or why the app counts, is detail
         # nobody decides on - the answer is the same "take what is waiting".
         lines = ["• %s" % u["comp"]["tool"] for u in waiting]
@@ -346,6 +353,13 @@ class InstallPage:
         if self.busy or not self.updates:
             return
         waiting = list(self.updates.values())
+        missing = []
+        for u in waiting:
+            missing += [p for p in components.missing_packages(u["comp"])
+                        if p not in missing]
+        if missing:
+            self.say_missing_packages(missing)
+            return
         os.makedirs(CLONE_HOME, exist_ok=True)
         root = any(u["comp"]["root"] for u in waiting)
         self.askpass = askpass.Askpass(secret) if root else None
@@ -417,6 +431,25 @@ class InstallPage:
         self.show_update_count()
         self.restart_self()
 
+    def say_missing_packages(self, missing, tool=None):
+        """Nothing is started: which packages are missing, and the one line
+        that installs them - selectable, so it can be copied."""
+        command = "sudo apt install " + " ".join(missing)
+        body = ((_("{tool} needs packages this phone does not have:")
+                 .format(tool=tool)) if tool else
+                _("The updates need packages this phone does not have:"))
+        body += "\n\n" + "\n".join("• " + p for p in missing) + "\n\n"
+        body += _("Install them in a terminal, then try again:")
+        dlg = Adw.AlertDialog(heading=_("Missing packages"), body=body)
+        line = Gtk.Label(label=command, selectable=True, wrap=True)
+        line.add_css_class("monospace")
+        dlg.set_extra_child(line)
+        dlg.add_response("ok", _("Got it"))
+        dlg.set_default_response("ok")
+        dlg.set_close_response("ok")
+        dlg.present(self)
+        self.missing_shown = (missing, command)
+
     def ask_component(self, comp, state):
         """Ask before fetching anything, and say exactly what will happen.
 
@@ -424,6 +457,13 @@ class InstallPage:
         the internet, and for three of the four it runs commands as root.
         """
         if self.busy:
+            return
+        # Before anything is fetched: an installer that stops at a missing
+        # compiler leaves a clone and half a build behind, and says so in a
+        # page of make output.
+        missing = components.missing_packages(comp)
+        if missing:
+            self.say_missing_packages(missing, comp["tool"])
             return
         path = self.comp_rows.get(comp["tool"], {}).get("path") or clone_path(comp)
         steps = [source_steps(comp, state, path)[1],

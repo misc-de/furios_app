@@ -24,7 +24,29 @@ for base in (HERE, "/usr/local/lib/misc-de", "/usr/lib/misc-de"):
         sys.path.insert(0, base)
         break
 
-from miscde.window import App  # noqa: E402  - only after the path is set
+
+def _deps():
+    """miscde/deps.py, loaded by path: importing the package would import
+    GTK 4 and libadwaita first - the very things it is there to look for."""
+    import importlib.util
+    for base in sys.path:
+        path = os.path.join(base, "miscde", "deps.py")
+        if os.path.isfile(path):
+            spec = importlib.util.spec_from_file_location("miscde_deps", path)
+            deps = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(deps)
+            return deps
+    return None
+
+
+def main(argv):
+    """The check first; the window only once it has said yes."""
+    deps = _deps()
+    if deps is not None and not deps.check():
+        return 1
+    from miscde.window import App
+    return App().run(argv)
+
 
 if __name__ == "__main__":
-    sys.exit(App().run(sys.argv))
+    sys.exit(main(sys.argv))
