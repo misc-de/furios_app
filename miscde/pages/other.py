@@ -286,6 +286,80 @@ def set_prompter_fixed(on, service=None, shim=None):
         os.remove(shim)
 
 
+# --- apps that start at once -------------------------------------------------
+#
+# FuriOS names xdg-desktop-portal-wlr for screenshots and screen casts, and on
+# this phone it cannot start: phoc runs on hwcomposer without the screencopy
+# protocols. It gives up at once, and xdg-desktop-portal then spends 55-60 s
+# in D-Bus timeouts waiting for it - and every GTK4 app hangs at start on the
+# portal's light/dark question in that time. Tapped apps do not open for a
+# minute after boot.
+#
+# Naming "none" for those two takes wlr out; nothing is lost, because it was
+# the only backend offering them and it never ran. "none" and not "gtk;": the
+# UseIn= fallback only stops at "none", "gtk;" merely halves the wait.
+#
+# A file in the user's config dir is found before the one FuriOS ships, and
+# replaces it whole - so it is the shipped file, as it is when switched on,
+# with just those two lines changed. Read at the portal's start, which is at
+# login.
+PORTALS_SHIPPED = "/usr/share/xdg-desktop-portal/phosh-portals.conf"
+PORTALS_MARK = "# misc-de: apps start without waiting for the wlr portal"
+PORTALS_NONE = ("org.freedesktop.impl.portal.ScreenCast",
+                "org.freedesktop.impl.portal.Screenshot")
+
+
+def portals_path():
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    return os.path.join(base, "xdg-desktop-portal", "phosh-portals.conf")
+
+
+def portals_fixed(path=None):
+    return PORTALS_MARK in _read(path or portals_path())
+
+
+def portals_text(shipped):
+    """The shipped file with our two keys at none - replaced where they are,
+    added to [preferred] where a later FuriOS dropped them."""
+    lines, seen = [], set()
+    for line in shipped.splitlines():
+        key = line.split("=", 1)[0].strip()
+        if key in PORTALS_NONE:
+            line = key + "=none;"
+            seen.add(key)
+        lines.append(line)
+    missing = [k + "=none;" for k in PORTALS_NONE if k not in seen]
+    if missing:
+        if "[preferred]" not in lines:
+            lines.append("[preferred]")
+        at = lines.index("[preferred]") + 1
+        lines[at:at] = missing
+    return PORTALS_MARK + "\n" + "\n".join(lines) + "\n"
+
+
+def set_portals_fixed(on, path=None, shipped=PORTALS_SHIPPED):
+    """On writes the file, off removes it - but only ours: a portals.conf
+    somebody wrote is neither overwritten nor taken away."""
+    path = path or portals_path()
+    current = _read(path)
+    if current and PORTALS_MARK not in current:
+        raise OSError("%s is not ours - left as it is" % path)
+    if not on:
+        if current:
+            os.remove(path)
+            try:
+                os.rmdir(os.path.dirname(path))
+            except OSError:
+                pass
+        return
+    text = portals_text(_read(shipped))
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".misc-de.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(tmp, path)
+
+
 class OtherPage:
     def build_other_page(self):
         page = Adw.PreferencesPage()
@@ -353,7 +427,33 @@ class OtherPage:
         self.prompter_row.connect("notify::active", self.on_prompter_fixed)
         grp.add(self.prompter_row)
         page.add(grp)
+
+        grp = Adw.PreferencesGroup(title=_("Apps"))
+        self.portals_row = Adw.SwitchRow(
+            title=_("Apps open right after boot"),
+            subtitle=_("Instead of a minute's wait for a screen-capture "
+                       "service that cannot start here · after the next login"))
+        self._loading = True
+        self.portals_row.set_active(portals_fixed())
+        self._loading = False
+        self.portals_row.connect("notify::active", self.on_portals_fixed)
+        grp.add(self.portals_row)
+        page.add(grp)
         return page
+
+    def on_portals_fixed(self, row, _pspec):
+        if self._loading:
+            return
+        want = row.get_active()
+        try:
+            set_portals_fixed(want)
+        except OSError as e:
+            self._loading = True
+            row.set_active(not want)
+            self._loading = False
+            self.report(_("Could not write %s:\n%s") % (portals_path(), e))
+            return
+        self.toast(_("Takes effect after the next login"))
 
     def on_prompter_fixed(self, row, _pspec):
         if self._loading:

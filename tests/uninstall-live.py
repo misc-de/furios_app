@@ -49,6 +49,8 @@ KNOWN_WRITERS = {
     ("pages/other.py", "set_dock_enabled"): "phosh's status-icons list",
     ("pages/other.py", "set_dock_setting"): "~/.config/furios-folder-dock.conf",
     ("pages/other.py", "set_prompter_fixed"): "the keyring prompter shim",
+    ("pages/other.py", "set_portals_fixed"):
+        "~/.config/xdg-desktop-portal/phosh-portals.conf",
 }
 FS_CALLS = {"makedirs", "mkdir", "replace", "rename", "chmod", "mkdtemp",
             "mkstemp", "copy", "copy2", "copyfile", "copytree", "symlink",
@@ -118,7 +120,7 @@ class Stage:
             # stage: a system path the stage does not reach fails the test
             # instead of changing this phone.
             case "$1" in
-            install|rm|rmdir|cp|find|chmod|mkdir|gtk-update-icon-cache|update-desktop-database) ;;
+            install|rm|rmdir|cp|find|chmod|mkdir|sed|gtk-update-icon-cache|update-desktop-database) ;;
             *) echo "sudo $1 is not stood in for: $*" >> {w}/refused; exit 97 ;;
             esac
             for a in "$@"; do
@@ -188,11 +190,18 @@ def seed_runtime(stage):
         other.set_dock_setting(other.ONE_ROW, True)
         other.set_dock_setting(other.HIDE_LABELS, True)
         other.set_prompter_fixed(True)
+        other.set_portals_fixed(True)
         """)
     subprocess.run([sys.executable, "-c", code, str(ROOT)], env=stage.env(),
                    check=True)
     # The dock switched on, as set_dock_enabled leaves the list.
     stage.icons.write_text("['wifi-hotspot', 'furios-folder-dock']\n")
+    # The Audio tab's "Bluetooth powersave" switched off - by sudo sh -c, which
+    # the walk over miscde/ cannot see, so it is planted here - and the copy
+    # taken by hand before that switch existed.
+    batman = stage.root / "var/lib/batman/config"
+    (batman.parent / "config.bak-20260916-082123").write_text(batman.read_text())
+    batman.write_text(batman.read_text().replace("BTSAVE=true", "BTSAVE=false"))
     # askpass.start: a window that crashed before it could clean up.
     (stage.runtime / "misc-de-abc123").mkdir()
     (stage.runtime / "misc-de-abc123" / "askpass").write_text("x\n")
@@ -257,6 +266,9 @@ def component_table():
     raise AssertionError("no COMPONENTS in miscde/components.py")
 
 
+BATMAN_SHIPPED = ("OFFLINE=true\nPOWERSAVE=true\nMAX_CPU_USAGE=60\n"
+                  "CHARGESAVE=true\nBUSSAVE=true\nGPUSAVE=true\n"
+                  "BTSAVE=true\nWIFISAVE=false\n")
 COMPONENT_TOOLS = component_table()
 COMPONENT_DIRS = sorted(COMPONENT_TOOLS) + ["furios_app", "somebody_else"]
 
@@ -310,6 +322,9 @@ class LeavesThePhoneAsItShipped(unittest.TestCase):
         (s.home / ".local" / "share").mkdir(parents=True)
         pushed_clone(s.home / "Projekte" / "furios_audio", s.work / "remote.git")
         s.icons.write_text("['wifi-hotspot']\n")
+        # batman's config as FuriOS ships it.
+        (s.root / "var/lib/batman").mkdir(parents=True)
+        (s.root / "var/lib/batman/config").write_text(BATMAN_SHIPPED)
         self.root_before = tree(s.root)
         self.home_before = tree(s.home)
 
@@ -357,6 +372,8 @@ class LeavesThePhoneAsItShipped(unittest.TestCase):
                          (s.home / ".config/gtk-3.0/gtk.css").read_text())
         self.assertEqual("['wifi-hotspot']\n", s.icons.read_text())
         self.assertEqual([], os.listdir(s.runtime))
+        self.assertEqual(BATMAN_SHIPPED,
+                         (s.root / "var/lib/batman/config").read_text())
 
     def test_a_new_phone_keeps_no_value_in_dconf(self):
         s = self.s

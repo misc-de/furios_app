@@ -6,7 +6,8 @@
 # install.sh behaves exactly as on a new one: the program, its icon and its
 # launcher entry (and those of the names it had before), what the window
 # wrote as the user - its language, the switches on the Phosh tab, the
-# keyring prompter shim - and its own clones in ~/.local/share/misc-de.
+# keyring prompter shim, batman's Bluetooth powersave - and its own clones
+# in ~/.local/share/misc-de.
 #
 # What it deliberately does NOT remove: the tools behind the tabs. Each has
 # its own uninstaller, each was a separate decision to install, and audio and
@@ -209,6 +210,17 @@ if ("# misc-de: keyring prompter shim" in text
     remove(shim)
 for path in (service, shim):
     remove(path + ".misc-de.tmp")
+# "Apps open right after boot": our phosh-portals.conf, by its marker only -
+# one somebody wrote stays. The directory goes while it is empty.
+portals = os.path.join(config, "xdg-desktop-portal", "phosh-portals.conf")
+if "# misc-de: apps start without waiting for the wlr portal" in read(portals):
+    remove(portals)
+remove(portals + ".misc-de.tmp")
+try:
+    os.rmdir(os.path.dirname(portals))
+except OSError:
+    pass
+
 # The directories the switch made, while they are empty.
 for d in (os.path.dirname(service), os.path.dirname(os.path.dirname(service)),
           os.path.dirname(shim)):
@@ -254,6 +266,29 @@ else:
     subprocess.run(["gsettings", "set"] + key + [str(names)], check=False)
 PY
 fi
+
+# "Bluetooth powersave" on the Audio tab: batman's own setting, which FuriOS
+# ships on. Off is the only value the switch ever wrote that FuriOS does not
+# ship, so off goes back to on; a file without the key or with anything else
+# was not the switch. batman reads the file at start only, hence the restart.
+# The copy taken by hand before the switch existed (config.bak-YYYYMMDD-
+# HHMMSS) goes once it is the file as it now is - it held nothing else.
+BATMAN_CONFIG="${DESTDIR:-}/var/lib/batman/config"
+if grep -qx 'BTSAVE=false' "$BATMAN_CONFIG" 2>/dev/null; then
+    if sudo sed -i 's/^BTSAVE=false$/BTSAVE=true/' "$BATMAN_CONFIG"; then
+        [ -n "${DESTDIR:-}" ] || sudo systemctl try-restart batman.service || true
+    else
+        echo "(could not switch batman's Bluetooth powersave back on)"
+    fi
+fi
+for bak in "$BATMAN_CONFIG".bak-[0-9]*-[0-9]*; do
+    [ -f "$bak" ] || continue
+    if cmp -s "$bak" "$BATMAN_CONFIG"; then
+        sudo rm -f "$bak"
+    else
+        echo "(kept $bak: it is not the config as it is now)"
+    fi
+done
 
 # The password socket of a window that did not get to close it. It lives on
 # tmpfs and would go at the next boot anyway; not while a window is open.

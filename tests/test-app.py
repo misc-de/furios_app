@@ -4470,6 +4470,87 @@ class FixesTheKeyringPrompt(unittest.TestCase):
         self.assertTrue(said)
 
 
+class FixesThePortalWait(unittest.TestCase):
+    """Our phosh-portals.conf in the user's config dir: the shipped one with
+    the two wlr keys at none, and only ever ours to write or remove."""
+
+    SHIPPED = ("[preferred]\n"
+               "default=phosh;gtk;\n"
+               "org.freedesktop.impl.portal.ScreenCast=wlr;\n"
+               "org.freedesktop.impl.portal.Screenshot=gtk;wlr;\n"
+               "org.freedesktop.impl.portal.Secret=gnome-keyring;\n")
+
+    def setUp(self):
+        d = tempfile.mkdtemp()
+        self.path = os.path.join(d, "config", "xdg-desktop-portal",
+                                 "phosh-portals.conf")
+        self.shipped = os.path.join(d, "shipped.conf")
+        Path(self.shipped).write_text(self.SHIPPED)
+        self.other = switcher.pages.other
+
+    def test_on_is_the_shipped_file_with_wlr_gone(self):
+        self.other.set_portals_fixed(True, self.path, self.shipped)
+        self.assertTrue(self.other.portals_fixed(self.path))
+        text = Path(self.path).read_text()
+        self.assertFalse([l for l in text.splitlines()
+                          if "wlr" in l and not l.startswith("#")])
+        self.assertIn("org.freedesktop.impl.portal.ScreenCast=none;\n", text)
+        self.assertIn("org.freedesktop.impl.portal.Screenshot=none;\n", text)
+        # Everything else as FuriOS ships it.
+        self.assertIn("default=phosh;gtk;\n", text)
+        self.assertIn("Secret=gnome-keyring;\n", text)
+
+    def test_off_leaves_nothing(self):
+        self.other.set_portals_fixed(True, self.path, self.shipped)
+        self.other.set_portals_fixed(False, self.path, self.shipped)
+        self.assertFalse(self.other.portals_fixed(self.path))
+        self.assertFalse(os.path.exists(self.path))
+        self.assertFalse(os.path.exists(os.path.dirname(self.path)))
+
+    def test_keys_a_later_furios_dropped_are_still_set(self):
+        Path(self.shipped).write_text("[preferred]\ndefault=phosh;gtk;\n")
+        self.other.set_portals_fixed(True, self.path, self.shipped)
+        text = Path(self.path).read_text()
+        self.assertIn("[preferred]\norg.freedesktop.impl.portal.ScreenCast=none;", text)
+        self.assertIn("org.freedesktop.impl.portal.Screenshot=none;", text)
+
+    def test_somebody_elses_file_is_left_alone(self):
+        os.makedirs(os.path.dirname(self.path))
+        Path(self.path).write_text("[preferred]\ndefault=gtk;\n")
+        self.assertFalse(self.other.portals_fixed(self.path))
+        for on in (True, False):
+            with self.assertRaises(OSError):
+                self.other.set_portals_fixed(on, self.path, self.shipped)
+        self.assertEqual("[preferred]\ndefault=gtk;\n",
+                         Path(self.path).read_text())
+
+    def test_the_default_path_stays_out_of_the_real_home(self):
+        self.assertTrue(self.other.portals_path().startswith(
+            os.environ["XDG_CONFIG_HOME"]))
+
+    def test_the_switch_writes_and_a_failure_puts_it_back(self):
+        win = switcher.Window(switcher.Adw.Application())
+        said = []
+        self.enterContext(mock.patch.object(switcher.Window, "report",
+                                            lambda self, text: said.append(text)))
+        self.enterContext(mock.patch.object(self.other, "PORTALS_SHIPPED",
+                                            self.shipped))
+        row = Recording()
+        row.set_active(True)
+        win._loading = False
+        win.on_portals_fixed(row, None)
+        self.assertTrue(self.other.portals_fixed())
+        row.set_active(False)
+        win.on_portals_fixed(row, None)
+        self.assertFalse(self.other.portals_fixed())
+        with mock.patch.object(self.other, "set_portals_fixed",
+                               side_effect=PermissionError("denied")):
+            row.set_active(True)
+            win.on_portals_fixed(row, None)
+        self.assertFalse(row.get_active())
+        self.assertTrue(said)
+
+
 class FakePluginSettings:
     def __init__(self, names):
         self.names = list(names)
