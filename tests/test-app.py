@@ -477,10 +477,22 @@ class ComponentTable(unittest.TestCase):
                 if not os.path.isfile(script):
                     continue
                 seen += 1
-                with open(script) as fh:
-                    calls = [l for l in fh
-                             if re.match(r"\s*(?!#).*\bsudo\s+(?!-k)", l)
-                             and "echo" not in l]
+                # And the installers it runs itself ("$SRC/../guard/
+                # install.sh"): battctl's brought the widget's sudo line
+                # along on 30.9.2026, and a look at install.sh alone
+                # missed it.
+                text = Path(script).read_text()
+                scripts = [script] + [
+                    os.path.normpath(os.path.join(os.path.dirname(script), m))
+                    for m in re.findall(r'"\$SRC/([^"]*install\.sh)"', text)]
+                calls = []
+                for one in scripts:
+                    if not os.path.isfile(one):
+                        continue
+                    with open(one) as fh:
+                        calls += [l for l in fh
+                                  if re.match(r"\s*(?!#).*\bsudo\s+(?!-k)", l)
+                                  and "echo" not in l]
                 if calls:
                     self.assertTrue(comp["root"], "%s: %s" % (
                         comp["tool"], calls[0].strip()))

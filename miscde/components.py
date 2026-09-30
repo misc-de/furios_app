@@ -122,13 +122,17 @@ COMPONENTS = [
         "icon": "battery-good-charging-symbolic",
         "url": "https://github.com/misc-de/furios_misc",
         "dir": "furios_misc",
-        "packages": ["libglib2.0-bin", "python3-gi"],
+        "packages": ["libglib2.0-bin", "python3-gi", "build-essential",
+                     "pkg-config", "phosh-dev", "libgtk-3-dev"],
         # furios_misc is a collection of small things, so the installer is
         # not at the root of the clone. The only component with this, and
         # the reason it is a key rather than a rule: the next small thing
         # will sit beside it in the same repository.
         "sub": "battery",
-        "root": False,
+        # Since 30.9.2026 its installer also builds the widget that draws
+        # the colour and the time (phosh-battery-time) and puts it where
+        # phosh looks: one sudo line, and a compiler.
+        "root": True,
         "does": "the battery icon goes green, amber or red with the charging "
                 "power - a tired cable and a good one look the same otherwise",
     },
