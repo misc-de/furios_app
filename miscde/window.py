@@ -453,12 +453,10 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         take back: the audio one restarts the sound stack, the modem one takes
         the repairs out and leaves the phone without a network, the location
         one starts publishing an IP-derived position again, and the switches
-        one takes the icons away. The question is the same everywhere, and it
-        repeats the same words the group carries - nothing new to read at the
-        moment of deciding.
+        one takes the icons away. The page shows only the button; what it
+        costs is said in the question, at the moment of deciding.
         """
-        grp = Adw.PreferencesGroup(title=self.RESTORE_TITLE,
-                                   description=description)
+        grp = Adw.PreferencesGroup(title=self.RESTORE_TITLE)
         btn = self.pill_button(self.RESTORE_LABEL)
         btn.connect("clicked", lambda button:
                     self.confirm_restore(description, handler, button))

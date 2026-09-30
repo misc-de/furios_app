@@ -3778,17 +3778,15 @@ class TheWindow(unittest.TestCase):
         self.assertEqual([], [k for k in classes if k.endswith("-action")])
         self.assertIn("pill", classes)
 
-    def test_each_way_back_says_what_it_costs(self):
-        """The same button on every page is only honest if the text next to
-        it is not the same every time."""
+    def test_a_way_back_carries_no_text_on_the_page(self):
+        """Only the button on the page; what it costs is said in the
+        question, which the click test below covers."""
         recorder.reset()
         switcher.Window(switcher.Adw.Application())
-        texts = {str(c[2].get("description", ""))
-                 for c in recorder.calls if c[0] == "Adw.PreferencesGroup"
-                 and c[2].get("title") == switcher.Window.RESTORE_TITLE}
-        expected = (1 + bool(MODEMCTL) + bool(CONTRIB)
-                    + bool(KILLSWITCH) + bool(BATTCTL) + bool(SECCTL))
-        self.assertEqual(expected, len(texts))
+        groups = [c for c in recorder.calls if c[0] == "Adw.PreferencesGroup"
+                  and c[2].get("title") == switcher.Window.RESTORE_TITLE]
+        self.assertTrue(groups)
+        self.assertEqual([], [c for c in groups if c[2].get("description")])
 
     def test_a_way_back_asks_before_it_acts(self):
         """Nothing here is a tap to take back, so none of them acts on the tap
