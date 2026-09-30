@@ -154,8 +154,10 @@ class Stage:
         # No misc-de window open, and nothing reaches the user's units or
         # the journal.
         (self.bin / "pgrep").write_text("#!/bin/sh\nexit 1\n")
-        for name in ("systemctl", "logger"):
-            (self.bin / name).write_text("#!/bin/sh\nexit 0\n")
+        # systemctl answers yes to everything, and says what it was asked.
+        (self.bin / "systemctl").write_text(
+            f"#!/bin/sh\necho \"$*\" >> {w}/systemctl.log\nexit 0\n")
+        (self.bin / "logger").write_text("#!/bin/sh\nexit 0\n")
         for p in self.bin.iterdir():
             p.chmod(0o755)
 
@@ -580,6 +582,43 @@ class PutsBackWhatWasThere(unittest.TestCase):
             """ % (str(batman), str(batman)))
         self.uninstall()
         self.assertEqual(without, batman.read_text())
+
+    def test_the_colouring_unit_is_disabled_as_it_was_before(self):
+        """battctl's installer never enables it; the Battery tab did."""
+        s = self.s
+        self.install()
+        run_app_code(s, """\
+            original.remember_unit("furios-battery-color.service", False, False)
+            """)
+        said = self.uninstall()
+        log = (s.work / "systemctl.log").read_text()
+        self.assertIn("--user disable --now furios-battery-color.service", log)
+        self.assertIn("disabled again", said)
+
+    def test_a_colouring_unit_that_was_enabled_stays(self):
+        s = self.s
+        self.install()
+        run_app_code(s, """\
+            original.remember_unit("furios-battery-color.service", True, True)
+            """)
+        self.uninstall()
+        log = s.work / "systemctl.log"
+        self.assertNotIn("disable", log.read_text() if log.exists() else "")
+
+    def test_furios_phoshs_record_of_the_plugin_list_is_used(self):
+        """Its installer wrote the list down before the plugin existed - the
+        older original, and the one the switch and uninstall go back to."""
+        s = self.s
+        state = s.home / ".local/state/furios-phosh"
+        state.mkdir(parents=True)
+        (state / "original.json").write_text(
+            '{"legacy": false, "key": {"set": true, "value": [], '
+            '"default": ["x"], "had_ours": false}}')
+        s.icons.write_text("['furios-folder-dock']\n")
+        self.install()
+        self.uninstall()
+        self.assertEqual("[]\n", s.icons.read_text(),
+                         "set to [] before, so set to [] again - not reset")
 
     def test_directories_that_were_there_stay_even_empty(self):
         """install.sh writes down which shared directories under /usr/local

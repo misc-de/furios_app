@@ -161,7 +161,8 @@ def set_dock_enabled(on, settings):
     where it is.
 
     Before our name goes in for the first time, the key is recorded as it
-    was - unset, or set to which list. Off with our name gone again and the
+    was - unset, or set to which list - unless furios_phosh's installer has
+    recorded it already (original.phosh_plugin_record), which is older. Off with our name gone again and the
     list what it was then puts that back: reset where it was unset, so the
     key follows what a later phosh ships instead of being pinned to today's
     default. Another plugin that put itself in since makes the list a
@@ -174,7 +175,9 @@ def set_dock_enabled(on, settings):
     current = settings.get_strv(PLUGINS_KEY)
     names = [n for n in current if n != DOCK_PLUGIN]
     if on:
-        if DOCK_PLUGIN not in current:
+        # furios_phosh's installer has usually written the list down
+        # already, before the plugin existed; then that is the original.
+        if DOCK_PLUGIN not in current and original.phosh_plugin_record() is None:
             original.remember_setting(PLUGINS_SCHEMA, PLUGINS_KEY,
                                       _user_value(settings), list(current))
         try:
@@ -187,7 +190,7 @@ def set_dock_enabled(on, settings):
     if DOCK_PLUGIN not in current:
         return
     ident = original.setting_ident(PLUGINS_SCHEMA, PLUGINS_KEY)
-    record = original.load(ident)
+    record = original.load(ident) or original.phosh_plugin_record()
     action, value = original.setting_back(record, names)
     if action == "reset":
         settings.reset(PLUGINS_KEY)

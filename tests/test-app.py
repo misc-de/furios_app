@@ -66,6 +66,9 @@ sys.path.insert(0, str(ROOT))
 os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp(prefix="miscde-test-")
 # And the folder dock's crash mark, which it removes from ~/.cache.
 os.environ["XDG_CACHE_HOME"] = tempfile.mkdtemp(prefix="miscde-test-")
+# And furios_phosh's record of phosh's plugin list, read from ~/.local/state:
+# what this phone's own installer wrote down must not decide a test.
+os.environ["XDG_STATE_HOME"] = tempfile.mkdtemp(prefix="miscde-test-")
 # And the keyring prompter's service file and shim, under ~/.local.
 os.environ["XDG_DATA_HOME"] = os.path.join(
     tempfile.mkdtemp(prefix="miscde-test-"), "share")
@@ -5174,6 +5177,32 @@ class SwitchesPutBackWhatWasThere(unittest.TestCase):
         s.set_strv("status-icons", s.names + ["furios-lockout"])
         self.other.set_dock_enabled(False, s)
         self.assertEqual(["furios-lockout"], s.user)
+
+    def test_furios_phoshs_record_comes_first(self):
+        """Older than the app's first change: then the app writes none of
+        its own, and off goes back to what that one says."""
+        state = os.path.join(os.environ["XDG_STATE_HOME"], "furios-phosh")
+        os.makedirs(state, exist_ok=True)
+        path = os.path.join(state, "original.json")
+        self.addCleanup(os.remove, path)
+        Path(path).write_text(json.dumps({"legacy": False, "key": {
+            "set": False, "value": None, "default": ["wifi-hotspot"],
+            "had_ours": False}}))
+        s = FakeDconf(["wifi-hotspot"], user=["wifi-hotspot"])
+        self.other.set_dock_enabled(True, s)
+        self.assertIsNone(original.load(original.setting_ident(
+            self.other.PLUGINS_SCHEMA, self.other.PLUGINS_KEY)))
+        self.other.set_dock_enabled(False, s)
+        self.assertIsNone(s.user, "it was unset before furios_phosh came")
+
+    def test_a_legacy_furios_phosh_record_is_not_believed(self):
+        state = os.path.join(os.environ["XDG_STATE_HOME"], "furios-phosh")
+        os.makedirs(state, exist_ok=True)
+        path = os.path.join(state, "original.json")
+        self.addCleanup(os.remove, path)
+        Path(path).write_text(json.dumps({"legacy": True, "key": {
+            "set": False, "value": None, "default": [], "had_ours": False}}))
+        self.assertIsNone(original.phosh_plugin_record())
 
     def test_off_without_our_name_writes_nothing(self):
         s = FakeDconf(["wifi-hotspot"])

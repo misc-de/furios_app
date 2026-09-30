@@ -20,7 +20,9 @@
 # its own uninstaller, each was a separate decision to install, and audio and
 # modem hold the phone's sound and its data connection - taking those out
 # because somebody removed a front end would be the app deciding something it
-# was never asked about.
+# was never asked about. One thing of theirs is the app's all the same: the
+# colouring unit, which battctl's installer never enables and the Battery
+# tab did - it goes back to how it stood before that, from the record.
 #
 # The clones are different: the app made them, in a directory of its own, to
 # fetch and update those tools, so they are app state and go with it - except
@@ -319,15 +321,19 @@ for record in original.all_records():
         elif state == "changed":
             say("kept %s in %s: changed since misc-de wrote it" % (record["key"], path))
     elif kind == "unit":
-        # Enabled from the Battery tab, and it was not before. The unit and
-        # its settings are battctl's, which stays installed, so this says it
-        # rather than switching the colouring off behind somebody's back.
+        # Enabled from the Battery tab, and it was not before: battctl's
+        # installer never enables it, so the enabling was this app's change
+        # and goes with it - stopped too, unless it was running before.
+        unit = record["unit"]
         if not record.get("enabled") and subprocess.run(
-                ["systemctl", "--user", "is-enabled", "--quiet",
-                 record["unit"]]).returncode == 0:
-            say("%s was enabled from the Battery tab and was not before - "
-                "battctl's uninstall.sh, or systemctl --user disable --now %s, "
-                "takes it back" % (record["unit"], record["unit"]))
+                ["systemctl", "--user", "is-enabled", "--quiet", unit]).returncode == 0:
+            argv = ["systemctl", "--user", "disable"]
+            if not record.get("active"):
+                argv.append("--now")
+            if subprocess.run(argv + [unit]).returncode == 0:
+                say("%s disabled again, as it was before the Battery tab" % unit)
+            else:
+                say("could not disable %s again" % unit)
 
 
 # --- 2. no record: by our markers, as before, and said -----------------------
@@ -407,9 +413,23 @@ if service not in seen and shim not in seen:
         except OSError:
             pass
 
-# "Folders at the bottom": our name out of phosh's plugin list. Without a
-# record, a list back at the default is reset rather than written - a value
-# in dconf, even the default one, pins the key against a later phosh.
+# "Folders at the bottom": our name out of phosh's plugin list - back to
+# what furios_phosh's installer recorded, where it did. Without any record,
+# a list back at the default is reset rather than written - a value in
+# dconf, even the default one, pins the key against a later phosh.
+phosh = original.phosh_plugin_record()
+if "gsettings" not in seen and phosh is not None:
+    seen.add("gsettings")
+    try:
+        now = icons()
+    except (ValueError, SyntaxError, OSError):
+        now = []
+    if DOCK in now:
+        action, value = original.setting_back(phosh, [n for n in now if n != DOCK])
+        if action == "reset":
+            gsettings("reset", *KEY)
+        else:
+            gsettings("set", *KEY, str(value))
 if "gsettings" not in seen:
     try:
         now = icons()

@@ -292,6 +292,41 @@ def setting_back(record, value):
     return "set", value
 
 
+def phosh_plugin_record():
+    """phosh's plugin list as furios_phosh's installer recorded it, in the
+    form of a record of ours - or None.
+
+    The folder dock is furios_phosh's plugin, and its installer writes down
+    the list before its own first change, in
+    ${XDG_STATE_HOME:-~/.local/state}/furios-phosh/original.json
+    (lib/furios-phosh-original there). The app offers the switch only once
+    the plugin is installed, so that record is always older than the app's
+    first change, and the better original: it is used first, and the app
+    writes its own only where there is none. Not believed when it says it
+    was taken over an install from before records ("legacy") or over a
+    list that already held our name."""
+    base = (os.environ.get("XDG_STATE_HOME")
+            or os.path.expanduser("~/.local/state"))
+    try:
+        with open(os.path.join(base, "furios-phosh", "original.json"),
+                  encoding="utf-8") as f:
+            record = json.load(f)
+    except (OSError, ValueError):
+        return None
+    key = record.get("key") if isinstance(record, dict) else None
+    if not isinstance(key, dict) or record.get("legacy") or key.get("had_ours"):
+        return None
+    if key.get("set"):
+        value = key.get("value")
+        user = value
+    else:
+        value, user = key.get("default"), None
+    if not isinstance(value, list):
+        return None
+    return {"kind": "gsettings", "user_value": user, "value": value,
+            "source": "furios_phosh"}
+
+
 # --- KEY=value lines in another program's config -----------------------------
 #
 # batman's /var/lib/batman/config is root's, so it is changed through sudo;
