@@ -17,10 +17,12 @@
 # The clones are different: the app made them, in a directory of its own, to
 # fetch and update those tools, so they are app state and go with it - except
 # a clone with work in it that exists nowhere else (uncommitted changes, a
-# stash, commits no remote has). That one is named and left alone. Clones
-# somebody keeps themselves, in ~/Projekte or anywhere else, are never
-# looked at. A tool installed from a clone that is gone now can still be
-# removed: its repository on GitHub has the same uninstall.sh.
+# stash, commits no remote has). That one is named and left alone. So is a
+# clone whose tool is still installed: its uninstall.sh is the only one on
+# the phone, and deleting it would leave a tool that nothing here can take
+# out again. The clone is named with the uninstaller to run first; after
+# that, a second run of this script removes it. Clones somebody keeps
+# themselves, in ~/Projekte or anywhere else, are never looked at.
 #
 # DESTDIR, as in make: a staged root instead of /, for the tests.
 set -uo pipefail
@@ -50,11 +52,39 @@ unsaved_work() {
     [ -z "$ahead" ] || { echo "commits that are on no remote"; return; }
 }
 
+# The tool each clone installs, and the subdirectory its installer sits in -
+# "dir", "tool" and "sub" of COMPONENTS in miscde/components.py, which a test
+# holds this table against. The app's own clone is not here: its uninstall.sh
+# is this script, and step 1 has already removed the program.
+clone_tool() {
+    case "$1" in
+    furios_audio) echo "audioctl" ;;
+    furios_modem_fixes) echo "modemctl" ;;
+    furios_gps) echo "furios-gps-contribute" ;;
+    furios_killswitch) echo "killswitch-indicator" ;;
+    furios_security) echo "secctl" ;;
+    furios_misc) echo "battctl battery" ;;
+    esac
+}
+
+# Is this tool installed? Looked for where the app looks (_tool_maybe in
+# miscde/tools.py): /usr/local/bin, /usr/bin, ~/.local/bin, then $PATH. With
+# DESTDIR the first two are the staged ones and $PATH is not asked - it is
+# this machine's, not the stage's.
+tool_installed() {
+    local name=$1 dir
+    for dir in "${DESTDIR:-}/usr/local/bin" "${DESTDIR:-}/usr/bin" \
+            "$HOME/.local/bin"; do
+        [ -x "$dir/$name" ] && return 0
+    done
+    [ -z "${DESTDIR:-}" ] && type -P "$name" >/dev/null
+}
+
 # Every clone in the app's own directory, each on its own merits, and the
 # directory itself once it is empty. A link is taken out as a link: what it
 # points to is somebody else's.
 remove_clones() {
-    local base=$1 dir why
+    local base=$1 dir why tool sub
     [ -e "$base" ] || return 0
     if [ -L "$base" ]; then
         echo "(kept $base: it is a link, and what it points to is not the app's)"
@@ -64,6 +94,12 @@ remove_clones() {
         [ -e "$dir" ] || [ -L "$dir" ] || continue
         if [ -L "$dir" ]; then
             rm -f "$dir"
+            continue
+        fi
+        read -r tool sub <<<"$(clone_tool "$(basename "$dir")")"
+        if [ -n "$tool" ] && tool_installed "$tool"; then
+            echo "(kept $dir: $tool is still installed - run" \
+                "$dir/${sub:+$sub/}uninstall.sh first, then this again)"
             continue
         fi
         why=$(unsaved_work "$dir")
@@ -232,13 +268,10 @@ echo
 echo "Removed."
 # Said rather than done: somebody who wants these gone should see where they
 # are, and each tool's own uninstaller knows what it changed. Looked for the
-# way install.sh and the app look, ~/.local/bin included.
+# way the app looks, with tool_installed above.
 for tool in audioctl modemctl furios-gps-contribute killswitch-indicator secctl battctl; do
-    for dir in /usr/local/bin /usr/bin "$HOME/.local/bin"; do
-        if [ -x "$dir/$tool" ]; then
-            echo "(still installed: $tool - its own repository has uninstall.sh)"
-            break
-        fi
-    done
+    if tool_installed "$tool"; then
+        echo "(still installed: $tool - its own repository has uninstall.sh)"
+    fi
 done
 exit 0

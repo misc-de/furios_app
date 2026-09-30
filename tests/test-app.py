@@ -1130,8 +1130,10 @@ class TheWindow(unittest.TestCase):
         if KILLSWITCH:
             names += ["sw_row", "sw_wifi", "sw_bt", "sw_modem",
                       "sw_restore_btn"]
-        if BATTCTL:
-            names += ["batt_restore_btn"]
+        # Always, like GPS: the battery handlers ask self.live for battctl,
+        # so the page is tested on a phone without it as well - found on
+        # 30.9.2026, when a clean phone turned 17 of these into errors.
+        names += ["batt_restore_btn"]
         if SECCTL:
             names += ["sec_restore_btn"]
         for name in names:
@@ -1144,19 +1146,28 @@ class TheWindow(unittest.TestCase):
         if KILLSWITCH:
             self.win.sw_rows = [self.win.sw_row, self.win.sw_wifi,
                                 self.win.sw_bt, self.win.sw_restore_btn]
-        if BATTCTL:
-            # The page keeps its controls in two dictionaries, so the
-            # stand-ins go in there rather than on attributes.
-            self.win.batt_switches = {}
-            self.win.batt_scales = {}
-            for key, _head, _title, _sub, sliders in switcher.Window.BATTERY_OPTIONS:
-                row = Recording()
-                row.slider_rows = [Recording(), Recording()]
-                self.win.batt_switches[key] = row
-                for _label, ckey, _lo, _hi, _st, _di, _un in sliders:
-                    self.win.batt_scales[ckey] = Recording()
-            self.win.batt_rows = (list(self.win.batt_switches.values())
-                                  + [self.win.batt_restore_btn])
+        # Assigned, not setdefault: on a phone without battctl the window
+        # has already written None there, and every command would start
+        # with it. Nothing is run - run_async is replaced below.
+        self.win.live["battery"] = BATTCTL or "/nonexistent/battctl"
+        # What the page builder sets up besides its widgets. Without
+        # batt_cfg the stub answers with a Fake, and the slider write
+        # compares against that.
+        self.win.batt_cfg = None
+        self.win._batt_pending = {}
+        self.win._batt_write = 0
+        # The page keeps its controls in two dictionaries, so the
+        # stand-ins go in there rather than on attributes.
+        self.win.batt_switches = {}
+        self.win.batt_scales = {}
+        for key, _head, _title, _sub, sliders in switcher.Window.BATTERY_OPTIONS:
+            row = Recording()
+            row.slider_rows = [Recording(), Recording()]
+            self.win.batt_switches[key] = row
+            for _label, ckey, _lo, _hi, _st, _di, _un in sliders:
+                self.win.batt_scales[ckey] = Recording()
+        self.win.batt_rows = (list(self.win.batt_switches.values())
+                              + [self.win.batt_restore_btn])
         if SECCTL:
             # The three switches live in a dictionary, like the battery
             # page's, so the stand-ins go in there rather than on attributes.
@@ -2308,8 +2319,9 @@ class TheWindow(unittest.TestCase):
                     # one call for the whole security page: status --json
                     # answers the kernel, all three parts and what listens
                     + (1 if SECCTL else 0)
-                    # the battery page asks the same three questions
-                    + (3 if BATTCTL else 0))
+                    # the battery page asks the same three questions -
+                    # always, because setUp gives the window a battctl
+                    + 3)
         self.assertEqual(expected, len(self.ran))
 
     def test_the_tabs_sit_under_the_header_not_at_the_foot(self):
@@ -3093,17 +3105,30 @@ class TheWindow(unittest.TestCase):
     def test_the_restart_replaces_this_process_instead_of_starting_a_second(self):
         """A second instance hands its activation to the one already running -
         it would present the OLD window and then die with it."""
+        installed = os.path.join(tempfile.mkdtemp(prefix="miscde-test-"),
+                                 "misc-de")
+        called = self.restart_with(lambda name: installed
+                                   if name == "misc-de" else None)
+        self.assertEqual([(installed, [installed])], called)
+
+    def test_without_an_installed_program_the_restart_takes_the_running_one(self):
+        """Started from the source tree, with nothing installed: the program
+        that is running is the one to come back as."""
+        called = self.restart_with(lambda name: None)
+        running = os.path.abspath(sys.argv[0])
+        self.assertEqual([(running, [running])], called)
+
+    def restart_with(self, maybe):
+        """restart_self with _tool_maybe answering `maybe`, and execv caught."""
         called = []
-        real = switcher.os.execv
+        real, real_maybe = switcher.os.execv, switcher.tools._tool_maybe
         switcher.os.execv = lambda prog, argv: called.append((prog, argv))
+        switcher.tools._tool_maybe = maybe
         try:
             self.win.restart_self()
         finally:
-            switcher.os.execv = real
-        self.assertEqual(1, len(called))
-        prog, argv = called[0]
-        self.assertTrue(prog.endswith("misc-de"), prog)
-        self.assertEqual([prog], argv)
+            switcher.os.execv, switcher.tools._tool_maybe = real, real_maybe
+        return called
 
     def test_a_step_that_fails_stops_the_chain_and_shows_what_it_said(self):
         comp = self.component()
@@ -3388,14 +3413,24 @@ class TheWindow(unittest.TestCase):
         for comp in switcher.COMPONENTS:
             self.lines_for(comp)
         self.ran.clear()
+        # Every tool installed, and the app too: on a phone with none of
+        # them the check has nothing to ask, and the loop below would pass
+        # on an empty list.
+        fake_bin = tempfile.mkdtemp(prefix="miscde-test-")
         real = switcher.components.is_clone
+        real_maybe = switcher.tools._tool_maybe
         switcher.components.is_clone = lambda path: True
+        switcher.tools._tool_maybe = lambda name: os.path.join(fake_bin, name)
+        self.win.live["app"] = os.path.join(fake_bin, "misc-de")
         try:
             self.win.check_updates()
         finally:
             switcher.components.is_clone = real
+            switcher.tools._tool_maybe = real_maybe
+            shutil_real.rmtree(fake_bin, ignore_errors=True)
         commands = [" ".join(r[0]) for r in self.ran]
-        self.assertTrue(commands)
+        # One fetch per tool, and one for the app itself.
+        self.assertEqual(len(switcher.COMPONENTS) + 1, len(commands), commands)
         for b in commands:
             self.assertIn("fetch", b)
             self.assertIn(switcher.CLONE_HOME, b)

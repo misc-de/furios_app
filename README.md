@@ -44,7 +44,9 @@ runs what is checked out rather than what is installed.
 `./uninstall.sh` takes those three away again, together with everything the
 window wrote (its language, the Phosh tab's switches, the keyring prompter
 shim) and its own clones in `~/.local/share/misc-de/` - a clone with
-uncommitted or unpushed work in it is named and kept. Afterwards a new
+uncommitted or unpushed work in it is named and kept, and so is one whose
+tool is still installed, since its `uninstall.sh` is the only copy on the
+phone: run that first, then `./uninstall.sh` again. Afterwards a new
 install behaves as on a new phone. It leaves the tools behind the tabs where
 they are and says so: each tool was its own decision and has its own
 uninstaller, and two of them hold this phone's sound and its data connection.

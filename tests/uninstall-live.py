@@ -227,6 +227,40 @@ def extract_clone_rule():
     return text[start:end]
 
 
+def clone_table():
+    """clone_tool from uninstall.sh as {dir: tool}, asked of bash itself."""
+    script = extract_clone_rule() + textwrap.dedent("""
+        for d in "$@"; do
+            read -r tool sub <<<"$(clone_tool "$d")"
+            if [ -n "$tool" ]; then echo "$d $tool ${sub:-}"; fi
+        done
+        """)
+    out = subprocess.run(["bash", "-c", script, "-"] + list(COMPONENT_DIRS),
+                         capture_output=True, text=True, check=True).stdout
+    return {line.split()[0]: tuple(line.split()[1:]) for line in out.splitlines()}
+
+
+def component_table():
+    """{dir: (tool, sub)} from miscde/components.py, read without GTK."""
+    tree_ = ast.parse((ROOT / "miscde" / "components.py").read_text())
+    for node in tree_.body:
+        if (isinstance(node, ast.Assign)
+                and any(getattr(t, "id", None) == "COMPONENTS" for t in node.targets)):
+            table = {}
+            for entry in node.value.elts:
+                fields = {k.value: v for k, v in zip(entry.keys, entry.values)
+                          if isinstance(k, ast.Constant)}
+                sub = fields.get("sub")
+                table[fields["dir"].value] = (
+                    (fields["tool"].value,) + ((sub.value,) if sub else ()))
+            return table
+    raise AssertionError("no COMPONENTS in miscde/components.py")
+
+
+COMPONENT_TOOLS = component_table()
+COMPONENT_DIRS = sorted(COMPONENT_TOOLS) + ["furios_app", "somebody_else"]
+
+
 class ThereIsNoUnseenWriter(unittest.TestCase):
     """Walks miscde/ for every call that writes, and holds the list of
     functions making them against KNOWN_WRITERS."""
@@ -347,14 +381,27 @@ class LeavesThePhoneAsItShipped(unittest.TestCase):
 
 
 class TheCloneRule(unittest.TestCase):
-    """remove_clones from uninstall.sh, run as bash runs it, on temp dirs."""
+    """remove_clones from uninstall.sh, run as bash runs it, on temp dirs.
+
+    With a staged root of its own: whether a tool is still installed is
+    asked of DESTDIR, so what this phone has installed decides nothing."""
 
     def setUp(self):
         self.work = Path(tempfile.mkdtemp(prefix="miscde-clones-"))
         self.addCleanup(shutil.rmtree, self.work, True)
         self.base = self.work / "misc-de"
         self.remote = self.work / "remote.git"
-        self.env = dict(os.environ, HOME=str(self.work), GIT_CONFIG_NOSYSTEM="1")
+        self.root = self.work / "root"
+        self.env = dict(os.environ, HOME=str(self.work), DESTDIR=str(self.root),
+                        GIT_CONFIG_NOSYSTEM="1")
+
+    def installed(self, where, name):
+        """A tool in one of the places the app looks, as an executable."""
+        path = Path(where) / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("#!/bin/sh\n")
+        path.chmod(0o755)
+        return path
 
     def clone(self, name):
         path = self.base / name
@@ -431,6 +478,66 @@ class TheCloneRule(unittest.TestCase):
         self.remove()
         self.assertTrue((own / "README").exists())
         self.assertFalse(self.base.exists())
+
+    def test_a_clone_whose_tool_is_installed_keeps_it(self):
+        """Its uninstall.sh is the only one on the phone - found on
+        30.9.2026, the day the clones started to go with the app."""
+        for where in ("usr/local/bin", "usr/bin"):
+            with self.subTest(where=where):
+                tool = self.installed(self.root / where, "audioctl")
+                path = self.clone("furios_audio")
+                said = self.remove()
+                self.assertTrue(path.exists(), "the tool's uninstaller went")
+                self.assertIn("audioctl is still installed", said)
+                self.assertIn(str(path / "uninstall.sh"), said)
+                # Once the tool is out, the next run takes the clone.
+                tool.unlink()
+                self.remove()
+                self.assertFalse(self.base.exists())
+
+    def test_a_tool_in_the_home_keeps_it_too(self):
+        self.installed(self.work / ".local" / "bin", "killswitch-indicator")
+        path = self.clone("furios_killswitch")
+        self.remove()
+        self.assertTrue(path.exists())
+
+    def test_the_hint_names_the_installer_where_it_sits(self):
+        """furios_misc collects several things; battctl's uninstaller is in
+        battery/, not at the root of the clone."""
+        self.installed(self.root / "usr/local/bin", "battctl")
+        path = self.clone("furios_misc")
+        said = self.remove()
+        self.assertTrue(path.exists())
+        self.assertIn(str(path / "battery" / "uninstall.sh"), said)
+
+    def test_only_its_own_tool_keeps_a_clone(self):
+        self.installed(self.root / "usr/local/bin", "modemctl")
+        self.clone("furios_audio")
+        kept = self.clone("furios_modem_fixes")
+        self.remove()
+        self.assertEqual([kept.name], sorted(os.listdir(self.base)))
+
+    def test_without_a_stage_path_is_asked_as_well(self):
+        """_tool_maybe's last resort. Without DESTDIR the real /usr/local/bin
+        and /usr/bin are asked too, so this needs a tool the phone lacks."""
+        missing = [(d, t[0]) for d, t in sorted(clone_table().items())
+                   if not any(os.access(os.path.join(b, t[0]), os.X_OK)
+                              for b in ("/usr/local/bin", "/usr/bin"))]
+        if not missing:
+            self.skipTest("every tool is installed here, so a hit on $PATH "
+                          "could not be told from one in /usr")
+        dirname, name = missing[0]
+        own_bin = self.work / "elsewhere"
+        self.installed(own_bin, name)
+        self.env.pop("DESTDIR")
+        self.env["PATH"] = str(own_bin) + ":" + os.environ.get("PATH", "")
+        path = self.clone(dirname)
+        self.remove()
+        self.assertTrue(path.exists(), "a tool on $PATH was not seen")
+
+    def test_the_table_is_the_components_list(self):
+        """clone_tool in uninstall.sh, against what the app installs."""
+        self.assertEqual(COMPONENT_TOOLS, clone_table())
 
     def test_a_linked_clone_directory_is_not_entered(self):
         own = self.work / "Projekte"
