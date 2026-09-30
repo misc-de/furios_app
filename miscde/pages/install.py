@@ -304,7 +304,7 @@ class InstallPage:
         # nobody decides on - the answer is the same "take what is waiting".
         lines = ["• %s" % u["comp"]["tool"] for u in waiting]
         root = any(u["comp"]["root"] for u in waiting)
-        body = "\n".join(lines) + "\n\n" + _("The app restarts when they are in.")
+        body = "\n".join(lines)        # the button says it restarts
 
         dlg = Adw.AlertDialog(
             heading=(_("1 update") if len(waiting) == 1

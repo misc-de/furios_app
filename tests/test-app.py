@@ -2965,7 +2965,7 @@ class TheWindow(unittest.TestCase):
         self.assertNotIn("sudo", body)
         self.assertNotIn("your own clones", body)
         self.assertNotIn("http", body, "the list names repositories by URL")
-        self.assertIn("restarts", body)
+        self.assertNotIn("restarts", body, "the button already says so")
         answers = [str(c[1][1]) for c in recorder.calls
                      if c[0].endswith("add_response()") and c[1]]
         self.assertIn("Update and restart", answers)

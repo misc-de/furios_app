@@ -419,7 +419,6 @@ TRANSLATIONS = {
     "the misc-de in this clone is not the program that is running":
         "das misc-de in diesem Klon ist nicht das laufende Programm",
     "something new on the server": "etwas Neues auf dem Server",
-    "The app restarts when they are in.": "Die App startet neu, wenn sie drin sind.",
     "Update and restart": "Aktualisieren und neu starten",
     "Could not install the updates": "Die Updates konnten nicht installiert werden",
     "working …": "arbeitet …",
