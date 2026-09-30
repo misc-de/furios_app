@@ -5180,6 +5180,75 @@ class SwitchesPutBackWhatWasThere(unittest.TestCase):
         self.other.set_dock_enabled(False, s)
         self.assertIsNone(s.user)
 
+    # --- batman's BTSAVE ---
+
+    def batman(self, text):
+        path = self.path("batman", "config")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        Path(path).write_text(text)
+        self.enterContext(mock.patch.object(self.audio, "BATMAN_CONFIG", path))
+        return path
+
+    def test_btsave_is_recorded_before_the_first_change(self):
+        path = self.batman("[Settings]\nBTSAVE=false\n")
+        record = self.audio.remember_btsave()
+        self.assertEqual(["BTSAVE=false"], record["lines"])
+        self.assertEqual("batman.service", record["unit"])
+        Path(path).write_text("[Settings]\nBTSAVE=true\n")
+        self.assertEqual(["BTSAVE=false"], self.audio.remember_btsave()["lines"])
+
+    def test_a_copy_taken_by_hand_is_the_better_original(self):
+        path = self.batman("[Settings]\nBTSAVE=false\n")
+        Path(path + ".bak-20260916-082123").write_text("[Settings]\nBTSAVE=true\n")
+        record = self.audio.remember_btsave()
+        self.assertEqual(["BTSAVE=true"], record["lines"])
+        self.assertTrue(record["source"].endswith(".bak-20260916-082123"))
+
+    def test_going_back_to_the_original_puts_its_lines_back(self):
+        """Somebody's own "BTSAVE=TRUE": switching off and on again used
+        to leave "BTSAVE=true" - the same meaning, not the same file."""
+        path = self.batman("[Settings]\nBTSAVE=TRUE\nWIFI=true\n")
+        record = self.audio.remember_btsave()
+        self.assertFalse(self.audio.btsave_back_to_original(record, False))
+        Path(path).write_text("[Settings]\nBTSAVE=false\nWIFI=true\n")
+        original.wrote_lines(self.audio.BATMAN_CONFIG, "BTSAVE", ["BTSAVE=false"])
+        record = original.load(original.lines_ident(path, "BTSAVE"))
+        self.assertTrue(self.audio.btsave_back_to_original(record, True))
+        argv = self.audio.btsave_restore_argv(record["lines"])
+        self.assertEqual(argv[:2], ["sudo", "-n"])
+        # The script itself, against the scratch file, with no unit.
+        subprocess_real.run(argv[2:-1] + [""], check=True)
+        self.assertEqual("[Settings]\nBTSAVE=TRUE\nWIFI=true\n",
+                         Path(path).read_text())
+
+    def test_the_window_records_and_then_forgets(self):
+        path = self.batman("[Settings]\nBTSAVE=true\n")
+        win = switcher.Window(switcher.Adw.Application())
+        ran = []
+        self.enterContext(mock.patch.object(
+            switcher.process, "run_async",
+            lambda argv, done, **kw: ran.append((argv, done))))
+        win.apply_btsave(False)
+        self.assertEqual(ran[0][0], switcher.btsave_argv(False))
+        Path(path).write_text("[Settings]\nBTSAVE=false\n")
+        ran[0][1](True, "")
+        record = original.load(original.lines_ident(path, "BTSAVE"))
+        self.assertEqual(["BTSAVE=true"], record["lines"])
+        self.assertEqual(["BTSAVE=false"], record["written"])
+        win.busy = False
+        win.apply_btsave(True)
+        self.assertEqual(ran[1][0], self.audio.btsave_restore_argv(["BTSAVE=true"]))
+        Path(path).write_text("[Settings]\nBTSAVE=true\n")
+        ran[1][1](True, "")
+        self.assertIsNone(original.load(original.lines_ident(path, "BTSAVE")))
+
+    def test_a_key_that_was_not_there_is_taken_out_again(self):
+        path = self.path("config")
+        Path(path).write_text("A=1\nBTSAVE=false\nB=2\n")
+        subprocess_real.run(["sh", "-c", original.RESTORE_LINES_SCRIPT, "sh",
+                             path, "BTSAVE", "", ""], check=True)
+        self.assertEqual("A=1\nB=2\n", Path(path).read_text())
+
 
 class TheLauncherIcon(unittest.TestCase):
     """The icon file, as GdkPixbuf sees it.

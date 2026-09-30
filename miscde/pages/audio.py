@@ -8,7 +8,9 @@ here is everything that happens after somebody touches it."""
 
 from gi.repository import Adw, Gtk
 
-from .. import askpass, components, process, tools
+import glob
+
+from .. import askpass, components, original, process, tools
 from ..tools import DMNR
 from ..words import profile_in_words, server_in_words
 from ..i18n import _
@@ -151,6 +153,62 @@ def btsave_argv(wanted, secret=None):
              else ["sudo", "-n"])
     return front + ["sh", "-c", BTSAVE_SCRIPT, "sh",
                     BATMAN_CONFIG, BATMAN_UNIT, value]
+
+
+def btsave_restore_argv(lines, secret=None):
+    """The command that puts batman's BTSAVE lines back as they were before
+    this switch first changed them - the recorded lines, byte for byte, or
+    none at all where the file had none. The same sudo as btsave_argv."""
+    front = (["sudo", "-S", "-p", ""] if secret is not None
+             else ["sudo", "-n"])
+    return front + ["sh", "-c", original.RESTORE_LINES_SCRIPT, "sh",
+                    BATMAN_CONFIG, "BTSAVE", "\n".join(lines), BATMAN_UNIT]
+
+
+def _read_config(path):
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return handle.read()
+    except OSError:
+        return None
+
+
+def remember_btsave():
+    """Write down batman's BTSAVE lines before this switch changes them for
+    the first time (miscde/original.py), so that uninstall.sh puts back what
+    was there instead of what FuriOS probably ships.
+
+    A copy of the config taken by hand before this switch existed
+    (config.bak-YYYYMMDD-HHMMSS, the oldest one) is a better original than
+    the file itself, which that hand may already have changed - so where
+    there is one, the lines come from it, and the record says so."""
+    ident = original.lines_ident(BATMAN_CONFIG, "BTSAVE")
+    if original.load(ident) is not None:
+        return original.load(ident)
+    text = _read_config(BATMAN_CONFIG)
+    if text is None:
+        return None
+    source = None
+    for bak in sorted(glob.glob(BATMAN_CONFIG + ".bak-[0-9]*-[0-9]*")):
+        copied = _read_config(bak)
+        if copied is not None:
+            text, source = copied, bak
+            break
+    original.remember_lines(BATMAN_CONFIG, "BTSAVE", text, source,
+                            BATMAN_UNIT)
+    return original.load(ident)
+
+
+def btsave_back_to_original(record, wanted):
+    """Whether switching to wanted is switching back to the recorded
+    original while the file still holds what we wrote - then the original
+    lines go back exactly, rather than a line of ours that merely means
+    the same."""
+    if record is None or not record.get("lines"):
+        return False
+    if btsave_in_config("\n".join(record["lines"])) != wanted:
+        return False
+    return original.lines_back(record, _read_config(BATMAN_CONFIG)) == "restore"
 
 
 def needs_a_password(out):
@@ -612,14 +670,23 @@ class AudioPage:
         self.apply_btsave(row.get_active())
 
     def apply_btsave(self, wanted, secret=None):
+        # The original first, before anything is written (the owner's rule,
+        # 30.9.2026) - and back to it exactly when that is where this goes.
+        try:
+            record = remember_btsave()
+        except OSError:
+            record = None
+        back = btsave_back_to_original(record, wanted)
+        argv = (btsave_restore_argv(record["lines"], secret) if back
+                else btsave_argv(wanted, secret))
         self.set_busy(True)
         self.pulse_start(_("Changing Bluetooth powersave …"))
         process.run_async(
-            btsave_argv(wanted, secret),
-            lambda ok, out: self.on_btsave_done(ok, out, wanted),
+            argv,
+            lambda ok, out: self.on_btsave_done(ok, out, wanted, back),
             stdin=None if secret is None else (secret + "\n"))
 
-    def on_btsave_done(self, ok, out, wanted):
+    def on_btsave_done(self, ok, out, wanted, restored=False):
         self.pulse_stop()
         self.set_busy(False)
         # A password being wanted is not a failure - it is the one answer
@@ -627,6 +694,19 @@ class AudioPage:
         if not ok and needs_a_password(out):
             self.ask_btsave_password(wanted)
             return
+        if ok:
+            # What we left in the file is what "still ours" is measured
+            # against later; back at the original, the record has done its
+            # job. Read from the file, not assumed from the command.
+            ident = original.lines_ident(BATMAN_CONFIG, "BTSAVE")
+            try:
+                if restored:
+                    original.forget(ident)
+                else:
+                    original.wrote_lines(BATMAN_CONFIG, "BTSAVE", original.key_lines(
+                        _read_config(BATMAN_CONFIG), "BTSAVE"))
+            except OSError:
+                pass
         if not ok:
             self.toast(_("Could not change Bluetooth powersave"))
             self.report(out or _("No output."))
