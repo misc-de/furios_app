@@ -185,6 +185,7 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
             title=_("Remember these choices"),
             subtitle=self.PERSIST_WORDS,
         )
+        self.persist_row.connect("notify::active", self.on_persist_toggled)
         grp.add(self.persist_row)
 
         # Progress: deliberately pulsing instead of a percentage. Nobody

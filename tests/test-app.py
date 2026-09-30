@@ -1264,6 +1264,36 @@ class TheWindow(unittest.TestCase):
         # The owner's description (29.9.), and nothing added: it holds.
         self.assertEqual(self.win.PERSIST_WORDS, self.win.persist_row.subtitle)
 
+    SHIPPED = ("Profile (active):   standard\n"
+               "Profile (persistent): standard\n"
+               "Pulse server:       pulseaudio\n"
+               "Sinks:              sink.primary_output\n")
+
+    def test_the_shipped_stack_has_nothing_remembered_yet(self):
+        """A new phone showed the switch on before anybody chose anything
+        (30.9.2026). Off, and the next switch is a trial until reboot."""
+        self.win._persist_wish = False
+        self.win.on_status(True, self.SHIPPED)
+        self.assertFalse(self.win.persist_row.active)
+
+    def test_switching_it_on_by_hand_survives_the_next_refresh(self):
+        self.win._syncing = False
+        row = Recording()
+        row.active = True
+        row.get_active = lambda: True
+        self.win.on_persist_toggled(row, None)
+        self.win.on_status(True, self.SHIPPED)
+        self.assertTrue(self.win.persist_row.active)
+
+    def test_what_on_status_sets_is_not_taken_for_a_wish(self):
+        self.win._persist_wish = False
+        self.win.on_status(True, self.PERMANENT)      # sets it on, as a report
+        self.win._syncing = True
+        self.win.on_persist_toggled(self.win.persist_row, None)
+        self.win._syncing = False
+        self.win.on_status(True, self.SHIPPED)
+        self.assertFalse(self.win.persist_row.active)
+
     def test_a_profile_that_only_holds_until_the_reboot_says_what_returns(self):
         self.win.on_status(True, self.STATUS)
         self.assertFalse(self.win.persist_row.active)
@@ -3490,6 +3520,9 @@ class TheWindow(unittest.TestCase):
     def test_our_own_clone_is_the_one_that_gets_fetched(self):
         """Where we cloned ourselves, a fetch is ours to run - and counting
         commits is more precise than comparing two hashes."""
+        # About the tabs' tools: whether this phone has the folder dock
+        # installed must not change the count.
+        self.enterContext(mock.patch.dict(switcher.PHOSH, {"find": lambda: None}))
         self.win.comp_rows = {}
         for comp in switcher.COMPONENTS:
             self.lines_for(comp)
@@ -3517,6 +3550,9 @@ class TheWindow(unittest.TestCase):
             self.assertIn(switcher.CLONE_HOME, b)
 
     def test_the_check_runs_once_for_every_installed_tool(self):
+        # About the tabs' tools: whether this phone has the folder dock
+        # installed must not change the count.
+        self.enterContext(mock.patch.dict(switcher.PHOSH, {"find": lambda: None}))
         self.win.comp_rows = {}
         for comp in switcher.COMPONENTS:
             self.lines_for(comp)

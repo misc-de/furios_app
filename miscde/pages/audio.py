@@ -319,7 +319,16 @@ class AudioPage:
         # This one is both a report and a choice: it says whether what is
         # running now is what the phone comes back to, and it decides between
         # "set" and "try" for the next switch.
-        self.persist_row.set_active(sticks)
+        #
+        # Except on the shipped stack with nothing else remembered: there is
+        # no choice there to remember yet, and "on" read as if one had been
+        # made - on a new phone, before anybody touched anything. Off until
+        # somebody switches it on (asked for 30.9.2026, in line with "after
+        # an installation everything is off"); that wish is kept across the
+        # refreshes that arrive before the next switch reads it.
+        shipped = profile == "standard" and persistent == "standard"
+        self.persist_row.set_active(
+            bool(getattr(self, "_persist_wish", False)) if shipped else sticks)
         self._syncing = False
         if sticks or persistent == "unknown":
             self.persist_row.set_subtitle(self.PERSIST_WORDS)
@@ -336,6 +345,11 @@ class AudioPage:
         # switch left the window grey for good. Whoever set busy releases it.
         self.set_busy(self.busy)
 
+
+    def on_persist_toggled(self, row, _param):
+        """Only somebody's own tap: what on_status sets is a report."""
+        if not self._syncing:
+            self._persist_wish = row.get_active()
 
     def on_switch(self, row, _param):
         if self._syncing or self.busy:
