@@ -458,8 +458,8 @@ class OtherPage:
         grp = Adw.PreferencesGroup(title=_("Apps"))
         self.portals_row = Adw.SwitchRow(
             title=_("Apps open right after boot"),
-            subtitle=_("Instead of a minute's wait for a screen-capture "
-                       "service that cannot start here · after the next login"))
+            subtitle=_("Otherwise apps wait up to a minute for the "
+                       "light/dark theme · after the next restart"))
         self._loading = True
         self.portals_row.set_active(portals_fixed())
         self._loading = False

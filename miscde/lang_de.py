@@ -390,8 +390,8 @@ TRANSLATIONS = {
         "Nur Symbole, wie bei den Favoriten · Ordner behalten ihre",
     "Apps": "Apps",
     "Apps open right after boot": "Apps öffnen gleich nach dem Start",
-    "Instead of a minute's wait for a screen-capture service that cannot start here · after the next login":
-        "Statt einer Minute Wartezeit auf einen Bildschirmaufnahme-Dienst, der hier nicht starten kann · nach der nächsten Anmeldung",
+    "Otherwise apps wait up to a minute for the light/dark theme · after the next restart":
+        "Sonst warten Apps bis zu einer Minute auf das Hell-/Dunkel-Design · nach dem nächsten Neustart",
     "Unlock": "Entsperren",
     "Keyring prompt in phosh style": "Schlüsselbund-Abfrage im phosh-Stil",
     "Instead of the light window after a restart":
