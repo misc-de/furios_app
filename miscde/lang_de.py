@@ -373,6 +373,7 @@ TRANSLATIONS = {
     # --- the Phosh tab -----------------------------------------------------
     "Takes effect after the next login": "Gilt nach der nächsten Anmeldung",
     "Home screen": "Startbildschirm",
+    "Folder dock": "Ordner-Dock",
     "Hide the search field": "Suchfeld ausblenden",
     "In the app overview · after the next login":
         "In der App-Übersicht · nach der nächsten Anmeldung",

@@ -389,7 +389,11 @@ class OtherPage:
         self._loading = False
         self.search_row.connect("notify::active", self.on_search_hidden)
         grp.add(self.search_row)
+        page.add(grp)
 
+        # Everything the folder-dock plugin does, in a box of its own: these
+        # rows live or die with the plugin, the search field above does not.
+        grp = Adw.PreferencesGroup(title=_("Folder dock"))
         # Off and closed without the plugin: a switch that only writes a
         # name phosh cannot find would look like it did something.
         self.dock_settings = plugin_settings()
