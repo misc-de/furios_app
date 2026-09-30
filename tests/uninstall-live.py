@@ -124,7 +124,7 @@ class Stage:
             # stage: a system path the stage does not reach fails the test
             # instead of changing this phone.
             case "$1" in
-            install|rm|rmdir|cp|find|chmod|mkdir|sed|gtk-update-icon-cache|update-desktop-database) ;;
+            install|rm|rmdir|cp|find|chmod|mkdir|sed|tee|sh|gtk-update-icon-cache|update-desktop-database) ;;
             *) echo "sudo $1 is not stood in for: $*" >> {w}/refused; exit 97 ;;
             esac
             for a in "$@"; do
@@ -403,6 +403,226 @@ class LeavesThePhoneAsItShipped(unittest.TestCase):
         self.assertTrue(other.exists())
         self.assertTrue((other.parents[2] / "icon-theme.cache").exists(),
                         "the cache went although another icon needs it")
+
+
+def run_app_code(stage, body):
+    """Python run as the window runs it, in the stage's home - with the
+    stand-in for PyGObject, so the real switch functions do the writing."""
+    code = textwrap.dedent("""\
+        import sys
+        sys.path[:0] = [sys.argv[1] + "/tests", sys.argv[1]]
+        import gi_stub
+        gi_stub.install()
+        from miscde import original
+        from miscde.pages import other
+        """) + textwrap.dedent(body)
+    subprocess.run([sys.executable, "-c", code, str(ROOT)], env=stage.env(),
+                   check=True)
+
+
+class PutsBackWhatWasThere(unittest.TestCase):
+    """The owner's rule (30.9.2026): before the first change the original is
+    written down, and uninstall.sh puts exactly that back - checked from the
+    outside, as a snapshot before and a comparison after, for the cases a
+    guess gets wrong: something that was there, something set to a value
+    that is not the default, something changed by somebody after us."""
+
+    def setUp(self):
+        self.s = Stage()
+        self.addCleanup(self.s.close)
+        s = self.s
+        (s.home / ".config").mkdir(parents=True)
+        (s.home / ".local" / "share").mkdir(parents=True)
+        (s.root / "var/lib/batman").mkdir(parents=True)
+        (s.root / "var/lib/batman/config").write_text(BATMAN_SHIPPED)
+
+    def install(self):
+        out = self.s.run(ROOT / "install.sh")
+        if "libadwaita bindings missing" in out.stdout:
+            self.skipTest("install.sh needs python3-gi and gir1.2-adw-1")
+        self.assertEqual(0, out.returncode, out.stdout + out.stderr)
+        return out.stdout
+
+    def uninstall(self):
+        out = self.s.run(SCRIPT)
+        self.assertEqual(0, out.returncode, out.stdout + out.stderr)
+        self.assertEqual("", self.s.refused.read_text()
+                         if self.s.refused.exists() else "")
+        return out.stdout
+
+    def snapshot(self):
+        """Every path with its content and mode, in the stage and the home."""
+        found = {}
+        for base in (self.s.root, self.s.home, self.s.gs):
+            for p in sorted(Path(base).rglob("*")):
+                key = str(p)
+                if p.is_file():
+                    found[key] = (p.read_bytes(), p.stat().st_mode & 0o7777)
+                else:
+                    found[key] = ("dir", p.stat().st_mode & 0o7777)
+        return found
+
+    def test_somebodys_own_files_come_back_byte_for_byte(self):
+        """A gtk.css without a final newline, a dock config with a comment
+        and a key of its own, a prompter service file of somebody else's
+        with its own mode, an empty xdg-desktop-portal directory, a dconf
+        list set to exactly the default - each is what a guess got wrong."""
+        s = self.s
+        cfg = s.home / ".config"
+        (cfg / "gtk-3.0").mkdir()
+        (cfg / "gtk-3.0" / "gtk.css").write_text("window { color: red; }")
+        (cfg / "furios-folder-dock.conf").write_text(
+            "# mine\n[dock]\none-row=false\nspeed=3\n")
+        services = s.home / ".local/share/dbus-1/services"
+        services.mkdir(parents=True)
+        own = services / "org.gnome.keyring.SystemPrompter.service"
+        own.write_text("[D-BUS Service]\nName=x\nExec=/opt/mine\n")
+        own.chmod(0o600)
+        (cfg / "xdg-desktop-portal").mkdir()
+        # Set in dconf, not merely the default: it has to stay set.
+        s.icons.write_text("['wifi-hotspot']\n")
+        before = self.snapshot()
+        self.install()
+        run_app_code(s, """\
+            other.set_search_hidden(True)
+            other.set_dock_setting(other.ONE_ROW, True)
+            other.set_dock_setting(other.HIDE_LABELS, True)
+            other.set_prompter_fixed(True)
+            other.set_portals_fixed(True)
+            original.remember_setting(other.PLUGINS_SCHEMA, other.PLUGINS_KEY,
+                                      ["wifi-hotspot"], ["wifi-hotspot"])
+            """)
+        s.icons.write_text("['wifi-hotspot', 'furios-folder-dock']\n")
+        self.uninstall()
+        self.assertEqual(before, self.snapshot())
+
+    def test_what_was_not_there_goes_and_a_default_is_reset(self):
+        s = self.s
+        s.icons.unlink(missing_ok=True)
+        before = self.snapshot()
+        self.install()
+        run_app_code(s, """\
+            other.set_search_hidden(True)
+            other.set_dock_setting(other.ONE_ROW, True)
+            other.set_prompter_fixed(True)
+            other.set_portals_fixed(True)
+            original.remember_setting(other.PLUGINS_SCHEMA, other.PLUGINS_KEY,
+                                      None, [])
+            """)
+        s.icons.write_text("['furios-folder-dock']\n")
+        self.uninstall()
+        self.assertEqual(before, self.snapshot())
+
+    def test_changed_after_us_is_left_alone_and_said(self):
+        s = self.s
+        self.install()
+        run_app_code(s, """\
+            other.set_portals_fixed(True)
+            other.set_dock_setting(other.ONE_ROW, True)
+            """)
+        portals = s.home / ".config/xdg-desktop-portal/phosh-portals.conf"
+        portals.write_text(portals.read_text() + "# and mine\n")
+        dock = s.home / ".config/furios-folder-dock.conf"
+        dock.write_text(dock.read_text() + "speed=3\n")
+        said = self.uninstall()
+        self.assertTrue(portals.read_text().endswith("# and mine\n"))
+        self.assertIn("kept %s: changed since misc-de wrote it" % portals, said)
+        self.assertEqual("[dock]\none-row=true\nspeed=3\n", dock.read_text())
+        self.assertIn("kept %s" % dock, said)
+
+    def test_btsave_goes_back_to_what_it_was_not_to_what_ships(self):
+        """The case the owner named: somebody had BTSAVE=false before the
+        switch was ever touched. The old uninstall set it to true."""
+        s = self.s
+        batman = s.root / "var/lib/batman/config"
+        mine = BATMAN_SHIPPED.replace("BTSAVE=true", "BTSAVE=false")
+        batman.write_text(mine)
+        self.install()
+        run_app_code(s, """\
+            import sys
+            text = open(%r).read()
+            original.remember_lines("/var/lib/batman/config", "BTSAVE", text,
+                                    unit="batman.service")
+            open(%r, "w").write(text.replace("BTSAVE=false", "BTSAVE=true"))
+            original.wrote_lines("/var/lib/batman/config", "BTSAVE",
+                                 ["BTSAVE=true"])
+            """ % (str(batman), str(batman)))
+        self.uninstall()
+        self.assertEqual(mine, batman.read_text())
+
+    def test_btsave_changed_after_us_stays(self):
+        s = self.s
+        batman = s.root / "var/lib/batman/config"
+        self.install()
+        run_app_code(s, """\
+            text = open(%r).read()
+            original.remember_lines("/var/lib/batman/config", "BTSAVE", text)
+            original.wrote_lines("/var/lib/batman/config", "BTSAVE",
+                                 ["BTSAVE=false"])
+            """ % str(batman))
+        batman.write_text(BATMAN_SHIPPED.replace("BTSAVE=true", "BTSAVE=maybe"))
+        said = self.uninstall()
+        self.assertIn("BTSAVE=maybe", batman.read_text())
+        self.assertIn("changed since misc-de wrote it", said)
+
+    def test_a_btsave_key_that_was_not_there_goes_again(self):
+        s = self.s
+        batman = s.root / "var/lib/batman/config"
+        without = BATMAN_SHIPPED.replace("BTSAVE=true\n", "")
+        batman.write_text(without)
+        self.install()
+        run_app_code(s, """\
+            text = open(%r).read()
+            original.remember_lines("/var/lib/batman/config", "BTSAVE", text)
+            open(%r, "a").write("BTSAVE=false\\n")
+            original.wrote_lines("/var/lib/batman/config", "BTSAVE",
+                                 ["BTSAVE=false"])
+            """ % (str(batman), str(batman)))
+        self.uninstall()
+        self.assertEqual(without, batman.read_text())
+
+    def test_directories_that_were_there_stay_even_empty(self):
+        """install.sh writes down which shared directories under /usr/local
+        existed. The old uninstall deleted every empty one it found."""
+        s = self.s
+        (s.root / "usr/local/share/icons/hicolor").mkdir(parents=True)
+        (s.root / "usr/local/share/applications").mkdir(parents=True)
+        before = tree(s.root)
+        self.install()
+        self.uninstall()
+        self.assertEqual(before, tree(s.root))
+
+    def test_a_reinstall_keeps_the_first_original(self):
+        s = self.s
+        state = s.root / "usr/local/lib/misc-de/original-state"
+        self.install()
+        first = state.read_text()
+        self.assertIn("absent share/icons\n", first)
+        self.install()
+        self.assertEqual(first, state.read_text())
+
+    def test_an_older_install_without_a_record_is_said(self):
+        s = self.s
+        # An older version: its program there, and no record beside it.
+        (s.root / "usr/local/bin/misc-de").write_text("old\n")
+        (s.root / "usr/local/share/applications").mkdir(parents=True)
+        said = self.install()
+        self.assertIn("older version", said)
+        self.assertFalse((s.root / "usr/local/lib/misc-de/original-state").exists())
+        said = self.uninstall()
+        self.assertIn("no record of /usr/local", said)
+
+    def test_a_dock_config_without_a_record_is_only_removed_in_our_form(self):
+        s = self.s
+        dock = s.home / ".config/furios-folder-dock.conf"
+        dock.write_text("[dock]\nspeed=3\n")
+        said = self.uninstall()
+        self.assertEqual("[dock]\nspeed=3\n", dock.read_text())
+        self.assertIn("kept %s" % dock, said)
+        dock.write_text("[dock]\none-row=true\n")
+        said = self.uninstall()
+        self.assertFalse(dock.exists())
+        self.assertIn("no record", said)
 
 
 class TheCloneRule(unittest.TestCase):

@@ -9,6 +9,13 @@
 # keyring prompter shim, batman's Bluetooth powersave - and its own clones
 # in ~/.local/share/misc-de.
 #
+# Put back, not guessed: install.sh and every switch wrote down what was
+# there before their first change (/usr/local/lib/misc-de/original-state,
+# ~/.config/misc-de/original/ - see miscde/original.py), and this restores
+# exactly that, while it is still as the app left it. Only where an older
+# version left no record does it fall back to the app's markers, and it
+# says so.
+#
 # What it deliberately does NOT remove: the tools behind the tabs. Each has
 # its own uninstaller, each was a separate decision to install, and audio and
 # modem hold the phone's sound and its data connection - taking those out
@@ -34,6 +41,7 @@ if [ "$(id -u)" = 0 ]; then
 fi
 
 PREFIX="${DESTDIR:-}/usr/local"
+HERE=$(cd "$(dirname "$0")" && pwd)
 CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}"
 DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
 CLONES="$DATA/misc-de"
@@ -121,6 +129,15 @@ remove_clones() {
 }
 # --- end clone rule ---
 
+# What /usr/local looked like before install.sh first ran: which of the
+# shared directories and caches were there. Read now, because step 1 takes
+# the directory it lives in away.
+ORIGINAL=$(cat "$PREFIX/lib/misc-de/original-state" 2>/dev/null) || ORIGINAL=""
+# "present" or "absent" for a path under $PREFIX, nothing when not recorded.
+was() {
+    awk -v p="$1" '$2 == p { print $1 }' <<<"$ORIGINAL"
+}
+
 echo "1) program"
 # furios-audio-switch is what the app was called until 13.9.2026.
 sudo rm -f "$PREFIX/bin/misc-de" "$PREFIX/bin/furios-audio-switch"
@@ -135,41 +152,85 @@ sudo rm -f "$PREFIX/share/applications/de.misc-de.tools.desktop" \
     "$PREFIX/share/applications/de.furios.audioswitch.desktop"
 
 # So the app grid drops the entry right away instead of at the next login.
-# The two caches are the installer's too: FuriOS ships neither directory, so
-# where nothing but the cache is left, cache and directories go; where
-# somebody else's icon or entry is there as well, the cache is rebuilt.
-if find "$PREFIX/share/icons" -type f ! -name icon-theme.cache 2>/dev/null | grep -q .; then
-    sudo gtk-update-icon-cache -qtf "$PREFIX/share/icons/hicolor" 2>/dev/null || true
-elif [ -d "$PREFIX/share/icons" ]; then
-    sudo rm -f "$PREFIX/share/icons/hicolor/icon-theme.cache"
-    sudo find "$PREFIX/share/icons" -depth -type d -empty -delete
-fi
-if find "$PREFIX/share/applications" -type f ! -name mimeinfo.cache 2>/dev/null | grep -q .; then
-    sudo update-desktop-database -q "$PREFIX/share/applications" 2>/dev/null || true
-elif [ -d "$PREFIX/share/applications" ]; then
-    sudo rm -f "$PREFIX/share/applications/mimeinfo.cache"
-    sudo rmdir "$PREFIX/share/applications" 2>/dev/null || true
+# Where somebody else's icon or entry is there as well, the cache is rebuilt.
+# Otherwise the cache goes when it was not there before install.sh, and so
+# does every directory install.sh made - but one that was there before, even
+# empty, stays. That is read from what install.sh wrote down; only where it
+# wrote nothing (an older version installed) does it fall back to "FuriOS
+# ships neither directory", and says so.
+if [ -n "$ORIGINAL" ]; then
+    if find "$PREFIX/share/icons" -type f ! -name icon-theme.cache 2>/dev/null | grep -q .; then
+        sudo gtk-update-icon-cache -qtf "$PREFIX/share/icons/hicolor" 2>/dev/null || true
+    elif [ "$(was share/icons/hicolor/icon-theme.cache)" = present ]; then
+        sudo gtk-update-icon-cache -qtf "$PREFIX/share/icons/hicolor" 2>/dev/null || true
+    else
+        sudo rm -f "$PREFIX/share/icons/hicolor/icon-theme.cache"
+    fi
+    if find "$PREFIX/share/applications" -type f ! -name mimeinfo.cache 2>/dev/null | grep -q .; then
+        sudo update-desktop-database -q "$PREFIX/share/applications" 2>/dev/null || true
+    elif [ "$(was share/applications/mimeinfo.cache)" = present ]; then
+        sudo update-desktop-database -q "$PREFIX/share/applications" 2>/dev/null || true
+    else
+        sudo rm -f "$PREFIX/share/applications/mimeinfo.cache"
+    fi
+    for d in share/icons/hicolor/scalable/apps share/icons/hicolor/scalable \
+            share/icons/hicolor share/icons share/applications lib/misc-de; do
+        if [ "$(was "$d")" = absent ] && [ -d "$PREFIX/$d" ]; then
+            sudo rmdir "$PREFIX/$d" 2>/dev/null || true
+        elif [ "$(was "$d")" = present ] && [ ! -d "$PREFIX/$d" ]; then
+            sudo install -d -m755 "$PREFIX/$d"
+        fi
+    done
+else
+    if [ -e "$PREFIX/share/icons" ] || [ -e "$PREFIX/share/applications" ]; then
+        echo "(no record of /usr/local from before misc-de was installed - an" \
+            "older version installed it; caches and directories go by what is" \
+            "left in them)"
+    fi
+    if find "$PREFIX/share/icons" -type f ! -name icon-theme.cache 2>/dev/null | grep -q .; then
+        sudo gtk-update-icon-cache -qtf "$PREFIX/share/icons/hicolor" 2>/dev/null || true
+    elif [ -d "$PREFIX/share/icons" ]; then
+        sudo rm -f "$PREFIX/share/icons/hicolor/icon-theme.cache"
+        sudo find "$PREFIX/share/icons" -depth -type d -empty -delete
+    fi
+    if find "$PREFIX/share/applications" -type f ! -name mimeinfo.cache 2>/dev/null | grep -q .; then
+        sudo update-desktop-database -q "$PREFIX/share/applications" 2>/dev/null || true
+    elif [ -d "$PREFIX/share/applications" ]; then
+        sudo rm -f "$PREFIX/share/applications/mimeinfo.cache"
+        sudo rmdir "$PREFIX/share/applications" 2>/dev/null || true
+    fi
 fi
 
 echo "4) what the window wrote"
-# The language, and nothing else lives there.
-rm -rf "$CONFIG/misc-de"
+# The owner's rule (30.9.2026): every switch writes down what was there
+# before its first change (miscde/original.py, records in
+# ~/.config/misc-de/original/), and this puts exactly that back - a file's
+# text or its absence, a dconf key set or unset, batman's BTSAVE lines as
+# they were - but only while it is still as the app left it. Changed by
+# somebody since: left alone, and said. Only where there is no record
+# (switched by a version before records existed) does it fall back to what
+# it did before, by our markers, and it says so rather than guessing
+# quietly. The records are read from this clone's miscde/original.py, not
+# from the program step 1 has just removed.
+BATMAN_CONFIG="${DESTDIR:-}/var/lib/batman/config"
+if python3 - "$HERE/miscde/original.py" "$CONFIG" "$DATA" "${DESTDIR:-}" <<'PY'
+import ast, glob, importlib.util, os, re, subprocess, sys
+module, config, data, destdir = sys.argv[1:5]
+spec = importlib.util.spec_from_file_location("miscde_original", module)
+original = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(original)
 
-# The Phosh tab, switch by switch, the way the tab itself switches off (see
-# miscde/pages/other.py) - only what carries our marker, so somebody's own
-# gtk.css or prompter service is never touched. Including the forms written
-# by hand before the switches existed, which the tab counts as its own too.
-python3 - "$CONFIG" "$DATA" <<'PY' || echo "(could not undo the Phosh tab's switches)"
-import os, re, sys
-config, data = sys.argv[1], sys.argv[2]
+DOCK = "furios-folder-dock"
+KEY = ["mobi.phosh.shell.plugins", "status-icons"]
+NO_RECORD = "no record of %s from before misc-de changed it (an older version did)"
+
+
+def say(text):
+    print("(%s)" % text)
 
 
 def read(path):
-    try:
-        with open(path, encoding="utf-8") as f:
-            return f.read()
-    except FileNotFoundError:
-        return ""
+    return original.read_text(path) or ""
 
 
 def remove(path):
@@ -179,115 +240,227 @@ def remove(path):
         pass
 
 
+def write(path, text):
+    with open(path + ".misc-de.tmp", "w", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(path + ".misc-de.tmp", path)
+
+
+def gsettings(*args, env=None):
+    return subprocess.run(["gsettings"] + list(args), capture_output=True,
+                          text=True, env=env)
+
+
+def icons(env=None):
+    out = gsettings("get", *KEY, env=env)
+    text = out.stdout.strip()
+    if out.returncode != 0:
+        raise ValueError(out.stderr)
+    if text.startswith("@as "):
+        text = text[4:]
+    return list(ast.literal_eval(text))
+
+
+def restart_unit(record):
+    return "" if destdir else (record.get("unit") or "")
+
+
+# --- 1. everything with a record, put back from it -------------------------
+seen = set()
+for record in original.all_records():
+    kind = record.get("kind")
+    if kind == "file":
+        path = record["path"]
+        seen.add(path)
+        if record.get("block"):
+            # A block of ours in somebody else's file: the whole file goes
+            # back while nothing but our block was added; otherwise only
+            # the block comes out.
+            begin, end = record["block"]
+            current = read(path)
+            stripped = original.strip_block(current, begin, end)
+            if original.block_back(record, stripped):
+                original.put_back_file(record)
+            elif stripped != current:
+                write(path, stripped)
+                say("took the misc-de block out of %s; the rest was changed "
+                    "since and stays" % path)
+            continue
+        state = original.restore_file(path)
+        if state == "changed":
+            say("kept %s: changed since misc-de wrote it - before, %s"
+                % (path, "there was no such file" if record.get("content") is None
+                   else "it held something else"))
+    elif kind == "gsettings":
+        seen.add("gsettings")
+        try:
+            now = icons()
+        except (ValueError, SyntaxError, OSError):
+            say("could not read %s %s" % tuple(KEY))
+            continue
+        if DOCK not in now:
+            continue
+        names = [n for n in now if n != DOCK]
+        action, value = original.setting_back(record, names)
+        if action == "reset":
+            gsettings("reset", *KEY)
+        else:
+            gsettings("set", *KEY, str(value))
+    elif kind == "lines":
+        path = destdir + record["path"]
+        seen.add("lines:" + record["path"])
+        state = original.lines_back(record, original.read_text(path))
+        if state == "restore":
+            done = subprocess.run(
+                ["sudo", "sh", "-c", original.RESTORE_LINES_SCRIPT, "sh", path,
+                 record["key"], "\n".join(record["lines"]), restart_unit(record)])
+            if done.returncode != 0:
+                say("could not put %s in %s back" % (record["key"], path))
+        elif state == "changed":
+            say("kept %s in %s: changed since misc-de wrote it" % (record["key"], path))
+    elif kind == "unit":
+        # Enabled from the Battery tab, and it was not before. The unit and
+        # its settings are battctl's, which stays installed, so this says it
+        # rather than switching the colouring off behind somebody's back.
+        if not record.get("enabled") and subprocess.run(
+                ["systemctl", "--user", "is-enabled", "--quiet",
+                 record["unit"]]).returncode == 0:
+            say("%s was enabled from the Battery tab and was not before - "
+                "battctl's uninstall.sh, or systemctl --user disable --now %s, "
+                "takes it back" % (record["unit"], record["unit"]))
+
+
+# --- 2. no record: by our markers, as before, and said -----------------------
+
 # The search field: our block out of gtk.css, and the file only when that
 # block was all it held.
 css = os.path.join(config, "gtk-3.0", "gtk.css")
-old = read(css)
-new = re.sub(r"/\* misc-de: hide phosh search - begin \*/.*?"
-             r"/\* misc-de: hide phosh search - end \*/\n?", "", old, flags=re.S)
-new = re.sub(r"/\* Hide phosh app grid search \(misc-de\) \*/\n"
-             r"\.phosh-search-bar-box,\s*\.phosh-search-bar\s*\{[^}]*\}\n?", "", new)
-if new != old:
-    if new.strip():
-        with open(css + ".misc-de.tmp", "w", encoding="utf-8") as f:
-            f.write(new)
-        os.replace(css + ".misc-de.tmp", css)
-    else:
-        remove(css)
-    try:
-        os.rmdir(os.path.dirname(css))
-    except OSError:
-        pass
+if css not in seen:
+    old = read(css)
+    new = original.strip_block(old, "/* misc-de: hide phosh search - begin */",
+                               "/* misc-de: hide phosh search - end */")
+    new = re.sub(r"/\* Hide phosh app grid search \(misc-de\) \*/\n"
+                 r"\.phosh-search-bar-box,\s*\.phosh-search-bar\s*\{[^}]*\}\n?",
+                 "", new)
+    if new != old:
+        say(NO_RECORD % css + "; took out only the misc-de block")
+        if new.strip():
+            write(css, new)
+        else:
+            remove(css)
+        try:
+            os.rmdir(os.path.dirname(css))
+        except OSError:
+            pass
 remove(css + ".misc-de.tmp")
 
-# The dock's switches, a file that is ours by name.
-for name in ("furios-folder-dock.conf", "furios-folder-dock.conf.misc-de.tmp"):
-    remove(os.path.join(config, name))
+# The dock's switches: removed only in exactly a form the switches wrote -
+# anything else in that file is the plugin's or somebody's own.
+dock = os.path.join(config, "furios-folder-dock.conf")
+forms = {"[dock]\n" + "".join("%s=true\n" % k for k in keys)
+         for keys in (["one-row"], ["hide-labels"], ["one-row", "hide-labels"])}
+if dock not in seen and os.path.exists(dock):
+    if read(dock) in forms:
+        say(NO_RECORD % dock + "; removed it, it is in a form the switches wrote")
+        remove(dock)
+    else:
+        say("kept %s: no record, and not in a form the switches wrote" % dock)
+remove(dock + ".misc-de.tmp")
 
 # The keyring prompter: the service file only while it starts our shim, the
 # shim only while it is ours.
 shim = os.path.join(os.path.dirname(data), "libexec", "keyring-prompter-wait")
 service = os.path.join(data, "dbus-1", "services",
                        "org.gnome.keyring.SystemPrompter.service")
-if ("Exec=%s\n" % shim) in read(service):
+if service not in seen and ("Exec=%s\n" % shim) in read(service):
+    say(NO_RECORD % service)
     remove(service)
 text = read(shim)
-if ("# misc-de: keyring prompter shim" in text
+if shim not in seen and (
+        "# misc-de: keyring prompter shim" in text
         or "# D-Bus activation shim for org.gnome.keyring.SystemPrompter." in text):
+    say(NO_RECORD % shim)
     remove(shim)
 for path in (service, shim):
     remove(path + ".misc-de.tmp")
-# "Apps open right after boot": our phosh-portals.conf, by its marker only -
-# one somebody wrote stays. The directory goes while it is empty.
-portals = os.path.join(config, "xdg-desktop-portal", "phosh-portals.conf")
-if "# misc-de: apps start without waiting for the wlr portal" in read(portals):
-    remove(portals)
-remove(portals + ".misc-de.tmp")
-try:
-    os.rmdir(os.path.dirname(portals))
-except OSError:
-    pass
 
-# The directories the switch made, while they are empty.
-for d in (os.path.dirname(service), os.path.dirname(os.path.dirname(service)),
-          os.path.dirname(shim)):
+# "Apps open right after boot": our phosh-portals.conf, by its marker only -
+# one somebody wrote stays.
+portals = os.path.join(config, "xdg-desktop-portal", "phosh-portals.conf")
+if portals not in seen and (
+        "# misc-de: apps start without waiting for the wlr portal" in read(portals)):
+    say(NO_RECORD % portals)
+    remove(portals)
     try:
-        os.rmdir(d)
+        os.rmdir(os.path.dirname(portals))
     except OSError:
         pass
+remove(portals + ".misc-de.tmp")
+
+# The directories the prompter switch made, while they are empty - only
+# where no record said which ones it made.
+if service not in seen and shim not in seen:
+    for d in (os.path.dirname(service), os.path.dirname(os.path.dirname(service)),
+              os.path.dirname(shim)):
+        try:
+            os.rmdir(d)
+        except OSError:
+            pass
+
+# "Folders at the bottom": our name out of phosh's plugin list. Without a
+# record, a list back at the default is reset rather than written - a value
+# in dconf, even the default one, pins the key against a later phosh.
+if "gsettings" not in seen:
+    try:
+        now = icons()
+    except (ValueError, SyntaxError, OSError):
+        now = []
+    if DOCK in now:
+        names = [n for n in now if n != DOCK]
+        try:
+            default = icons(dict(os.environ, GSETTINGS_BACKEND="memory"))
+        except (ValueError, SyntaxError, OSError):
+            default = None
+        say(NO_RECORD % " ".join(KEY) + "; compared with the default")
+        if names == default:
+            gsettings("reset", *KEY)
+        else:
+            gsettings("set", *KEY, str(names))
+
+# "Bluetooth powersave": batman's own setting. Without a record the copy
+# somebody took by hand before the switch existed (config.bak-YYYYMMDD-
+# HHMMSS) says what it was; without that either, off - the only value the
+# switch ever wrote that FuriOS does not ship - goes back to on, and this
+# says it is a guess.
+batman = destdir + "/var/lib/batman/config"
+if "lines:/var/lib/batman/config" not in seen:
+    now = original.key_lines(original.read_text(batman), "BTSAVE")
+    baks = sorted(glob.glob(batman + ".bak-[0-9]*-[0-9]*"))
+    before = original.key_lines(original.read_text(baks[0]), "BTSAVE") if baks else None
+    if now == ["BTSAVE=false"] and before != now:
+        lines = before if before else ["BTSAVE=true"]
+        say(NO_RECORD % "BTSAVE in " + batman + "; "
+            + ("put back as in %s" % baks[0] if before
+               else "set back to true, as FuriOS ships it - a guess"))
+        done = subprocess.run(
+            ["sudo", "sh", "-c", original.RESTORE_LINES_SCRIPT, "sh", batman,
+             "BTSAVE", "\n".join(lines), "" if destdir else "batman.service"])
+        if done.returncode != 0:
+            say("could not switch batman's Bluetooth powersave back")
 PY
-
-# "Folders at the bottom": our name out of phosh's plugin list, and a list
-# back at its default reset rather than written - a value in the user's
-# dconf, even the default one, pins the key against whatever a later phosh
-# ships. The plugin itself is furios_phosh's, and stays.
-if command -v gsettings >/dev/null; then
-    python3 - <<'PY' || true
-import ast, os, subprocess, sys
-key = ["mobi.phosh.shell.plugins", "status-icons"]
-
-
-def read(env=None):
-    out = subprocess.run(["gsettings", "get"] + key, capture_output=True,
-                         text=True, env=env)
-    text = out.stdout.strip()
-    if text.startswith("@as "):
-        text = text[4:]
-    return list(ast.literal_eval(text))
-
-
-try:
-    now = read()
-except (ValueError, SyntaxError):
-    sys.exit(0)
-if "furios-folder-dock" not in now:
-    sys.exit(0)
-names = [n for n in now if n != "furios-folder-dock"]
-try:
-    default = read(dict(os.environ, GSETTINGS_BACKEND="memory"))
-except (ValueError, SyntaxError):
-    default = None
-if names == default:
-    subprocess.run(["gsettings", "reset"] + key, check=False)
-else:
-    subprocess.run(["gsettings", "set"] + key + [str(names)], check=False)
-PY
+then
+    # Read, and put back: the records have done their job, and with them
+    # goes the language - nothing else lives in the app's config directory.
+    rm -rf "$CONFIG/misc-de"
+else
+    # Not without them: they are the only memory of what was there before.
+    echo "(could not undo what the window wrote - kept $CONFIG/misc-de/original" \
+        "for the next run)"
+    rm -f "$CONFIG/misc-de/language"
 fi
 
-# "Bluetooth powersave" on the Audio tab: batman's own setting, which FuriOS
-# ships on. Off is the only value the switch ever wrote that FuriOS does not
-# ship, so off goes back to on; a file without the key or with anything else
-# was not the switch. batman reads the file at start only, hence the restart.
-# The copy taken by hand before the switch existed (config.bak-YYYYMMDD-
-# HHMMSS) goes once it is the file as it now is - it held nothing else.
-BATMAN_CONFIG="${DESTDIR:-}/var/lib/batman/config"
-if grep -qx 'BTSAVE=false' "$BATMAN_CONFIG" 2>/dev/null; then
-    if sudo sed -i 's/^BTSAVE=false$/BTSAVE=true/' "$BATMAN_CONFIG"; then
-        [ -n "${DESTDIR:-}" ] || sudo systemctl try-restart batman.service || true
-    else
-        echo "(could not switch batman's Bluetooth powersave back on)"
-    fi
-fi
+# The copy taken by hand before the switch existed goes once it is the file
+# as it now is - it held nothing else.
 for bak in "$BATMAN_CONFIG".bak-[0-9]*-[0-9]*; do
     [ -f "$bak" ] || continue
     if cmp -s "$bak" "$BATMAN_CONFIG"; then

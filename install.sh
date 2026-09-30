@@ -39,6 +39,40 @@ python3 -c "import gi; gi.require_version('Adw','1')" 2>/dev/null \
 # DESTDIR, as in make: a staged root instead of /, for the tests.
 PREFIX="${DESTDIR:-}/usr/local"
 
+# What was there before the first install, written down before anything is
+# changed (the owner's rule, 30.9.2026): the directories and caches under
+# /usr/local that this installer shares with others, each present or absent.
+# uninstall.sh reads it and takes away exactly what was not there, instead
+# of assuming that FuriOS ships none of it. Written once: a reinstall or an
+# update finds the file and leaves it, because the first original is the one
+# that counts. Where the app is already installed without one, an older
+# version put it there and what was before is not known - then nothing is
+# written rather than today's state as a guess, and uninstall.sh says it
+# falls back. Kept in lib/misc-de beside the package, which is replaced on
+# every install while this file is not.
+STATE="$PREFIX/lib/misc-de/original-state"
+if [ ! -e "$STATE" ]; then
+    if [ -e "$PREFIX/bin/misc-de" ] || [ -e "$PREFIX/lib/misc-de/miscde" ]; then
+        echo "(misc-de was installed by an older version that wrote down nothing" \
+            "about /usr/local before it - uninstall.sh will say it falls back)"
+    else
+        record=""
+        for p in lib/misc-de share/icons share/icons/hicolor \
+                share/icons/hicolor/scalable share/icons/hicolor/scalable/apps \
+                share/icons/hicolor/icon-theme.cache share/applications \
+                share/applications/mimeinfo.cache; do
+            if [ -e "$PREFIX/$p" ]; then
+                record+="present $p"$'\n'
+            else
+                record+="absent $p"$'\n'
+            fi
+        done
+        sudo install -d -m755 "$PREFIX/lib/misc-de"
+        printf '%s' "$record" | sudo tee "$STATE" >/dev/null
+        sudo chmod 644 "$STATE"
+    fi
+fi
+
 echo "1) program"
 # Two parts since 15.9.2026, where there used to be one file: the launcher in
 # bin, and the package it starts beside it. rsync --delete rather than a plain

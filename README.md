@@ -51,6 +51,20 @@ install behaves as on a new phone. It leaves the tools behind the tabs where
 they are and says so: each tool was its own decision and has its own
 uninstaller, and two of them hold this phone's sound and its data connection.
 
+Nothing is put back from a guess. Before its first change, every switch
+that writes something - the Phosh tab's files and phosh's plugin list,
+batman's `BTSAVE`, the colouring daemon's unit - writes down what was there:
+a file's text or that there was none, a dconf key's value or that it was
+unset, the config lines as they were. The records live in
+`~/.config/misc-de/original/`, one small JSON file each, and are written
+once: a second toggle or a reinstall keeps the first original.
+`install.sh` does the same for the shared directories and caches under
+`/usr/local`, in `/usr/local/lib/misc-de/original-state`. Switching off and
+`./uninstall.sh` put back exactly that - but only while it is still as the
+app left it; changed by somebody since, it is left alone and named. Where
+there is no record (an older version made the change), the uninstaller
+falls back to removing what carries the app's markers and says so.
+
 Keep the clone: the app updates itself out of it, and the icon in the header
 bar offers the next version when there is one. The five tools behind the tabs
 are fetched the same way, into `~/.local/share/misc-de/`.
