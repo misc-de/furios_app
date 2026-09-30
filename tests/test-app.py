@@ -3297,6 +3297,41 @@ class TheWindow(unittest.TestCase):
                    if c[0] == "Adw.AlertDialog"]
         self.assertTrue(any("Permission denied" in b for b in body))
 
+    def test_a_failed_installer_that_left_the_tool_still_makes_the_tab_live(self):
+        """Found on 30.9.2026: killswitch's installer ended with exit 3 after
+        a complete install (a status line at the very end), and the tab went
+        on saying "not installed" next to a tool that was there. The tab
+        goes live; the installer's words are still shown."""
+        win = self.without_tool("furios-gps-contribute")
+        recorder.reset()
+        real = self.with_tool("furios-gps-contribute", os.path.expanduser(
+            "~/.local/bin/furios-gps-contribute"))
+        try:
+            win.component_done(self.component("furios-gps-contribute"), False,
+                               "Active: inactive (dead)")
+        finally:
+            switcher.tools._tool_maybe = real
+        self.assertTrue(win.live["gps"])
+        self.assertTrue(any("reported an error" in t
+                            for t in self.toast_texts()))
+        body = [str(c[2].get("body", "")) for c in recorder.calls
+                   if c[0] == "Adw.AlertDialog"]
+        self.assertTrue(any("inactive (dead)" in b for b in body))
+
+    def test_a_failed_installer_without_the_tool_says_it_could_not(self):
+        win = self.without_tool("furios-gps-contribute")
+        recorder.reset()
+        real = switcher.tools._tool_maybe
+        switcher.tools._tool_maybe = lambda n: (None if n == "furios-gps-contribute"
+                                                else real(n))
+        try:
+            win.component_done(self.component("furios-gps-contribute"), False,
+                               "make: *** Error 1")
+        finally:
+            switcher.tools._tool_maybe = real
+        self.assertFalse(win.live.get("gps"))
+        self.assertTrue(any("Could not set up" in t for t in self.toast_texts()))
+
     def test_nothing_is_offered_while_something_else_runs(self):
         self.win.comp_rows[self.component()["tool"]] = {}
         self.ran.clear()

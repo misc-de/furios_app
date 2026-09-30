@@ -609,6 +609,16 @@ class InstallPage:
                 self.toast(_("{tool} ran, but is not on the phone").format(
                     tool=comp["tool"]))
                 self.report(out or _("No output."))
+        elif comp is not PHOSH and self.swap_in_page(comp):
+            # The installer said no, and the tool is there all the same - a
+            # step after the install proper failed. The tab is live either
+            # way; what went wrong is still shown, not swallowed. Found on
+            # 30.9.2026: a status line at the very end of killswitch's
+            # installer turned every first install into "Something went
+            # wrong" and left the tab saying "not installed".
+            self.toast(_("{tool} is installed, but its installer reported "
+                         "an error").format(tool=comp["tool"]))
+            self.report(out or _("No output."))
         else:
             self.toast(_("Could not set up {tool}").format(tool=comp["tool"]))
             # A wrong password shows up here as sudo's own words, which say it
