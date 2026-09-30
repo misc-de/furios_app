@@ -82,7 +82,10 @@ COMPONENTS = [
         "icon": "changes-prevent-symbolic",
         "url": "https://github.com/misc-de/furios_killswitch",
         "dir": "furios_killswitch",
-        "root": False,
+        # The installer itself runs as the user, but since the icons became
+        # a phosh plugin it has one sudo line of its own (make install into
+        # /usr/lib) - without the ticket and the helper it dies on it.
+        "root": True,
         "does": "an icon in the top bar while the camera or the network "
                 "switch is engaged - nothing else on the phone says so",
         # Only on a phone that has the switches. Everything else here is

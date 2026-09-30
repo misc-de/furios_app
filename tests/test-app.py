@@ -440,9 +440,36 @@ class ComponentTable(unittest.TestCase):
 
     def test_a_component_without_root_never_calls_sudo(self):
         steps = switcher.component_steps(
-            self.comp("killswitch-indicator"), "install", None)
+            self.comp("furios-gps-contribute"), "install", None)
         self.assertEqual([], [argv for argv, _s, _c, _e in steps
                               if argv[0] == "sudo"])
+
+    def test_an_installer_that_calls_sudo_gets_the_password(self):
+        """Read from the installers themselves, not from what this table
+        believes about them: killswitch-indicator grew a sudo line with its
+        phosh plugin and stayed "root": False - on a phone where sudo asks,
+        the Switches tab died with "a terminal is required"."""
+        homes = [os.path.expanduser("~/Projekte"),
+                 os.path.expanduser("~/Projekte/.dev"),
+                 os.path.expanduser("~/.local/share/misc-de")]
+        seen = 0
+        for comp in switcher.COMPONENTS:
+            for home in homes:
+                script = os.path.join(home, comp["dir"], comp.get("sub", ""),
+                                      "install.sh")
+                if not os.path.isfile(script):
+                    continue
+                seen += 1
+                with open(script) as fh:
+                    calls = [l for l in fh
+                             if re.match(r"\s*(?!#).*\bsudo\s+(?!-k)", l)
+                             and "echo" not in l]
+                if calls:
+                    self.assertTrue(comp["root"], "%s: %s" % (
+                        comp["tool"], calls[0].strip()))
+                break
+        if not seen:
+            self.skipTest("no clone of any installer on this machine")
 
     def test_an_update_guards_the_clone_before_it_pulls(self):
         """A clone with uncommitted work in it is left exactly as it is - and
@@ -2614,7 +2641,7 @@ class TheWindow(unittest.TestCase):
                         "and that this one needs root")
 
     def test_a_tool_without_root_says_so_in_its_offer(self):
-        self.without_tool("killswitch-indicator")
+        self.without_tool("furios-gps-contribute")
         rows = [str(c[2].get("subtitle", "")) for c in recorder.calls
                   if c[0] == "Adw.ActionRow"]
         self.assertTrue(any("no root needed" in z for z in rows), rows)
@@ -2666,8 +2693,8 @@ class TheWindow(unittest.TestCase):
         self.assertTrue([c for c in recorder.calls
                          if c[0] == "Adw.PasswordEntryRow"])
         recorder.reset()
-        self.win.comp_rows[self.component("killswitch-indicator")["tool"]] = {}
-        self.win.ask_component(self.component("killswitch-indicator"), "install")
+        self.win.comp_rows[self.component("furios-gps-contribute")["tool"]] = {}
+        self.win.ask_component(self.component("furios-gps-contribute"), "install")
         self.assertEqual([], [c for c in recorder.calls
                               if c[0] == "Adw.PasswordEntryRow"])
 
@@ -2816,9 +2843,9 @@ class TheWindow(unittest.TestCase):
         self.assertIsNone(self.win.askpass)
 
     def test_a_tool_that_needs_no_root_gets_no_socket(self):
-        """killswitch-indicator installs into $HOME. Nothing there ever asks
+        """furios-gps-contribute installs into $HOME. Nothing there ever asks
         for a password, so nothing hands one out."""
-        log = self.with_stub_askpass(self.component("killswitch-indicator"),
+        log = self.with_stub_askpass(self.component("furios-gps-contribute"),
                                     secret=None)
         self.assertEqual([], log)
         self.assertIsNone(self.win.askpass)
