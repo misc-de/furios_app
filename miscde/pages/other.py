@@ -7,11 +7,11 @@ What lives here is a line of configuration this window can write itself,
 as the user, and take back the same way."""
 
 import configparser
-import glob
 import os
 import re
 
 from gi.repository import Adw, Gio
+from ..components import PHOSH, folder_dock_plugin
 from ..i18n import _
 
 # key, title, icon - the same three a component carries for its tab.
@@ -110,7 +110,7 @@ DOCK_GUARD = "furios-folder-dock.armed"
 
 
 def dock_installed():
-    return bool(glob.glob("/usr/lib/*/phosh/plugins/%s.plugin" % DOCK_PLUGIN))
+    return folder_dock_plugin() is not None
 
 
 def plugin_settings():
@@ -361,6 +361,19 @@ def set_portals_fixed(on, path=None, shipped=PORTALS_SHIPPED):
 
 
 class OtherPage:
+    def rebuild_other_page(self):
+        """The folder dock was just installed: build the tab again, so its
+        rows are live. It is the last tab, so it goes out and back in
+        without disturbing the others."""
+        self.comp_rows.pop(PHOSH["tool"], None)
+        self.stack.remove(self.pages[TAB[0]])
+        self.pages[TAB[0]] = self.build_other_page()
+        self.stack.add_titled_with_icon(self.pages[TAB[0]], *TAB)
+        self.stack.set_visible_child_name(TAB[0])
+        # phosh scans its plugin directory only when it starts.
+        self.dock_row.set_subtitle(_("Installed · takes effect after the "
+                                     "next reboot"))
+
     def build_other_page(self):
         page = Adw.PreferencesPage()
         grp = Adw.PreferencesGroup(title=_("Home screen"))
@@ -415,6 +428,16 @@ class OtherPage:
         self.labels_row.set_sensitive(self.dock_row.get_active())
         self.labels_row.connect("notify::active", self.on_hide_labels)
         grp.add(self.labels_row)
+        if not dock_installed():
+            # The offer, where the rows it brings to life are. The dock row
+            # carries the progress, the way the "not installed" tabs' state
+            # row does.
+            btn = self.pill_button(_("Install the folder dock"))
+            btn.connect("clicked",
+                        lambda _b: self.ask_component(PHOSH, "install"))
+            grp.add(btn)
+            self.comp_rows[PHOSH["tool"]] = {"state": self.dock_row,
+                                             "button": btn}
         page.add(grp)
 
         grp = Adw.PreferencesGroup(title=_("Unlock"))

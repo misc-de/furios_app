@@ -14,9 +14,9 @@ from gi.repository import Adw, Gtk
 
 from .. import askpass, components, process, tools
 from .other import TAB as OTHER_TAB
-from ..components import (CLONE_HOME, COMPONENTS, SELF, behind_count,
-                         clone_path, component_steps, installer_said,
-                         source_steps)
+from ..components import (CLONE_HOME, COMPONENTS, PHOSH, SELF, behind_count,
+                         clone_path, component_steps, find_component,
+                         installer_said, source_steps)
 from ..i18n import _
 
 
@@ -138,8 +138,8 @@ class InstallPage:
         """
         self.updates = {}
         self.show_update_count()
-        for comp in COMPONENTS:
-            if not tools._tool_maybe(comp["tool"]):
+        for comp in COMPONENTS + [PHOSH]:
+            if not find_component(comp):
                 continue
             self.look_for_update(comp)
         self.check_self_update()
@@ -544,6 +544,17 @@ class InstallPage:
             # Already there before this ran - so this was not a fetch of
             # something missing. Nothing to swap in; say so and stop.
             self.toast(_("{tool} is up to date").format(tool=comp["tool"]))
+        elif ok and comp is PHOSH:
+            # Not a tab of its own: the Phosh tab is rebuilt around it.
+            self.live[comp["key"]] = find_component(comp)
+            if self.live[comp["key"]]:
+                self.rebuild_other_page()
+                self.toast(_("{tool} is in place - phosh picks it up at the "
+                             "next reboot").format(tool=comp["tool"]))
+            else:
+                self.toast(_("{tool} ran, but is not on the phone").format(
+                    tool=comp["tool"]))
+                self.report(out or _("No output."))
         elif ok:
             # The page first, the words after it: if the tab is already the
             # real one by the time the toast is read, the sentence is a

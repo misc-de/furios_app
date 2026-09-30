@@ -65,6 +65,7 @@ clone_tool() {
     furios_killswitch) echo "killswitch-indicator" ;;
     furios_security) echo "secctl" ;;
     furios_misc) echo "battctl battery" ;;
+    furios_phosh) echo "furios-folder-dock folder-dock" ;;
     esac
 }
 
@@ -74,6 +75,12 @@ clone_tool() {
 # this machine's, not the stage's.
 tool_installed() {
     local name=$1 dir
+    # The folder dock is a phosh plugin, not a program: installed is its
+    # file where phosh looks (folder_dock_plugin in miscde/components.py).
+    if [ "$name" = furios-folder-dock ]; then
+        compgen -G "${DESTDIR:-}/usr/lib/*/phosh/plugins/$name.plugin" >/dev/null
+        return
+    fi
     for dir in "${DESTDIR:-}/usr/local/bin" "${DESTDIR:-}/usr/bin" \
             "$HOME/.local/bin"; do
         [ -x "$dir/$name" ] && return 0
@@ -304,7 +311,8 @@ echo "Removed."
 # Said rather than done: somebody who wants these gone should see where they
 # are, and each tool's own uninstaller knows what it changed. Looked for the
 # way the app looks, with tool_installed above.
-for tool in audioctl modemctl furios-gps-contribute killswitch-indicator secctl battctl; do
+for tool in audioctl modemctl furios-gps-contribute killswitch-indicator secctl battctl \
+        furios-folder-dock; do
     if tool_installed "$tool"; then
         echo "(still installed: $tool - its own repository has uninstall.sh)"
     fi

@@ -453,7 +453,7 @@ class ComponentTable(unittest.TestCase):
                  os.path.expanduser("~/Projekte/.dev"),
                  os.path.expanduser("~/.local/share/misc-de")]
         seen = 0
-        for comp in switcher.COMPONENTS:
+        for comp in switcher.COMPONENTS + [switcher.PHOSH]:
             for home in homes:
                 script = os.path.join(home, comp["dir"], comp.get("sub", ""),
                                       "install.sh")
@@ -4359,6 +4359,81 @@ class TheWindow(unittest.TestCase):
         app.props.active_window = None
         app.do_activate()
 
+
+
+class OffersTheFolderDock(unittest.TestCase):
+    """The folder dock has no tab of its own: the Phosh tab offers it in the
+    rows it brings to life. Found on 30.9.2026, on a phone freshly set up
+    from the app - three switches grey, and nothing on the page to change
+    that."""
+
+    def window(self, plugin):
+        self.enterContext(mock.patch.object(switcher.pages.other,
+                                            "folder_dock_plugin",
+                                            lambda: plugin))
+        self.enterContext(mock.patch.dict(switcher.PHOSH,
+                                          {"find": lambda: plugin}))
+        return switcher.Window(switcher.Adw.Application())
+
+    def test_without_the_plugin_the_tab_offers_it(self):
+        win = self.window(None)
+        rows = win.comp_rows.get(switcher.PHOSH["tool"])
+        self.assertIsNotNone(rows, "no offer on the Phosh tab")
+        self.assertIs(win.dock_row, rows["state"])
+        self.assertIsNone(win.live["phosh"])
+
+    def test_with_the_plugin_there_is_no_offer(self):
+        win = self.window("/usr/lib/x/phosh/plugins/furios-folder-dock.plugin")
+        self.assertNotIn(switcher.PHOSH["tool"], win.comp_rows)
+        self.assertTrue(win.live["phosh"])
+
+    def test_the_offer_asks_for_the_password(self):
+        """make install writes to phosh's plugin directory, the guard to /etc."""
+        win = self.window(None)
+        recorder.reset()
+        win.ask_component(switcher.PHOSH, "install")
+        self.assertTrue([c for c in recorder.calls
+                         if c[0] == "Adw.PasswordEntryRow"])
+
+    def test_the_installer_is_the_folder_docks_and_runs_as_the_user(self):
+        steps = switcher.component_steps(switcher.PHOSH, "install", "pw")
+        installer = [(argv, cwd) for argv, _s, cwd, _e in steps
+                     if argv[0].endswith("install.sh")]
+        self.assertEqual([(["./install.sh"], os.path.join(
+            switcher.clone_path(switcher.PHOSH), "folder-dock"))], installer)
+        self.assertIn(["sudo", "-S", "-p", "", "-v"],
+                      [argv for argv, _s, _c, _e in steps])
+
+    def test_an_install_that_worked_brings_the_rows_to_life(self):
+        plugin = []
+        self.enterContext(mock.patch.object(
+            switcher.pages.other, "folder_dock_plugin",
+            lambda: plugin[0] if plugin else None))
+        self.enterContext(mock.patch.dict(
+            switcher.PHOSH, {"find": lambda: plugin[0] if plugin else None}))
+        said = []
+        self.enterContext(mock.patch.object(switcher.Window, "toast",
+                                            lambda self, text: said.append(text)))
+        win = switcher.Window(switcher.Adw.Application())
+        before = win.pages["other"]
+        plugin.append("/usr/lib/x/phosh/plugins/furios-folder-dock.plugin")
+        win.component_done(switcher.PHOSH, True, "")
+        self.assertIsNot(before, win.pages["other"], "the tab was not rebuilt")
+        self.assertNotIn(switcher.PHOSH["tool"], win.comp_rows)
+        self.assertTrue(win.live["phosh"])
+        self.assertIn("next reboot", said[-1])
+
+    def test_an_install_that_left_nothing_says_so(self):
+        win = self.window(None)
+        said = []
+        self.enterContext(mock.patch.object(switcher.Window, "toast",
+                                            lambda self, text: said.append(text)))
+        self.enterContext(mock.patch.object(switcher.Window, "report",
+                                            lambda self, text: None))
+        before = win.pages["other"]
+        win.component_done(switcher.PHOSH, True, "")
+        self.assertIs(before, win.pages["other"])
+        self.assertIn("not on the phone", said[-1])
 
 
 class HidesTheSearchField(unittest.TestCase):

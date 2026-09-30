@@ -46,7 +46,7 @@ from gi.repository import Adw, Gio, GLib, Gtk
 from . import askpass, components, i18n, process, tools, words
 from .askpass import ASKPASS_HELPER, Askpass
 from .components import (BATTERY_UNIT, CLONE_HOME, COMPONENTS, OWN_CLONES,
-                         SELF, behind_count, clone_elsewhere, clone_path,
+                         PHOSH, SELF, behind_count, find_component, clone_elsewhere, clone_path,
                          component_steps, installer_dir, installer_env,
                          installer_said, is_clone, is_clone_of, source_steps)
 # The Bluetooth powersave switch reads batman's config rather than a tool of
@@ -64,9 +64,10 @@ __all__ = [
     "APP_ID", "ASKPASS_HELPER", "App", "Askpass", "BATMAN_CONFIG",
     "BATMAN_UNIT", "BATTERY_UNIT",
     "CALL_TIMEOUT", "CLONE_HOME", "COMPONENTS", "DMNR",
-    "KILLSWITCH_SYSFS", "OWN_CLONES", "PKEXEC", "PROFILE_WORDS", "SELF",
+    "KILLSWITCH_SYSFS", "OWN_CLONES", "PHOSH", "PKEXEC", "PROFILE_WORDS", "SELF",
     "Window", "askpass", "behind_count", "clone_elsewhere", "clone_path",
     "btsave_argv", "btsave_in_config", "component_steps", "components",
+    "find_component",
     "installer_dir", "installer_env",
     "installer_said", "is_clone", "is_clone_of", "phone_has_switches",
     "needs_a_password", "process", "profile_in_words", "run_async",

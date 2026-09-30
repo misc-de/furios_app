@@ -6,6 +6,7 @@ Kept apart from the pages on purpose - what runs as root, in which
 directory and where the password goes is the part worth being able to
 read on its own, and to check without starting anything."""
 
+import glob
 import os
 
 from .tools import phone_has_switches
@@ -122,6 +123,44 @@ COMPONENTS = [
                 "power - a tired cable and a good one look the same otherwise",
     },
 ]
+
+# The folder dock behind three switches of the Phosh tab - a component, but not
+# a tab of its own: that tab has switches that need nothing installed, and a
+# "not installed" page in its place would hide them. So the offer sits on the
+# Phosh tab, in the rows it would bring to life. Its installer installs the
+# guard along with it (folder-dock/install.sh calls guard/install.sh).
+#
+# There is no program to look for, so "installed" is the plugin file where
+# phosh looks - the same file the Phosh tab asks about.
+PHOSH_PLUGIN = "furios-folder-dock"
+
+
+def folder_dock_plugin():
+    """The installed plugin file, or None."""
+    found = sorted(glob.glob("/usr/lib/*/phosh/plugins/%s.plugin" % PHOSH_PLUGIN))
+    return found[0] if found else None
+
+
+PHOSH = {
+    "tool": "furios-folder-dock",   # PHOSH_PLUGIN, as a literal for the tests
+    "page": "Phosh",
+    "key": "phosh",
+    "icon": "video-display-symbolic",
+    "url": "https://github.com/misc-de/furios_phosh",
+    "dir": "furios_phosh",
+    "sub": "folder-dock",
+    # make install into phosh's plugin directory, and the guard into /etc.
+    "root": True,
+    "find": folder_dock_plugin,
+}
+
+
+def find_component(comp):
+    """Where this component is installed, or None - its program, or for the
+    folder dock the plugin file."""
+    from .tools import _tool_maybe
+    return comp["find"]() if comp.get("find") else _tool_maybe(comp["tool"])
+
 
 # The unit behind the Battery page. Its switch is the service, the way the
 # indicator's is on the Switches page.

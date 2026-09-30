@@ -256,7 +256,11 @@ def component_table():
         if (isinstance(node, ast.Assign)
                 and any(getattr(t, "id", None) == "COMPONENTS" for t in node.targets)):
             table = {}
-            for entry in node.value.elts:
+            # PHOSH is a component without a tab of its own, kept beside the
+            # list - its clone is the app's all the same.
+            phosh = [n.value for n in tree_.body if isinstance(n, ast.Assign)
+                     and any(getattr(t, "id", None) == "PHOSH" for t in n.targets)]
+            for entry in node.value.elts + phosh:
                 fields = {k.value: v for k, v in zip(entry.keys, entry.values)
                           if isinstance(k, ast.Constant)}
                 sub = fields.get("sub")
@@ -511,6 +515,20 @@ class TheCloneRule(unittest.TestCase):
                 tool.unlink()
                 self.remove()
                 self.assertFalse(self.base.exists())
+
+    def test_an_installed_folder_dock_keeps_its_clone(self):
+        """No program to look for - the plugin file is what is installed."""
+        plugin = (self.root / "usr/lib/aarch64-linux-gnu/phosh/plugins"
+                  / "furios-folder-dock.plugin")
+        plugin.parent.mkdir(parents=True)
+        plugin.write_text("[Plugin]\n")
+        path = self.clone("furios_phosh")
+        said = self.remove()
+        self.assertTrue(path.exists())
+        self.assertIn(str(path / "folder-dock" / "uninstall.sh"), said)
+        plugin.unlink()
+        self.remove()
+        self.assertFalse(self.base.exists())
 
     def test_a_tool_in_the_home_keeps_it_too(self):
         self.installed(self.work / ".local" / "bin", "killswitch-indicator")

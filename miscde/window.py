@@ -20,7 +20,7 @@ and is the only method that knows about all of them."""
 from gi.repository import Adw, Gdk, GLib, Gtk
 
 from . import combo, i18n, process, swipe, tools
-from .components import BATTERY_UNIT, COMPONENTS, SELF
+from .components import BATTERY_UNIT, COMPONENTS, PHOSH, SELF, find_component
 from .tools import APP_ID, DMNR
 from .pages.audio import CODECS, SERVERS, AudioPage, server_at
 from .pages.battery import BatteryPage
@@ -317,6 +317,7 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         # down - and an update of it has to know whether it is installed at
         # all before it offers to replace it.
         self.live["app"] = tools._tool_maybe(SELF["tool"])
+        self.live[PHOSH["key"]] = find_component(PHOSH)
         # The page widget of each tab, so one of them can be replaced later
         # without the others being rebuilt underneath somebody.
         self.pages = {}

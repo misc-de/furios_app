@@ -444,6 +444,11 @@ TRANSLATIONS = {
         "nichts angefasst.",
     "{tool} is up to date": "{tool} ist aktuell",
     "{tool} is in place - this tab is live": "{tool} ist da - dieser Reiter ist aktiv",
+    "{tool} is in place - phosh picks it up at the next reboot":
+        "{tool} ist da - phosh nimmt es beim nächsten Neustart auf",
+    "Install the folder dock": "Ordner-Dock installieren",
+    "Installed · takes effect after the next reboot":
+        "Installiert · wirkt nach dem nächsten Neustart",
     "{tool} ran, but is not on the phone": "{tool} lief, ist aber nicht auf dem Telefon",
     "Could not set up {tool}": "{tool} konnte nicht eingerichtet werden",
     "Could not restart: {error}": "Neustart nicht möglich: {error}",
