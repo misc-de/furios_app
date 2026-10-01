@@ -335,6 +335,25 @@ for record in original.all_records():
             else:
                 say("could not disable %s again" % unit)
 
+    elif kind == "auto-brightness":
+        # The Phosh tab's automatic brightness: the light sensor service and
+        # gsd's key, back to what they were - the key only while it is still
+        # what the switch set.
+        unit, key = record["unit"], [record["schema"], record["key"]]
+        if not destdir and not record.get("enabled") and subprocess.run(
+                ["systemctl", "is-enabled", "--quiet", unit]).returncode == 0:
+            argv = ["sudo", "systemctl", "disable"]
+            if not record.get("active"):
+                argv.append("--now")
+            if subprocess.run(argv + [unit]).returncode == 0:
+                say("%s disabled again, as it was before the Phosh tab" % unit)
+            else:
+                say("could not disable %s again" % unit)
+        if gsettings("get", *key).stdout.strip() == "true":
+            if record.get("user_value") is None:
+                gsettings("reset", *key)
+            else:
+                gsettings("set", *key, str(bool(record["user_value"])).lower())
 
 # --- 2. no record: by our markers, as before, and said -----------------------
 

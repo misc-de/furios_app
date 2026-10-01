@@ -9,9 +9,10 @@ as the user, and take back the same way."""
 import configparser
 import os
 import re
+import subprocess
 
 from gi.repository import Adw, Gio
-from .. import original
+from .. import original, process
 from ..components import PHOSH, folder_dock_plugin
 from ..i18n import _
 
@@ -436,6 +437,105 @@ def set_prompter_fixed(on, service=None, shim=None):
         raise original.ChangedSince(changed)
 
 
+# --- automatic brightness ------------------------------------------------------
+#
+# phosh dims and brightens by the light sensor when gsd's ambient-enabled is
+# on and net.hadess.SensorProxy is on the system bus. The service behind
+# that name (iio-sensor-proxy, which hadess-sensorfw-proxy's drop-in points
+# at sensorfwd) is enabled by a symlink that package ships as a plain file;
+# once anything disables it, nothing brings it back - no [Install] in the
+# base unit, no D-Bus activation file, and the udev rule never matches
+# (sensors come through sensorfw, not IIO). Found that way on this phone,
+# 1.10.2026; the sensor itself is fine (400 lux indoors). FuriOS ships the
+# key false. Two halves, then: the system unit, through sudo, and the key.
+SENSOR_UNIT = "iio-sensor-proxy.service"
+POWER_SCHEMA = "org.gnome.settings-daemon.plugins.power"
+AMBIENT_KEY = "ambient-enabled"
+BRIGHTNESS_IDENT = "auto-brightness"
+
+
+def power_settings():
+    """None where the schema is missing, as with plugin_settings."""
+    source = Gio.SettingsSchemaSource.get_default()
+    if source is None or source.lookup(POWER_SCHEMA, True) is None:
+        return None
+    return Gio.Settings.new(POWER_SCHEMA)
+
+
+def _systemctl_says(verb, unit=SENSOR_UNIT):
+    try:
+        return subprocess.run(["systemctl", verb, "--quiet", unit],
+                              timeout=5).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def sensor_state():
+    """(enabled, active) of the system unit - readable without root."""
+    return _systemctl_says("is-enabled"), _systemctl_says("is-active")
+
+
+def _ambient_user_value(settings):
+    value = settings.get_user_value(AMBIENT_KEY)
+    return None if value is None else bool(value.unpack())
+
+
+def brightness_on(settings, state):
+    """On only while both halves are: the key alone moves nothing without a
+    sensor on the bus, and the sensor alone is not automatic brightness."""
+    return (settings is not None and settings.get_boolean(AMBIENT_KEY)
+            and all(state))
+
+
+def remember_brightness(settings, state):
+    """The unit and the key as they were, before the first change."""
+    if original.load(BRIGHTNESS_IDENT) is not None or brightness_on(settings, state):
+        return
+    original.save(BRIGHTNESS_IDENT, {
+        "kind": BRIGHTNESS_IDENT, "unit": SENSOR_UNIT,
+        "enabled": bool(state[0]), "active": bool(state[1]),
+        "schema": POWER_SCHEMA, "key": AMBIENT_KEY,
+        "user_value": _ambient_user_value(settings)})
+
+
+def sensor_argv(on, state, record=None, secret=None):
+    """The sudo command that brings the unit where it has to be, or None
+    when it is there already - then nobody is asked for a password.
+
+    Off goes back to what the record says; without one the unit is left
+    as it is - FuriOS means it enabled, so "off" is no reason to guess."""
+    enabled, active = state
+    if on:
+        if enabled and active:
+            return None
+        verb = ["enable", "--now"]
+    else:
+        if record is None:
+            return None
+        want_enabled = bool(record.get("enabled"))
+        want_active = bool(record.get("active"))
+        if enabled == want_enabled and active == want_active:
+            return None
+        if want_enabled:
+            verb = ["enable", "--now"] if want_active else ["enable"]
+        else:
+            verb = ["disable"] + ([] if want_active else ["--now"])
+    front = (["sudo", "-S", "-p", ""] if secret is not None
+             else ["sudo", "-n"])
+    return front + ["systemctl"] + verb + [SENSOR_UNIT]
+
+
+def set_ambient(on, settings, record=None):
+    """On sets the key; off puts back what the record holds - unset where
+    it was unset, so a later FuriOS default applies again."""
+    if on:
+        settings.set_boolean(AMBIENT_KEY, True)
+    elif record is not None and record.get("user_value") is None:
+        settings.reset(AMBIENT_KEY)
+    else:
+        settings.set_boolean(AMBIENT_KEY, bool(record and record.get("user_value")))
+
+
 # --- apps that start at once -------------------------------------------------
 #
 # FuriOS names xdg-desktop-portal-wlr for screenshots and screen casts, and on
@@ -608,6 +708,16 @@ class OtherPage:
                                              "button": btn}
         page.add(grp)
 
+        grp = Adw.PreferencesGroup(title=_("Display"))
+        self.brightness_settings = power_settings()
+        self.brightness_row = Adw.SwitchRow(
+            title=_("Automatic brightness"),
+            subtitle=_("Follows the light sensor · full brightness outdoors"))
+        self.brightness_row.connect("notify::active", self.on_brightness)
+        grp.add(self.brightness_row)
+        page.add(grp)
+        self.sync_brightness()
+
         grp = Adw.PreferencesGroup(title=_("Unlock"))
         self.prompter_row = Adw.SwitchRow(
             title=_("Keyring prompt in phosh style"),
@@ -631,6 +741,89 @@ class OtherPage:
         grp.add(self.portals_row)
         page.add(grp)
         return page
+
+    def sync_brightness(self):
+        """Read back from the unit and the key - never what the finger left
+        the switch at."""
+        row = self.brightness_row
+        self._loading = True
+        if self.brightness_settings is None:
+            row.set_active(False)
+            row.set_sensitive(False)
+            row.set_subtitle(_("not available on this device"))
+        else:
+            row.set_active(brightness_on(self.brightness_settings,
+                                         sensor_state()))
+            row.set_sensitive(True)
+        self._loading = False
+
+    def on_brightness(self, row, _pspec):
+        if self._loading or self.brightness_settings is None:
+            return
+        self.apply_brightness(row.get_active())
+
+    def apply_brightness(self, wanted, secret=None):
+        state = sensor_state()
+        if wanted:
+            try:
+                remember_brightness(self.brightness_settings, state)
+            except OSError:
+                pass
+        record = original.load(BRIGHTNESS_IDENT)
+        argv = sensor_argv(wanted, state, record, secret)
+        if argv is None:
+            self.on_brightness_done(True, "", wanted, record)
+            return
+        self.brightness_row.set_sensitive(False)
+        process.run_async(
+            argv,
+            lambda ok, out: self.on_brightness_done(ok, out, wanted, record),
+            stdin=None if secret is None else (secret + "\n"))
+
+    def on_brightness_done(self, ok, out, wanted, record):
+        self.brightness_row.set_sensitive(True)
+        low = (out or "").lower()
+        if not ok and ("password is required" in low or "askpass" in low):
+            self.ask_brightness_password(wanted)
+            return
+        if not ok:
+            self.sync_brightness()
+            self.report(out or _("No output."))
+            return
+        # The key only once the sensor is there (on), or is gone (off).
+        set_ambient(wanted, self.brightness_settings, record)
+        if not wanted and record is not None:
+            original.forget(BRIGHTNESS_IDENT)
+        self.sync_brightness()
+
+    def ask_brightness_password(self, wanted):
+        entry = Adw.PasswordEntryRow(title=_("Your password (for sudo)"))
+        group = Adw.PreferencesGroup()
+        group.add(entry)
+        dlg = Adw.AlertDialog(
+            heading=_("Automatic brightness"),
+            body=_("This switches the light sensor service, so sudo asks "
+                   "for a password. It goes to sudo through a pipe and "
+                   "nowhere else."))
+        dlg.set_extra_child(group)
+        dlg.add_response("go", _("Change it"))
+        dlg.add_response("cancel", _("Cancel"))
+        dlg.set_default_response("cancel")
+        dlg.set_close_response("cancel")
+        self._brightness_pending = (wanted, entry)
+        dlg.connect("response", self.on_brightness_password)
+        dlg.present(self)
+
+    def on_brightness_password(self, _dlg, response):
+        wanted, entry = self._brightness_pending
+        self._brightness_pending = (None, None)
+        secret = entry.get_text() if entry is not None else None
+        if entry is not None:
+            entry.set_text("")
+        if response != "go" or wanted is None:
+            self.sync_brightness()
+            return
+        self.apply_brightness(wanted, secret)
 
     def on_portals_fixed(self, row, _pspec):
         if self._loading:

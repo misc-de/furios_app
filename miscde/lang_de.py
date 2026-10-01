@@ -403,6 +403,12 @@ TRANSLATIONS = {
     "Apps open right after boot": "Apps öffnen gleich nach dem Start",
     "Otherwise apps wait up to a minute for the light/dark theme · after the next restart":
         "Sonst warten Apps bis zu einer Minute auf das Hell-/Dunkel-Design · nach dem nächsten Neustart",
+    "Display": "Anzeige",
+    "Automatic brightness": "Automatische Helligkeit",
+    "Follows the light sensor · full brightness outdoors":
+        "Folgt dem Lichtsensor · draußen volle Helligkeit",
+    "This switches the light sensor service, so sudo asks for a password. It goes to sudo through a pipe and nowhere else.":
+        "Das schaltet den Lichtsensor-Dienst, deshalb fragt sudo nach einem Passwort. Es geht über eine Pipe an sudo und nirgendwohin sonst.",
     "Unlock": "Entsperren",
     "Keyring prompt in phosh style": "Schlüsselbund-Abfrage im phosh-Stil",
     "Instead of the light window after a restart":

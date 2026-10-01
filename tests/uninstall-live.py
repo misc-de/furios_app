@@ -51,6 +51,8 @@ KNOWN_WRITERS = {
     ("pages/other.py", "set_prompter_fixed"): "the keyring prompter shim",
     ("pages/other.py", "set_portals_fixed"):
         "~/.config/xdg-desktop-portal/phosh-portals.conf",
+    ("pages/other.py", "set_ambient"):
+        "gsd's ambient-enabled, with the light sensor unit beside it",
     # The records of what was there before, in ~/.config/misc-de/original/,
     # and the originals they put back - each where it was recorded.
     ("original.py", "save"): "a record under ~/.config/misc-de/original",

@@ -4851,6 +4851,131 @@ class FixesThePortalWait(unittest.TestCase):
         self.assertTrue(said)
 
 
+class FakeAmbient:
+    """gsd's ambient-enabled, unset (the default applies) or set."""
+
+    def __init__(self, user=None, default=False):
+        self.user, self.default = user, default
+
+    def get_boolean(self, key):
+        assert key == "ambient-enabled"
+        return self.default if self.user is None else self.user
+
+    def get_user_value(self, key):
+        return None if self.user is None else types.SimpleNamespace(
+            unpack=lambda: self.user)
+
+    def set_boolean(self, key, value):
+        assert key == "ambient-enabled"
+        self.user = value
+
+    def reset(self, key):
+        self.user = None
+
+
+class AutoBrightness(unittest.TestCase):
+    """The light sensor service FuriOS ships disabled, and gsd's key - the
+    switch is on only while both are, and off puts back what was there."""
+
+    def setUp(self):
+        forget_all_records()
+        self.other = switcher.pages.other
+
+    def test_on_only_with_both_halves(self):
+        on = FakeAmbient(True)
+        self.assertTrue(self.other.brightness_on(on, (True, True)))
+        self.assertFalse(self.other.brightness_on(on, (False, False)))
+        self.assertFalse(self.other.brightness_on(FakeAmbient(), (True, True)))
+        self.assertFalse(self.other.brightness_on(None, (True, True)))
+
+    def test_on_enables_and_starts_through_sudo(self):
+        argv = self.other.sensor_argv(True, (False, False))
+        self.assertEqual(["sudo", "-n", "systemctl", "enable", "--now",
+                          "iio-sensor-proxy.service"], argv)
+
+    def test_nothing_to_ask_when_the_unit_is_there_already(self):
+        self.assertIsNone(self.other.sensor_argv(True, (True, True)))
+
+    def test_off_goes_back_to_the_record(self):
+        shipped = {"enabled": False, "active": False}
+        self.assertEqual(["sudo", "-n", "systemctl", "disable", "--now",
+                          "iio-sensor-proxy.service"],
+                         self.other.sensor_argv(False, (True, True), shipped))
+        # Enabled before the switch was first touched: stays enabled.
+        self.assertIsNone(self.other.sensor_argv(
+            False, (True, True), {"enabled": True, "active": True}))
+        # No record: no guess either, the unit stays as it is.
+        self.assertIsNone(self.other.sensor_argv(False, (True, True)))
+
+    def test_the_password_is_never_an_argument(self):
+        argv = self.other.sensor_argv(True, (False, False), None, "hunter2")
+        self.assertEqual(argv[:4], ["sudo", "-S", "-p", ""])
+        self.assertNotIn("hunter2", argv)
+
+    def test_an_unset_key_is_reset_not_pinned(self):
+        settings = FakeAmbient()
+        self.other.remember_brightness(settings, (False, False))
+        record = original.load(self.other.BRIGHTNESS_IDENT)
+        self.assertIsNone(record["user_value"])
+        self.other.set_ambient(True, settings, record)
+        self.assertTrue(settings.user)
+        self.other.set_ambient(False, settings, record)
+        self.assertIsNone(settings.user)
+
+    def test_the_first_original_is_the_one_that_counts(self):
+        self.other.remember_brightness(FakeAmbient(False), (False, False))
+        self.other.remember_brightness(FakeAmbient(True), (True, True))
+        record = original.load(self.other.BRIGHTNESS_IDENT)
+        self.assertIs(record["user_value"], False)
+        self.assertFalse(record["enabled"])
+
+    def window(self, settings, state, results):
+        win = switcher.Window(switcher.Adw.Application())
+        win.brightness_settings = settings
+        win.brightness_row = Recording()
+        ran = []
+
+        def run_async(argv, done, stdin=None, **_kw):
+            ran.append((argv, stdin))
+            ok, out = results.pop(0)
+            if ok:
+                state[:] = [not any("disable" in a for a in argv)] * 2
+            done(ok, out)
+
+        self.enterContext(mock.patch.object(self.other, "sensor_state",
+                                            lambda: tuple(state)))
+        self.enterContext(mock.patch.object(switcher.process, "run_async",
+                                            run_async))
+        return win, ran
+
+    def test_the_switch_round_trip_ends_where_it_began(self):
+        settings, state = FakeAmbient(), [False, False]
+        win, ran = self.window(settings, state, [(True, ""), (True, "")])
+        win._loading = False
+        win.apply_brightness(True)
+        self.assertTrue(win.brightness_row.get_active())
+        self.assertTrue(settings.user)
+        win.apply_brightness(False)
+        self.assertFalse(win.brightness_row.get_active())
+        self.assertEqual([False, False], state)
+        self.assertIsNone(settings.user)
+        self.assertIsNone(original.load(self.other.BRIGHTNESS_IDENT))
+        self.assertEqual(2, len(ran))
+
+    def test_a_wanted_password_asks_and_leaves_the_key_alone(self):
+        settings, state = FakeAmbient(), [False, False]
+        win, ran = self.window(settings, state,
+                               [(False, "sudo: a password is required")])
+        asked = []
+        self.enterContext(mock.patch.object(
+            switcher.Window, "ask_brightness_password",
+            lambda self, wanted: asked.append(wanted)))
+        win._loading = False
+        win.apply_brightness(True)
+        self.assertEqual([True], asked)
+        self.assertIsNone(settings.user)
+
+
 class FakePluginSettings:
     def __init__(self, names):
         self.names = list(names)
