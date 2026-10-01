@@ -4977,14 +4977,14 @@ class AutoBrightness(unittest.TestCase):
 
 
 class IgnoresTheNetworkSwitch(unittest.TestCase):
-    """furios-nwk-mask from the Switches tab: a system unit, through sudo."""
+    """furios-switch-mask from the Switches tab: a system unit, through sudo."""
 
     def setUp(self):
         self.sw = importlib.import_module("miscde.pages.switches")
 
     def test_on_and_off_are_enable_and_disable_now(self):
         self.assertEqual(["sudo", "-n", "systemctl", "enable", "--now",
-                          "furios-nwk-mask.service"], self.sw.nwk_mask_argv(True))
+                          "furios-switch-mask.service"], self.sw.nwk_mask_argv(True))
         self.assertEqual("disable", self.sw.nwk_mask_argv(False)[3])
 
     def test_the_password_is_never_an_argument(self):

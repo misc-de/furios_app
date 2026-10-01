@@ -11,11 +11,13 @@ from gi.repository import Adw
 from .. import process
 from ..i18n import _
 
-# furios_killswitch's furios-nwk-mask: Android stops reading the network
-# slider. For a slider with a loose contact - this phone's flapped 65 times
-# in an afternoon untouched (1.10.2026), and on 30.9. that coincided with
-# two modem resets. Installed with furios_killswitch, never enabled there.
-NWK_MASK_UNIT = "furios-nwk-mask.service"
+# furios_killswitch's furios-switch-mask: Android stops reading the camera
+# and network sliders. For sliders with a loose contact - this phone's network
+# one flapped 65 times in an afternoon untouched (1.10.2026), and on 30.9.
+# that coincided with two modem resets. The microphone slider is a real line
+# cut with nothing to read, so it stays out of this. Installed with
+# furios_killswitch, never enabled there.
+NWK_MASK_UNIT = "furios-switch-mask.service"
 NWK_MASK_UNIT_FILE = "/etc/systemd/system/" + NWK_MASK_UNIT
 
 
@@ -58,7 +60,8 @@ class SwitchesPage:
         # First, because it is the one somebody comes here for when the
         # phone keeps losing its network by itself.
         grp = Adw.PreferencesGroup()
-        self.sw_nwk_mask = Adw.SwitchRow(title=_("Ignore the network switch"))
+        self.sw_nwk_mask = Adw.SwitchRow(
+            title=_("Ignore the camera and network switches"))
         self.sw_nwk_mask.connect("notify::active", self.on_nwk_mask)
         grp.add(self.sw_nwk_mask)
         spage.add(grp)
@@ -159,8 +162,8 @@ class SwitchesPage:
             self.sync_nwk_mask()
             self.report(out or _("No output."))
             return
-        self.toast(_("The network switch is ignored now") if wanted
-                   else _("The network switch works again"))
+        self.toast(_("The camera and network switches are ignored now") if wanted
+                   else _("The camera and network switches work again"))
         self.sync_nwk_mask()
 
     def ask_nwk_mask_password(self, wanted):
@@ -168,8 +171,8 @@ class SwitchesPage:
         group = Adw.PreferencesGroup()
         group.add(entry)
         dlg = Adw.AlertDialog(
-            heading=_("Ignore the network switch"),
-            body=_("This hangs a file into the Android container, so sudo "
+            heading=_("Ignore the camera and network switches"),
+            body=_("This hangs two files into the Android container, so sudo "
                    "asks for a password. It goes to sudo through a pipe and "
                    "nowhere else."))
         dlg.set_extra_child(group)

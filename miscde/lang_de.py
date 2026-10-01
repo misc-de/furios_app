@@ -403,12 +403,12 @@ TRANSLATIONS = {
     "Apps open right after boot": "Apps öffnen gleich nach dem Start",
     "Otherwise apps wait up to a minute for the light/dark theme · after the next restart":
         "Sonst warten Apps bis zu einer Minute auf das Hell-/Dunkel-Design · nach dem nächsten Neustart",
-    "Ignore the network switch": "Netzschalter ignorieren",
+    "Ignore the camera and network switches": "Kamera- und Netzschalter ignorieren",
     "Needs the current furios_killswitch": "Braucht das aktuelle furios_killswitch",
-    "The network switch is ignored now": "Der Netzschalter wird jetzt ignoriert",
-    "The network switch works again": "Der Netzschalter wirkt wieder",
-    "This hangs a file into the Android container, so sudo asks for a password. It goes to sudo through a pipe and nowhere else.":
-        "Das hängt eine Datei in den Android-Container ein, deshalb fragt sudo nach einem Passwort. Es geht über eine Pipe an sudo und nirgendwohin sonst.",
+    "The camera and network switches are ignored now": "Kamera- und Netzschalter werden jetzt ignoriert",
+    "The camera and network switches work again": "Kamera- und Netzschalter wirken wieder",
+    "This hangs two files into the Android container, so sudo asks for a password. It goes to sudo through a pipe and nowhere else.":
+        "Das hängt zwei Dateien in den Android-Container ein, deshalb fragt sudo nach einem Passwort. Es geht über eine Pipe an sudo und nirgendwohin sonst.",
     "Display": "Anzeige",
     "Automatic brightness": "Automatische Helligkeit",
     "Follows the light sensor · full brightness outdoors":
