@@ -3,11 +3,39 @@
 """The Switches page: the three sliders on the case."""
 
 import json
+import os
+import subprocess
 
 from gi.repository import Adw
 
 from .. import process
 from ..i18n import _
+
+# furios_killswitch's furios-nwk-mask: Android stops reading the network
+# slider. For a slider with a loose contact - this phone's flapped 65 times
+# in an afternoon untouched (1.10.2026), and on 30.9. that coincided with
+# two modem resets. Installed with furios_killswitch, never enabled there.
+NWK_MASK_UNIT = "furios-nwk-mask.service"
+NWK_MASK_UNIT_FILE = "/etc/systemd/system/" + NWK_MASK_UNIT
+
+
+def nwk_mask_installed(path=NWK_MASK_UNIT_FILE):
+    return os.path.exists(path)
+
+
+def nwk_mask_enabled():
+    try:
+        return subprocess.run(["systemctl", "is-enabled", "--quiet", NWK_MASK_UNIT],
+                              timeout=5).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def nwk_mask_argv(on, secret=None):
+    front = (["sudo", "-S", "-p", ""] if secret is not None
+             else ["sudo", "-n"])
+    return front + ["systemctl", "enable" if on else "disable", "--now",
+                    NWK_MASK_UNIT]
 
 
 class SwitchesPage:
@@ -26,6 +54,15 @@ class SwitchesPage:
         page can actually answer: what the switch took down with it.
         """
         spage = Adw.PreferencesPage()
+
+        # First, because it is the one somebody comes here for when the
+        # phone keeps losing its network by itself.
+        grp = Adw.PreferencesGroup()
+        self.sw_nwk_mask = Adw.SwitchRow(title=_("Ignore the network switch"))
+        self.sw_nwk_mask.connect("notify::active", self.on_nwk_mask)
+        grp.add(self.sw_nwk_mask)
+        spage.add(grp)
+        self.sync_nwk_mask()
 
         # No paragraphs on this page. Each group is a switch, each row says
         # what it is, and what needed explaining sits in the row's own
@@ -86,6 +123,74 @@ class SwitchesPage:
         self.sw_rows = [self.sw_row, self.sw_wifi, self.sw_bt,
                         self.sw_restore_btn]
         return spage
+
+    def sync_nwk_mask(self):
+        row = self.sw_nwk_mask
+        self._loading = True
+        if not nwk_mask_installed():
+            row.set_active(False)
+            row.set_sensitive(False)
+            row.set_subtitle(_("Needs the current furios_killswitch"))
+        else:
+            on = nwk_mask_enabled()
+            row.set_active(on)
+            row.set_sensitive(True)
+            row.set_subtitle("")
+        self._loading = False
+
+    def on_nwk_mask(self, row, _param):
+        if getattr(self, "_loading", False):
+            return
+        self.apply_nwk_mask(row.get_active())
+
+    def apply_nwk_mask(self, wanted, secret=None):
+        self.sw_nwk_mask.set_sensitive(False)
+        process.run_async(
+            nwk_mask_argv(wanted, secret),
+            lambda ok, out: self.on_nwk_mask_done(ok, out, wanted),
+            stdin=None if secret is None else (secret + "\n"))
+
+    def on_nwk_mask_done(self, ok, out, wanted):
+        low = (out or "").lower()
+        if not ok and ("password is required" in low or "askpass" in low):
+            self.ask_nwk_mask_password(wanted)
+            return
+        if not ok:
+            self.sync_nwk_mask()
+            self.report(out or _("No output."))
+            return
+        self.toast(_("The network switch is ignored now") if wanted
+                   else _("The network switch works again"))
+        self.sync_nwk_mask()
+
+    def ask_nwk_mask_password(self, wanted):
+        entry = Adw.PasswordEntryRow(title=_("Your password (for sudo)"))
+        group = Adw.PreferencesGroup()
+        group.add(entry)
+        dlg = Adw.AlertDialog(
+            heading=_("Ignore the network switch"),
+            body=_("This hangs a file into the Android container, so sudo "
+                   "asks for a password. It goes to sudo through a pipe and "
+                   "nowhere else."))
+        dlg.set_extra_child(group)
+        dlg.add_response("go", _("Change it"))
+        dlg.add_response("cancel", _("Cancel"))
+        dlg.set_default_response("cancel")
+        dlg.set_close_response("cancel")
+        self._nwk_mask_pending = (wanted, entry)
+        dlg.connect("response", self.on_nwk_mask_password)
+        dlg.present(self)
+
+    def on_nwk_mask_password(self, _dlg, response):
+        wanted, entry = self._nwk_mask_pending
+        self._nwk_mask_pending = (None, None)
+        secret = entry.get_text() if entry is not None else None
+        if entry is not None:
+            entry.set_text("")
+        if response != "go" or wanted is None:
+            self.sync_nwk_mask()
+            return
+        self.apply_nwk_mask(wanted, secret)
 
     def on_switches_status(self, ok, out):
         if not ok:
@@ -195,7 +300,11 @@ class SwitchesPage:
         if self.busy:
             return
         self.set_busy(True)
-        self.run_chain([
+        # The mask first: it is the one change here that reaches Android.
+        # sudo -n - a password it wants stops the chain and is reported.
+        mask = ([nwk_mask_argv(False)]
+                if nwk_mask_installed() and nwk_mask_enabled() else [])
+        self.run_chain(mask + [
             [self.live["switches"], "config", "wifi", "off"],
             [self.live["switches"], "config", "bluetooth", "off"],
             [self.live["switches"], "icons", "off"],
@@ -210,4 +319,5 @@ class SwitchesPage:
         else:
             self.toast(_("Could not restore the shipped state"))
             self.report(out or _("No output."))
+        self.sync_nwk_mask()
         self.refresh()

@@ -4976,6 +4976,73 @@ class AutoBrightness(unittest.TestCase):
         self.assertIsNone(settings.user)
 
 
+class IgnoresTheNetworkSwitch(unittest.TestCase):
+    """furios-nwk-mask from the Switches tab: a system unit, through sudo."""
+
+    def setUp(self):
+        self.sw = importlib.import_module("miscde.pages.switches")
+
+    def test_on_and_off_are_enable_and_disable_now(self):
+        self.assertEqual(["sudo", "-n", "systemctl", "enable", "--now",
+                          "furios-nwk-mask.service"], self.sw.nwk_mask_argv(True))
+        self.assertEqual("disable", self.sw.nwk_mask_argv(False)[3])
+
+    def test_the_password_is_never_an_argument(self):
+        argv = self.sw.nwk_mask_argv(True, "hunter2")
+        self.assertEqual(argv[:4], ["sudo", "-S", "-p", ""])
+        self.assertNotIn("hunter2", argv)
+
+    def window(self, installed, enabled, results):
+        win = switcher.Window(switcher.Adw.Application())
+        win.sw_nwk_mask = Recording()
+        state = {"enabled": enabled}
+        ran = []
+
+        def run_async(argv, done, stdin=None, **_kw):
+            ran.append((argv, stdin))
+            ok, out = results.pop(0)
+            if ok:
+                state["enabled"] = "enable" in argv
+            done(ok, out)
+
+        self.enterContext(mock.patch.object(self.sw, "nwk_mask_installed",
+                                            lambda: installed))
+        self.enterContext(mock.patch.object(self.sw, "nwk_mask_enabled",
+                                            lambda: state["enabled"]))
+        self.enterContext(mock.patch.object(switcher.process, "run_async",
+                                            run_async))
+        return win, ran
+
+    def test_without_the_unit_the_row_is_closed(self):
+        win, _ran = self.window(False, False, [])
+        win.sync_nwk_mask()
+        self.assertFalse(win.sw_nwk_mask.sensitive)
+        self.assertFalse(win.sw_nwk_mask.get_active())
+
+    def test_the_row_follows_systemd_not_the_finger(self):
+        win, ran = self.window(True, False, [(True, ""), (False, "boom")])
+        said = []
+        self.enterContext(mock.patch.object(switcher.Window, "report",
+                                            lambda self, text: said.append(text)))
+        win._loading = False
+        win.apply_nwk_mask(True)
+        self.assertTrue(win.sw_nwk_mask.get_active())
+        win.apply_nwk_mask(False)
+        # disable failed: still enabled, and said
+        self.assertTrue(win.sw_nwk_mask.get_active())
+        self.assertEqual(["boom"], said)
+
+    def test_a_wanted_password_asks(self):
+        win, _ran = self.window(True, False,
+                                [(False, "sudo: a password is required")])
+        asked = []
+        self.enterContext(mock.patch.object(
+            switcher.Window, "ask_nwk_mask_password",
+            lambda self, wanted: asked.append(wanted)))
+        win.apply_nwk_mask(True)
+        self.assertEqual([True], asked)
+
+
 class FakePluginSettings:
     def __init__(self, names):
         self.names = list(names)
