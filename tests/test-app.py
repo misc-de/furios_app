@@ -669,6 +669,30 @@ class RunsAudioctl(unittest.TestCase):
         self.assertEqual(lines, ["step one", "step two"])
         self.assertEqual(done, [(True, "step one\nstep two")])
 
+    def test_after_a_timeout_the_lines_are_read_but_not_passed_on(self):
+        """An orphan's lines wrote over the header after the batch had
+        already been reported as failed. Still drained - a program nobody
+        reads from blocks - just no longer handed on."""
+        self.arrange(lines=["one", "two", "three"])
+        timers = []
+        self.enterContext(mock.patch.object(
+            switcher.GLib, "timeout_add_seconds",
+            lambda _s, fn: timers.append(fn) or 7))
+        self.enterContext(mock.patch.object(switcher.GLib, "source_remove",
+                                            lambda _id: None))
+        lines, done = [], []
+
+        def on_line(line):
+            lines.append(line)
+            if line == "one":
+                timers[0]()                  # the wait runs out here
+
+        switcher.process.run_async(["./install.sh"],
+                                   lambda ok, out: done.append(ok),
+                                   on_line=on_line, timeout=5)
+        self.assertEqual(["one"], lines)
+        self.assertEqual([False], done)
+
     def test_a_command_that_fails_is_reported_as_such(self):
         self.arrange(lines=["went wrong"], ok=False)
         seen = []
@@ -6259,6 +6283,20 @@ class PullsOnlyFromItsOwnRepository(unittest.TestCase):
                 argv = switcher.components.source_steps(comp, "update", path)[0][0][0]
                 done = subprocess_real.run(argv, capture_output=True, text=True)
                 self.assertEqual(passes, done.returncode == 0, done.stdout)
+
+
+class StaysOpenWhileItInstalls(unittest.TestCase):
+    def test_closing_is_refused_while_an_installer_runs(self):
+        win = switcher.Window(switcher.Adw.Application())
+        said = []
+        self.enterContext(mock.patch.object(switcher.Window, "toast",
+                                            lambda self, text: said.append(text)))
+        win.installing = True
+        self.assertTrue(win.on_close_request(win))
+        self.assertTrue(said)
+        win.forget_password(False)
+        self.assertFalse(win.installing)
+        self.assertFalse(win.on_close_request(win))
 
 
 if __name__ == "__main__":

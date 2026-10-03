@@ -134,7 +134,10 @@ def run_async(argv, on_done, on_line=None, timeout=CALL_TIMEOUT, cwd=None,
             proc.wait_async(None, waited)
             return
         line = line.strip()
-        if line:
+        # Read on after a timeout too - a program left without a reader
+        # blocks once the pipe is full - but nobody is told any more: the
+        # caller has its answer, and an orphan's lines would write over it.
+        if line and not state["done"]:
             collected.append(line)
             on_line(line)
         read_next()

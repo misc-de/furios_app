@@ -378,6 +378,7 @@ class InstallPage:
                                            u["path"], helper):
                 rest.append((u["comp"], step))
         self.set_busy(True)
+        self.installing = True
         self.update_progress(_("working …"))
 
         def step(ok=True, out=""):
@@ -420,6 +421,7 @@ class InstallPage:
         without a question in that time. Only after a failure: on success the
         chain's own last step has already dropped it.
         """
+        self.installing = False
         if getattr(self, "askpass", None) is None:
             return
         self.askpass.stop()
@@ -544,6 +546,7 @@ class InstallPage:
             self.component_says(comp, _("no password helper: {error}").format(error=self.askpass.error))
         self.component_says(comp, _("working …"))
         self.set_busy(True)
+        self.installing = True
 
         rest = list(steps)
 

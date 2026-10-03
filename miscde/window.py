@@ -40,7 +40,9 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         super().__init__(application=app, title="misc-de")
         self.set_default_size(360, 480)
         self.busy = False
+        self.installing = False
         self._syncing = False
+        self.connect("close-request", self.on_close_request)
         # Which way back is waiting for an answer, set while the question is
         # on screen. A pair, never a bare handler: the button belongs with it.
         self._restore_pending = (None, None)
@@ -577,6 +579,17 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         if ours or fault:
             shown.add(key)
         widget.set_visible(key in shown)
+
+    def on_close_request(self, _win):
+        """Not while an installer runs. Closing takes the pipe its output
+        goes to with it: the installer dies at its next line, half-way
+        through what it copies as root, and the password socket goes with
+        the window. A refusal with a reason is the lesser surprise."""
+        if self.installing:
+            self.toast(_("An install is running - the window can be closed "
+                         "once it is done"))
+            return True
+        return False
 
     def offered(self):
         """The keys offer() has shown so far in this window."""
