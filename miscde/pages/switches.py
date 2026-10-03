@@ -146,27 +146,35 @@ class SwitchesPage:
             return
         self.apply_nwk_mask(row.get_active())
 
-    def apply_nwk_mask(self, wanted, secret=None):
+    def apply_nwk_mask(self, wanted, secret=None, then=None):
+        """Switch the mask, asking for a password if sudo wants one.
+
+        `then` is for the way back, which has more to do afterwards: it is
+        handed (ok, out) once the mask is settled - switched, failed or
+        cancelled - and takes over the reporting of a failure.
+        """
         self.sw_nwk_mask.set_sensitive(False)
         process.run_async(
             nwk_mask_argv(wanted, secret),
-            lambda ok, out: self.on_nwk_mask_done(ok, out, wanted),
+            lambda ok, out: self.on_nwk_mask_done(ok, out, wanted, then),
             stdin=None if secret is None else (secret + "\n"))
 
-    def on_nwk_mask_done(self, ok, out, wanted):
+    def on_nwk_mask_done(self, ok, out, wanted, then=None):
         low = (out or "").lower()
         if not ok and ("password is required" in low or "askpass" in low):
-            self.ask_nwk_mask_password(wanted)
+            self.ask_nwk_mask_password(wanted, then)
+            return
+        self.sync_nwk_mask()
+        if then is not None:
+            then(ok, out)
             return
         if not ok:
-            self.sync_nwk_mask()
             self.report(out or _("No output."))
             return
         self.toast(_("The camera and network switches are ignored now") if wanted
                    else _("The camera and network switches work again"))
-        self.sync_nwk_mask()
 
-    def ask_nwk_mask_password(self, wanted):
+    def ask_nwk_mask_password(self, wanted, then=None):
         entry = Adw.PasswordEntryRow(title=_("Your password (for sudo)"))
         group = Adw.PreferencesGroup()
         group.add(entry)
@@ -180,20 +188,22 @@ class SwitchesPage:
         dlg.add_response("cancel", _("Cancel"))
         dlg.set_default_response("cancel")
         dlg.set_close_response("cancel")
-        self._nwk_mask_pending = (wanted, entry)
+        self._nwk_mask_pending = (wanted, entry, then)
         dlg.connect("response", self.on_nwk_mask_password)
         dlg.present(self)
 
     def on_nwk_mask_password(self, _dlg, response):
-        wanted, entry = self._nwk_mask_pending
-        self._nwk_mask_pending = (None, None)
+        wanted, entry, then = self._nwk_mask_pending
+        self._nwk_mask_pending = (None, None, None)
         secret = entry.get_text() if entry is not None else None
         if entry is not None:
             entry.set_text("")
         if response != "go" or wanted is None:
             self.sync_nwk_mask()
+            if then is not None:
+                then(False, _("Cancelled - nothing was changed"))
             return
-        self.apply_nwk_mask(wanted, secret)
+        self.apply_nwk_mask(wanted, secret, then)
 
     def on_switches_status(self, ok, out):
         if not ok:
@@ -303,16 +313,27 @@ class SwitchesPage:
         if self.busy:
             return
         self.set_busy(True)
-        # The mask first: it is the one change here that reaches Android.
-        # sudo -n - a password it wants stops the chain and is reported.
-        mask = ([nwk_mask_argv(False)]
-                if nwk_mask_installed() and nwk_mask_enabled() else [])
-        self.run_chain(mask + [
+        rest = [
             [self.live["switches"], "config", "wifi", "off"],
             [self.live["switches"], "config", "bluetooth", "off"],
             [self.live["switches"], "icons", "off"],
             ["systemctl", "--user", "disable", "--now", "killswitch-indicator"],
-        ], self.on_switches_restored)
+        ]
+
+        def after_mask(ok, out):
+            if not ok:
+                self.on_switches_restored(False, out)
+                return
+            self.run_chain(rest, self.on_switches_restored)
+
+        # The mask first: it is the one change here that reaches Android. It
+        # goes the way its own switch goes, password question included - with
+        # a bare "sudo -n" here the way back failed at its first step on every
+        # phone whose sudo asks, and undid nothing.
+        if nwk_mask_installed() and nwk_mask_enabled():
+            self.apply_nwk_mask(False, then=after_mask)
+        else:
+            after_mask(True, "")
 
     def on_switches_restored(self, ok, out):
         self.set_busy(False)

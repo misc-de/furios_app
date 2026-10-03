@@ -3190,6 +3190,48 @@ class TheWindow(unittest.TestCase):
         self.assertEqual(True, self.win.update_btn.visible)
         self.assertTrue(any("Could not" in t for t in self.toast_texts()))
 
+    def test_a_failed_root_chain_drops_the_ticket_it_never_reached(self):
+        """The chain's last step is "sudo -k", and a chain stops at its first
+        failure. Whatever way out - a batch or a single install, a wrong step
+        or a timeout - no ticket may outlive it, or every "sudo -n" switch in
+        the window runs as root without asking."""
+        class Helper:
+            stopped = False
+            def stop(self):
+                self.stopped = True
+        comp = self.component()
+        for finish in (lambda: self.win.updates_done(False, "boom"),
+                       lambda: self.win.component_done(comp, False, "boom")):
+            self.ran.clear()
+            helper = Helper()
+            self.win.askpass = helper
+            self.win.update_btn = Recording()
+            self.win.update_label = Recording()
+            self.catch_execv()
+            finish()
+            self.assertTrue(helper.stopped)
+            self.assertIsNone(self.win.askpass)
+            self.assertIn(["sudo", "-k"], [argv for argv, *_r in self.ran])
+
+    def test_a_chain_that_got_through_does_not_drop_the_ticket_twice(self):
+        class Helper:
+            def stop(self):
+                pass
+        self.win.updates = {"x": {}}
+        self.win.askpass = Helper()
+        self.win.update_btn = Recording()
+        self.win.update_label = Recording()
+        self.catch_execv()
+        self.win.updates_done(True, "")
+        self.assertNotIn(["sudo", "-k"], [argv for argv, *_r in self.ran])
+
+    def test_no_root_no_ticket_to_drop(self):
+        self.win.askpass = None
+        self.win.update_btn = Recording()
+        self.win.update_label = Recording()
+        self.win.updates_done(False, "boom")
+        self.assertEqual([], [a for a, *_r in self.ran if a[:1] == ["sudo"]])
+
     def test_the_restart_replaces_this_process_instead_of_starting_a_second(self):
         """A second instance hands its activation to the one already running -
         it would present the OLD window and then die with it."""
@@ -3846,6 +3888,7 @@ class TheWindow(unittest.TestCase):
         and the shell's plugin list, systemd holds the unit. The sliders are
         not among them - they are hardware and nothing here reaches them."""
         win = self.switches_win()
+        self.mask_state(False)
         self.ran.clear()
         win.busy = False
         win.on_switches_restore(None)
@@ -3860,9 +3903,69 @@ class TheWindow(unittest.TestCase):
         self.assertTrue(any("disable --now killswitch-indicator" in c
                             for c in ran), ran)
 
+    def mask_state(self, enabled):
+        """The mask's state is the phone's - systemctl on this phone answers
+        whatever it was last set to, and the test then depended on it."""
+        sw = importlib.import_module("miscde.pages.switches")
+        self.enterContext(mock.patch.object(sw, "nwk_mask_installed",
+                                            lambda: True))
+        self.enterContext(mock.patch.object(sw, "nwk_mask_enabled",
+                                            lambda: enabled))
+
+    def test_the_way_back_takes_the_mask_off_through_the_password(self):
+        """sudo asks on this phone. The way back used a bare "sudo -n" for
+        the mask and failed at its first step - nothing was undone."""
+        win = self.switches_win()
+        self.mask_state(True)
+        win.sw_nwk_mask = Recording()
+        asked = []
+        self.enterContext(mock.patch.object(
+            switcher.Window, "ask_nwk_mask_password",
+            lambda self, wanted, then=None: asked.append((wanted, then))))
+        self.ran.clear()
+        win.busy = False
+        win.on_switches_restore(None)
+        argv, done, _l, _kw = self.ran.pop(0)
+        self.assertEqual(["sudo", "-n", "systemctl", "disable"], argv[:4])
+        done(False, "sudo: a password is required")
+        self.assertEqual(1, len(asked))
+        wanted, then = asked[0]
+        self.assertFalse(wanted)
+        self.assertEqual([], self.ran, "went on before the mask was off")
+        then(True, "")                       # the password worked
+        commands = []
+        while self.ran:
+            argv, done, _l, _kw = self.ran.pop(0)
+            commands.append(" ".join(argv))
+            done(True, "")
+        self.assertTrue(any("disable --now killswitch-indicator" in c
+                            for c in commands), commands)
+        self.assertFalse(win.busy)
+
+    def test_a_cancelled_password_stops_the_way_back(self):
+        win = self.switches_win()
+        self.mask_state(True)
+        win.sw_nwk_mask = Recording()
+        win._nwk_mask_pending = (None, None, None)
+        self.ran.clear()
+        win.busy = False
+        win.on_switches_restore(None)
+        _argv, done, _l, _kw = self.ran.pop(0)
+        self.enterContext(mock.patch.object(
+            switcher.Window, "ask_nwk_mask_password",
+            lambda self, wanted, then=None: setattr(
+                self, "_nwk_mask_pending", (wanted, None, then))))
+        done(False, "sudo: a password is required")
+        win.on_nwk_mask_password(None, "cancel")
+        self.assertEqual([], [r for r in self.ran
+                              if "config" in r[0] or "disable" in r[0]])
+        self.assertFalse(win.busy)
+        self.assertIn("Could not", str(win.toasts.text))
+
     def test_a_step_that_fails_stops_the_rest(self):
         """Half done is reported, never passed off as success."""
         win = self.switches_win()
+        self.mask_state(False)
         self.ran.clear()
         win.busy = False
         win.on_switches_restore(None)
@@ -5038,7 +5141,7 @@ class IgnoresTheNetworkSwitch(unittest.TestCase):
         asked = []
         self.enterContext(mock.patch.object(
             switcher.Window, "ask_nwk_mask_password",
-            lambda self, wanted: asked.append(wanted)))
+            lambda self, wanted, then=None: asked.append(wanted)))
         win.apply_nwk_mask(True)
         self.assertEqual([True], asked)
 

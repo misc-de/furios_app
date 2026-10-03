@@ -342,6 +342,7 @@ TRANSLATIONS = {
     "Shipped state - no colouring": "Auslieferungszustand - keine Einfärbung",
     "Could not restore the shipped state":
         "Der Auslieferungszustand konnte nicht hergestellt werden",
+    "Cancelled - nothing was changed": "Abgebrochen - nichts wurde geändert",
     "Stops the colouring and the time left, takes them out of the next boot "
     "and out of the top bar. What the battery reports is untouched - that is "
     "the kernel's.":
