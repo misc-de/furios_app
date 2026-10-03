@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: MIT
 """Running a helper without freezing the window."""
 
+import json
+
 from gi.repository import Gio, GLib
 from .i18n import _
 
@@ -145,3 +147,26 @@ def run_async(argv, on_done, on_line=None, timeout=CALL_TIMEOUT, cwd=None,
             on_done(False, str(err))
 
     read_next()
+
+
+def json_object(out):
+    """A tool's JSON answer as a dict, or None.
+
+    stderr comes through the same pipe (STDERR_MERGE), so one warning line
+    from Python, GLib or the locale in front of the object made json.loads
+    fail and the page say "unreadable answer" over a perfectly good one. The
+    object is taken from the first line that opens one. Valid JSON that is
+    not an object - null, a list - is no answer either: every reader goes on
+    with .get().
+    """
+    text = out or ""
+    starts = [0] + [i + 1 for i, c in enumerate(text) if c == "\n"]
+    for at in starts:
+        if not text[at:].lstrip(" \t").startswith("{"):
+            continue
+        try:
+            data = json.loads(text[at:])
+        except ValueError:
+            continue
+        return data if isinstance(data, dict) else None
+    return None

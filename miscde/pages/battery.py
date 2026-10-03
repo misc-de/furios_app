@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: MIT
 """The Battery page: what the battery icon is allowed to say."""
 
-import json
 
 from gi.repository import Adw, GLib, Gtk
 
@@ -172,11 +171,11 @@ class BatteryPage:
             for row in self.batt_switches.values():
                 row.set_sensitive(False)
             return
-        try:
-            data = json.loads(out)
-        except ValueError:
+        data = process.json_object(out)
+        if data is None:
             return
-        self.batt_cfg = data.get("config", {})
+        cfg = data.get("config", {})
+        self.batt_cfg = cfg if isinstance(cfg, dict) else {}
         self.sync_battery_switches()
 
     def sync_battery_switches(self):
@@ -196,8 +195,10 @@ class BatteryPage:
             row.set_active(on)
             self.show_sliders(row, on)
             for _label, ckey, _lo, _hi, _st, _di, _un in sliders:
-                if ckey in cfg:
+                try:
                     self.batt_scales[ckey].set_value(float(cfg[ckey]))
+                except (KeyError, TypeError, ValueError):
+                    pass                     # absent or not a number: left as is
         self._loading = False
 
     def on_battery_active(self, ok, out):

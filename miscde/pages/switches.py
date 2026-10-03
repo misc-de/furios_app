@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: MIT
 """The Switches page: the three sliders on the case."""
 
-import json
 import os
 import subprocess
 
@@ -215,9 +214,8 @@ class SwitchesPage:
         if not ok:
             self.sw_row.set_subtitle(_("killswitch-indicator did not answer"))
             return
-        try:
-            data = json.loads(out)
-        except ValueError:
+        data = process.json_object(out)
+        if data is None:
             self.sw_row.set_subtitle(_("unreadable answer"))
             return
 

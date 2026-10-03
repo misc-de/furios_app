@@ -3,7 +3,6 @@
 """The Security page: locks for a kernel that gets no more fixes, and one
 for the lock screen."""
 
-import json
 
 from gi.repository import Adw, Gtk
 
@@ -70,9 +69,8 @@ class SecurityPage:
         if not ok:
             self.say_security_unread(_("secctl did not answer"))
             return
-        try:
-            data = json.loads(out)
-        except ValueError:
+        data = process.json_object(out)
+        if data is None:
             self.say_security_unread(_("unreadable answer"))
             return
 

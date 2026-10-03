@@ -6185,6 +6185,30 @@ class OffersOnlyWhatIsBroken(unittest.TestCase):
         self.assertFalse(win.brightness_group.visible)
 
 
+class ReadsJsonPastAWarning(unittest.TestCase):
+    """stderr shares the pipe. A warning in front of the object is not an
+    unreadable answer, and an answer that is not an object is none."""
+
+    def test_the_object_after_a_warning_line_is_read(self):
+        out = 'Gtk-WARNING: cannot open display\n{"a": 1,\n "b": [2]}\n'
+        self.assertEqual({"a": 1, "b": [2]}, switcher.process.json_object(out))
+
+    def test_what_is_not_an_object_is_no_answer(self):
+        for out in ("null", "[1, 2]", "", None, "garbage", '{"a": '):
+            with self.subTest(out=out):
+                self.assertIsNone(switcher.process.json_object(out))
+
+    def test_the_pages_survive_a_null(self):
+        win = switcher.Window(switcher.Adw.Application())
+        win.sw_row = Recording()
+        win.on_switches_status(True, "null")
+        self.assertIn("unreadable", win.sw_row.subtitle)
+        win.sec_switches = {k: Recording() for k, _t, _s in switcher.Window.PARTS}
+        win.on_security_status(True, "[]")
+        self.assertTrue(all("unreadable" in r.subtitle
+                            for r in win.sec_switches.values()))
+
+
 if __name__ == "__main__":
     # Built by hand rather than through unittest.main(), which looks for tests
     # in sys.modules["__main__"] - and under the coverage tracer that is the
