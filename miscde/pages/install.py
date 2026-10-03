@@ -347,8 +347,8 @@ class InstallPage:
         One Askpass for the lot rather than one each: it is the socket sudo
         asks at, and setting it up per tool would mean the password being
         handed over four times for one decision. Each tool still drops its
-        own ticket at the end of its own steps - that is component_steps'
-        doing and it stays, so a failure half-way leaves no ticket behind.
+        own ticket at the end of its own steps, and forget_password drops it
+        when a failure stopped the chain before that step.
         """
         if self.busy or not self.updates:
             return
@@ -406,6 +406,23 @@ class InstallPage:
         self.update_label.set_text(words[:48])
         self.update_btn.set_tooltip_text(words)
 
+    def forget_password(self, ok):
+        """Socket down, helper gone - and after a failure the ticket too.
+
+        The chain ends in "sudo -k", but a chain stops at its first failing
+        step: an installer that failed or ran out of time never reached it,
+        and the ticket "sudo -S -v" took stayed valid for its full timeout.
+        Every "sudo -n" switch in this window would have gone through as root
+        without a question in that time. Only after a failure: on success the
+        chain's own last step has already dropped it.
+        """
+        if getattr(self, "askpass", None) is None:
+            return
+        self.askpass.stop()
+        self.askpass = None
+        if not ok:
+            process.run_async(["sudo", "-k"], lambda *_a: None, timeout=10)
+
     def updates_done(self, ok, out):
         """Everything ran, or something did not.
 
@@ -413,9 +430,7 @@ class InstallPage:
         anything can return early - every way out of a batch comes through
         here, the ones that failed and the one that timed out included.
         """
-        if getattr(self, "askpass", None) is not None:
-            self.askpass.stop()
-            self.askpass = None
+        self.forget_password(ok)
         self.set_busy(False)
         if not ok:
             self.show_update_count()
@@ -576,9 +591,7 @@ class InstallPage:
         # deleted, password forgotten. Every way out of an install comes
         # through here, the ones that failed and the one that timed out
         # included.
-        if getattr(self, "askpass", None) is not None:
-            self.askpass.stop()
-            self.askpass = None
+        self.forget_password(ok)
         self.set_busy(False)
         if ok and self.live.get(comp["key"]):
             # Already there before this ran - so this was not a fetch of
