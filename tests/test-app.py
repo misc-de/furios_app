@@ -505,12 +505,12 @@ class ComponentTable(unittest.TestCase):
         told so in a sentence, because a bare exit code explains nothing."""
         steps = switcher.component_steps(self.comp(), "update", "secret_word",
                                             "/home/furios/Projekte/eigen")
-        guard = " ".join(steps[0][0])
+        guard = " ".join(steps[1][0])
         self.assertIn("status --porcelain", guard)
         self.assertIn("uncommitted", guard)
-        self.assertIn("/home/furios/Projekte/eigen", steps[0][0])
-        self.assertIn("pull", steps[1][0])
-        self.assertIn("--ff-only", steps[1][0],
+        self.assertIn("/home/furios/Projekte/eigen", steps[1][0])
+        self.assertIn("pull", steps[2][0])
+        self.assertIn("--ff-only", steps[2][0],
                       "a merge is not this app's decision to make")
 
     def test_an_update_works_in_the_clone_it_was_given(self):
@@ -3585,15 +3585,15 @@ class TheWindow(unittest.TestCase):
         # them the check has nothing to ask, and the loop below would pass
         # on an empty list.
         fake_bin = tempfile.mkdtemp(prefix="miscde-test-")
-        real = switcher.components.is_clone
+        real = switcher.components.is_clone_of
         real_maybe = switcher.tools._tool_maybe
-        switcher.components.is_clone = lambda path: True
+        switcher.components.is_clone_of = lambda path, url: True
         switcher.tools._tool_maybe = lambda name: os.path.join(fake_bin, name)
         self.win.live["app"] = os.path.join(fake_bin, "misc-de")
         try:
             self.win.check_updates()
         finally:
-            switcher.components.is_clone = real
+            switcher.components.is_clone_of = real
             switcher.tools._tool_maybe = real_maybe
             shutil_real.rmtree(fake_bin, ignore_errors=True)
         commands = [" ".join(r[0]) for r in self.ran]
@@ -3611,13 +3611,13 @@ class TheWindow(unittest.TestCase):
         for comp in switcher.COMPONENTS:
             self.lines_for(comp)
         self.ran.clear()
-        real_is, real_else = switcher.components.is_clone, switcher.components.clone_elsewhere
-        switcher.components.is_clone = lambda path: False
+        real_is, real_else = switcher.components.is_clone_of, switcher.components.clone_elsewhere
+        switcher.components.is_clone_of = lambda path, url: False
         switcher.components.clone_elsewhere = lambda url, base=None: "/eigen"
         try:
             self.win.check_updates()
         finally:
-            switcher.components.is_clone, switcher.components.clone_elsewhere = real_is, real_else
+            switcher.components.is_clone_of, switcher.components.clone_elsewhere = real_is, real_else
         asked = [r[0] for r in self.ran]
         # The window itself is asked about too, and it is not one of the tabs.
         expected = len([c for c in switcher.COMPONENTS
@@ -6207,6 +6207,58 @@ class ReadsJsonPastAWarning(unittest.TestCase):
         win.on_security_status(True, "[]")
         self.assertTrue(all("unreadable" in r.subtitle
                             for r in win.sec_switches.values()))
+
+
+class PullsOnlyFromItsOwnRepository(unittest.TestCase):
+    """What an update pulls, the installer runs as root. A clone counts as
+    ours only by its whole origin, and the origin is asked again when the
+    pull happens."""
+
+    URL = "https://github.com/misc-de/furios_audio"
+
+    def clone(self, origin):
+        path = tempfile.mkdtemp(prefix="miscde-test-")
+        subprocess_real.run(["git", "init", "-q", path], check=True)
+        if origin:
+            subprocess_real.run(["git", "-C", path, "remote", "add", "origin",
+                                 origin], check=True)
+        self.addCleanup(shutil_real.rmtree, path, True)
+        return path
+
+    def test_one_address_written_four_ways_is_one_repository(self):
+        same = switcher.components.same_repository
+        for url in (self.URL, self.URL + ".git", self.URL + "/",
+                    "git@github.com:misc-de/furios_audio.git"):
+            self.assertTrue(same(url, self.URL), url)
+        self.assertFalse(same(self.URL + "-fork", self.URL))
+        self.assertFalse(same(None, self.URL))
+
+    def test_a_fork_whose_name_contains_ours_is_not_ours(self):
+        self.assertFalse(switcher.components.is_clone_of(
+            self.clone(self.URL + "-fork"), self.URL))
+        self.assertTrue(switcher.components.is_clone_of(
+            self.clone(self.URL + ".git"), self.URL))
+        self.assertFalse(switcher.components.is_clone_of(
+            self.clone(None), self.URL))
+
+    def test_only_origin_counts_not_another_remote(self):
+        path = self.clone("https://example.org/evil")
+        subprocess_real.run(["git", "-C", path, "remote", "add", "upstream",
+                             self.URL], check=True)
+        self.assertFalse(switcher.components.is_clone_of(path, self.URL))
+
+    def test_the_guard_before_the_pull_refuses_a_changed_origin(self):
+        """Run for real: the shell's way of writing the address has to agree
+        with same_repository's, or every update would be refused."""
+        comp = {"url": self.URL, "root": False, "tool": "audioctl"}
+        for origin, passes in ((self.URL + ".git", True),
+                               ("git@github.com:misc-de/furios_audio", True),
+                               (self.URL + "-fork", False)):
+            with self.subTest(origin=origin):
+                path = self.clone(origin)
+                argv = switcher.components.source_steps(comp, "update", path)[0][0][0]
+                done = subprocess_real.run(argv, capture_output=True, text=True)
+                self.assertEqual(passes, done.returncode == 0, done.stdout)
 
 
 if __name__ == "__main__":

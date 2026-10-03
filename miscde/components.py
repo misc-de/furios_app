@@ -269,17 +269,47 @@ def is_clone(path):
     return bool(path) and os.path.isdir(os.path.join(path, ".git"))
 
 
+def same_repository(a, b):
+    """Two ways of writing one GitHub address: with or without ".git" or a
+    trailing slash, over https or ssh."""
+    def plain(url):
+        url = (url or "").strip()
+        if url.startswith("git@github.com:"):
+            url = "https://github.com/" + url[len("git@github.com:"):]
+        url = url.rstrip("/")
+        if url.endswith(".git"):
+            url = url[:-4]
+        return url.lower()
+    return bool(a) and plain(a) == plain(b)
+
+
+def origin_url(path):
+    """The url of [remote "origin"] in the clone's own config, or None."""
+    try:
+        with open(os.path.join(path, ".git", "config")) as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        return None
+    inside = False
+    for line in lines:
+        text = line.strip()
+        if text.startswith("["):
+            inside = text.replace(" ", "") == '[remote"origin"]'
+        elif inside and text.split("=", 1)[0].strip() == "url":
+            return text.split("=", 1)[1].strip()
+    return None
+
+
 def is_clone_of(path, url):
     """Is this directory a clone of that repository?
 
     By its origin, never by its name: the same repository sits in
-    ~/Projekte/furios_gps_fix here and is called furios_gps upstream.
+    ~/Projekte/furios_gps_fix here and is called furios_gps upstream. And by
+    the whole origin: a substring of the config file also matched a fork
+    called furios_audio-fork, and any other remote that happened to mention
+    the address - and what is pulled from that clone runs as root.
     """
-    try:
-        with open(os.path.join(path, ".git", "config")) as fh:
-            return url in fh.read()
-    except OSError:
-        return False
+    return same_repository(origin_url(path), url)
 
 
 def clone_elsewhere(url, base=None):
@@ -320,7 +350,18 @@ def source_steps(comp, state, path):
                   '{ echo "This clone has uncommitted changes. Nothing was '
                   'touched - finish or stash them first, then update '
                   'again."; exit 1; }', "guard", path], None, None, None)
-        return ([guard,
+        # What a pull fetches is what the installer then runs as root, so
+        # where it fetches from is asked again at the moment it happens -
+        # not only when the update was counted. Written the way
+        # same_repository writes it.
+        origin = (["bash", "-c",
+                   'u=$(git -C "$1" remote get-url origin 2>/dev/null | '
+                   'sed -e "s#^git@github.com:#https://github.com/#" '
+                   '-e "s#/*\$##" -e "s#\\.git\$##" | tr "A-Z" "a-z"); '
+                   '[ "$u" = "$2" ] || { echo "$1 does not pull from $2 any '
+                   'more. Nothing was touched."; exit 1; }',
+                   "origin", path, comp["url"].lower()], None, None, None)
+        return ([origin, guard,
                  (["git", "-C", path, "pull", "--ff-only"], None, None, None)],
                 _("git pull --ff-only in {path}").format(path=path))
     if is_clone_of(path, comp["url"]):

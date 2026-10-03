@@ -160,7 +160,11 @@ class InstallPage:
         """Where an update for this component would come from, in the order
         that leaves other people's work alone: our own clone first, somebody
         else's only to read, and `other` when neither had anything to say."""
-        mine = clone_path(comp) if components.is_clone(clone_path(comp)) else None
+        # A clone of ours whose origin was changed is not ours any more:
+        # nothing from it is offered, since what it pulls would run as root.
+        mine = (clone_path(comp)
+                if components.is_clone_of(clone_path(comp), comp["url"])
+                else None)
         if mine:
             self.check_component(comp, mine, other)
             return
