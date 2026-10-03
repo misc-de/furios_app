@@ -213,6 +213,19 @@ with nothing behind it.
 - **Every helper call is capped** (90 s). systemctl can wait for a job that is
   itself waiting, and pkexec inherits that; without a cap the window stood
   grey with a pulsing bar.
+- **A repair only where it repairs something** (3.10.2026). A switch that
+  repairs a fault is shown while that fault is there on this phone, or while
+  ours is in place - then it is the way back and has to stay. Neither: the
+  row is hidden, not greyed out. The "is it there" halves are in
+  `miscde/faults.py`, all read without root: the vendor's DMNR options and
+  `/dev/usip`, `BTSAVE=true`, a failing `modemctl status` check, a Firefox
+  profile, a slider whose kernel edge count is past what a hand does,
+  secctl's values against its wants, the kernel's own module list, an auth
+  stack that counts no failures, a disabled sensor unit, the shipped prompter
+  service, an installed wlr portal. A row once shown stays until the window
+  closes - switched off, it would otherwise vanish under the finger. Choices
+  (sound server, codec, 5G, SIM, what the battery icon shows, the dock) are
+  not repairs and are not touched by this.
 
 ## Origin
 

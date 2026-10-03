@@ -7,7 +7,7 @@ import json
 
 from gi.repository import Adw, Gtk
 
-from .. import process, tools
+from .. import faults, process, tools
 from ..i18n import _
 
 
@@ -39,6 +39,7 @@ class SecurityPage:
         # pixels above every other tab's. What needs saying sits in the row
         # it is about.
         grp = Adw.PreferencesGroup(title=_("Hardening"))
+        self.sec_group = grp
         # No firewall here any more (removed 28.9. on request), and with it
         # the home network it needed. secctl still has both for the command
         # line; "revert all" below still takes a firewall out if one is on.
@@ -107,11 +108,15 @@ class SecurityPage:
         # notify::active, and without the guard reading the state would
         # switch the thing being read.
         self._loading = True
+        shown = 0
         for key, _title, subtitle in self.PARTS:
             part = parts.get(key, {})
             row = self.sec_switches[key]
             state = part.get("state")
             row.set_active(state == "on")
+            self.offer("security-" + key, row,
+                       state in ("on", "partial"), self.hardening_missing(key, part))
+            shown += ("security-" + key) in self.offered()
             if key == "sysctl" and state == "partial":
                 row.set_subtitle(_("some values did not take - press twice to "
                                  "write them again"))
@@ -126,6 +131,21 @@ class SecurityPage:
             else:
                 row.set_subtitle(subtitle)
         self._loading = False
+        # A heading over nothing would be a group that offers nothing.
+        self.sec_group.set_visible(shown > 0)
+
+    @staticmethod
+    def hardening_missing(key, part):
+        """Whether the part's fault is there, for offer()."""
+        if not part:
+            return False
+        if key == "sysctl":
+            return faults.sysctl_open(part)
+        if key == "modules":
+            return faults.modules_loadable(part)
+        if key == "lockout":
+            return faults.pin_tries_unlimited()
+        return False
 
     # ---------------------------------------------------------------- acting
 

@@ -8,7 +8,7 @@ import subprocess
 
 from gi.repository import Adw
 
-from .. import process
+from .. import faults, process
 from ..i18n import _
 
 # furios_killswitch's furios-switch-mask: Android stops reading the camera
@@ -60,6 +60,7 @@ class SwitchesPage:
         # First, because it is the one somebody comes here for when the
         # phone keeps losing its network by itself.
         grp = Adw.PreferencesGroup()
+        self.sw_nwk_mask_group = grp
         self.sw_nwk_mask = Adw.SwitchRow(
             title=_("Ignore the camera and network switches"))
         self.sw_nwk_mask.connect("notify::active", self.on_nwk_mask)
@@ -134,11 +135,16 @@ class SwitchesPage:
             row.set_active(False)
             row.set_sensitive(False)
             row.set_subtitle(_("Needs the current furios_killswitch"))
+            self.offer("nwk-mask", self.sw_nwk_mask_group, False, False)
         else:
             on = nwk_mask_enabled()
             row.set_active(on)
             row.set_sensitive(True)
             row.set_subtitle("")
+            # The fault is a slider that moves with nobody touching it -
+            # read off the kernel's edge count, see faults.sliders_flap.
+            self.offer("nwk-mask", self.sw_nwk_mask_group, on,
+                       faults.sliders_flap())
         self._loading = False
 
     def on_nwk_mask(self, row, _param):

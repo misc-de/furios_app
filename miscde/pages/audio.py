@@ -10,7 +10,7 @@ from gi.repository import Adw, Gtk
 
 import glob
 
-from .. import askpass, components, original, process, tools
+from .. import askpass, components, faults, original, process, tools
 from ..tools import DMNR
 from ..words import profile_in_words, server_in_words
 from ..i18n import _
@@ -232,9 +232,12 @@ class AudioPage:
             self.dmnr_ok = False
             self.dmnr_row.set_sensitive(False)
             self.dmnr_row.set_subtitle(_("not available on this device"))
+            self.offer("dmnr", self.dmnr_row, False, False)
             return
         self.dmnr_ok = True
         on = "state=on" in out
+        self.offer("dmnr", self.dmnr_row, on or "persistent=yes" in out,
+                   faults.dmnr_missing(out))
         self._syncing = True
         self.dmnr_row.set_active(on)
         self._syncing = False
@@ -571,6 +574,21 @@ class AudioPage:
         self._syncing = False
         self.btsave_row.set_subtitle(self.btsave_words(state))
         self.btsave_row.set_sensitive(not self.busy and self.btsave_ok)
+        # On is the fault here: the row is "powersave", and powersave is what
+        # takes the adapter down. Ours is an off that this app wrote - the
+        # record of the line as it was says so.
+        ours = state is False and original.load(
+            original.lines_ident(BATMAN_CONFIG, "BTSAVE")) is not None
+        self.offer("btsave", self.btsave_row, ours, faults.btsave_bites(state))
+        self.tidy_bt_group()
+
+    def tidy_bt_group(self):
+        """No "Bluetooth" heading over nothing: the codec rows are gone under
+        PulseAudio, and powersave is gone where it repairs nothing."""
+        group = getattr(self, "bt_group", None)
+        if group is not None:
+            group.set_visible(self.codec_ok
+                              or "btsave" in self.offered())
 
     def on_codec_status(self, ok, out):
         values, known = parse_codec_status(out)
@@ -585,9 +603,11 @@ class AudioPage:
             self.codec_row.set_sensitive(False)
             self.codec_row.set_visible(False)
             self.codec_scope_row.set_visible(False)
+            self.tidy_bt_group()
             return
         self.codec_ok = True
         self.codec_row.set_visible(True)
+        self.tidy_bt_group()
         self._codec_values = values
         self._codec_known = {k["addr"]: k for k in known}
 

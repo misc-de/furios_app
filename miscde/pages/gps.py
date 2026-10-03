@@ -12,7 +12,7 @@ import os
 
 from gi.repository import Adw
 
-from .. import process
+from .. import faults, process
 from ..i18n import _
 
 
@@ -47,6 +47,7 @@ class GpsPage:
         gpage.add(contribution)
 
         browser = Adw.PreferencesGroup(title=_("Firefox and web apps"))
+        self.gps_firefox_group = browser
         self.gps_firefox = Adw.SwitchRow(
             title=_("Wait for the satellite fix"),
             subtitle=_("reading …"),
@@ -115,6 +116,9 @@ class GpsPage:
         self._syncing = False
         self.gps_firefox.set_sensitive(True)
         profiles = values.get("profiles", "0")
+        self.offer("firefox", self.gps_firefox_group,
+                   on or values.get("leftover", "0") != "0",
+                   faults.firefox_profiles(values))
         if on:
             self.gps_firefox.set_subtitle(
                 _("Up to 3 minutes instead of 12 seconds - %s of %s profiles. "
@@ -140,6 +144,7 @@ class GpsPage:
             self._syncing = False
             self.gps_firefox.set_sensitive(False)
             self.gps_firefox.set_subtitle(_("not installed"))
+            self.offer("firefox", self.gps_firefox_group, False, False)
         tool = self.live.get("gps")
         if not tool:
             # Not installed is not "off": saying "off" would claim we looked.

@@ -253,6 +253,7 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         # about the adapter, not about what plays.
         bt.add(self.btsave_row)
         page.add(bt)
+        self.bt_group = bt
 
         # Below Bluetooth (asked for 29.9.): the settings first, then what
         # they add up to.
@@ -561,6 +562,28 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
             GLib.source_remove(self._pulse_id)
             self._pulse_id = 0
         self.progress_revealer.set_reveal_child(False)
+
+    def offer(self, key, widget, ours, fault):
+        """Show a repair only where it has something to do.
+
+        Shown while ours is in place - then the switch is the way back and
+        must stay - or while the fault it repairs is there (miscde/faults.py).
+        Neither: hidden, rather than a grey row offering a repair this phone
+        does not need (3.10.2026, on request). Once shown, a row stays for as
+        long as the window is open: switched off under the finger, it would
+        otherwise vanish the moment it was used.
+        """
+        shown = self.offered()
+        if ours or fault:
+            shown.add(key)
+        widget.set_visible(key in shown)
+
+    def offered(self):
+        """The keys offer() has shown so far in this window."""
+        shown = getattr(self, "_offered", None)
+        if not isinstance(shown, set):
+            shown = self._offered = set()
+        return shown
 
     def set_busy(self, busy):
         self.busy = busy

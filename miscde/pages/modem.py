@@ -4,7 +4,7 @@
 
 from gi.repository import Adw, Gtk
 
-from .. import combo, process, tools
+from .. import combo, faults, process, tools
 from ..i18n import _
 
 
@@ -21,6 +21,9 @@ class ModemPage:
         # ("Off: the state the phone shipped in") and, in full, at the foot of
         # the page under "Back to how it shipped".
         grp = Adw.PreferencesGroup(title=_("Modem"))
+        self.modem_group = grp
+        self._modem_actual = None
+        self._modem_fault = None
         self.modem_row = Adw.SwitchRow(
             title=_("Repairs active"),
             subtitle=_("reading …"),
@@ -129,6 +132,8 @@ class ModemPage:
             self.mrow_profile.set_subtitle(_("modemctl did not answer"))
             return
         self.modem_ok = True
+        self._modem_actual = actual
+        self.offer_modem()
 
         if actual == "fixed":
             words = _("the repairs are in place")
@@ -156,6 +161,8 @@ class ModemPage:
         if not ok and not out:
             self.mrow_health.set_subtitle(_("modemctl did not answer"))
             return
+        self._modem_fault = faults.modem_checks_fail(out)
+        self.offer_modem()
         bad = sum(1 for line in out.splitlines() if "FAIL" in line)
         good = sum(1 for line in out.splitlines() if " ok " in line)
         self.mrow_health.set_subtitle(
@@ -167,6 +174,13 @@ class ModemPage:
                 break
         else:
             self.mrow_signal.set_subtitle(_("not readable"))
+
+    def offer_modem(self):
+        """Two answers decide it, and they arrive apart: the profile says
+        whether ours is in, the checks whether anything is broken."""
+        self.offer("modem", self.modem_group,
+                   self._modem_actual not in (None, "shipped"),
+                   self._modem_fault)
 
     def on_modem_switch(self, row, _param):
         if self._syncing or self.busy:

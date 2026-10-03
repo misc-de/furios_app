@@ -12,7 +12,7 @@ import re
 import subprocess
 
 from gi.repository import Adw, Gio
-from .. import original, process
+from .. import faults, original, process
 from ..components import PHOSH, folder_dock_plugin
 from ..i18n import _
 
@@ -709,6 +709,7 @@ class OtherPage:
         page.add(grp)
 
         grp = Adw.PreferencesGroup(title=_("Display"))
+        self.brightness_group = grp
         self.brightness_settings = power_settings()
         self.brightness_row = Adw.SwitchRow(
             title=_("Automatic brightness"),
@@ -719,6 +720,8 @@ class OtherPage:
         self.sync_brightness()
 
         grp = Adw.PreferencesGroup(title=_("Unlock"))
+        self.offer("prompter", grp, prompter_fixed(),
+                   faults.prompter_falls_back())
         self.prompter_row = Adw.SwitchRow(
             title=_("Keyring prompt in phosh style"),
             subtitle=_("Instead of the light window after a restart"))
@@ -730,6 +733,7 @@ class OtherPage:
         page.add(grp)
 
         grp = Adw.PreferencesGroup(title=_("Apps"))
+        self.offer("portals", grp, portals_fixed(), faults.wlr_portal_waits())
         self.portals_row = Adw.SwitchRow(
             title=_("Apps open right after boot"),
             subtitle=_("Otherwise apps wait up to a minute for the "
@@ -751,10 +755,18 @@ class OtherPage:
             row.set_active(False)
             row.set_sensitive(False)
             row.set_subtitle(_("not available on this device"))
+            self.offer("brightness", self.brightness_group, False, False)
         else:
-            row.set_active(brightness_on(self.brightness_settings,
-                                         sensor_state()))
+            state = sensor_state()
+            on = brightness_on(self.brightness_settings, state)
+            row.set_active(on)
             row.set_sensitive(True)
+            # Ours: switched on here, over a unit that had to be brought
+            # back. The fault: that unit off. With the unit as FuriOS ships
+            # it, the key alone is the shell's own setting, not a repair.
+            self.offer("brightness", self.brightness_group,
+                       on and original.load(BRIGHTNESS_IDENT) is not None,
+                       faults.sensor_unit_off(state))
         self._loading = False
 
     def on_brightness(self, row, _pspec):

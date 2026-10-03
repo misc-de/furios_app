@@ -5928,6 +5928,263 @@ class TheInstallerLooksForTools(unittest.TestCase):
         self.assertNotIn('command -v "$tool"', text)
 
 
+class KnowsWhetherTheFaultIsThere(unittest.TestCase):
+    """miscde/faults.py: one fact about the phone each, read from a file the
+    test hands in - never this phone's."""
+
+    def setUp(self):
+        self.f = importlib.import_module("miscde.faults")
+        self.dir = tempfile.mkdtemp(prefix="miscde-test-")
+
+    def write(self, name, text):
+        path = os.path.join(self.dir, name)
+        with open(path, "w") as fh:
+            fh.write(text)
+        return path
+
+    IRQ = (" 221:          0   mt-eint  21 Edge      cam_switch\n"
+           " 222:         %d   mt-eint  22 Edge      nwk_switch\n")
+
+    def test_a_slider_that_flaps_is_told_from_a_hand_that_moves_it(self):
+        flaps = self.f.switch_flaps
+        self.assertTrue(flaps(self.IRQ % 44, 12 * 3600))      # this phone
+        self.assertFalse(flaps(self.IRQ % 6, 12 * 3600))      # a hand
+        # Twelve in a day is somebody who uses it - not a loose contact.
+        self.assertFalse(flaps(self.IRQ % 12, 24 * 3600))
+        self.assertFalse(flaps("", 3600))
+        self.assertIsNone(flaps(self.IRQ % 44, 0))
+
+    def test_the_count_comes_from_every_cpu_column(self):
+        line = " 222:   3   4   5   mt-eint  22 Edge      nwk_switch\n"
+        self.assertEqual(12, self.f.switch_edges(line, "nwk_switch"))
+
+    def test_sliders_read_the_two_proc_files(self):
+        irq = self.write("interrupts", self.IRQ % 44)
+        self.assertTrue(self.f.sliders_flap(irq, self.write("up", "43200.0 1\n")))
+        self.assertIsNone(self.f.sliders_flap(irq, self.write("up2", "")))
+
+    def test_echo_suppression_is_missing_when_the_vendor_says_no(self):
+        good = ("state=off\nusip:  /dev/usip open to group audio - x\n"
+                "  MTK_HANDSFREE_DMNR_SUPPORT = yes\n")
+        self.assertFalse(self.f.dmnr_missing(good))
+        self.assertTrue(self.f.dmnr_missing(
+            good.replace("= yes", "= no")))
+        self.assertTrue(self.f.dmnr_missing(
+            "usip:  /dev/usip closed - the HAL cannot hand it over\n"))
+        self.assertFalse(self.f.dmnr_missing(""))
+
+    def test_the_prompter_falls_back_only_where_gcr_is_started(self):
+        shipped = self.write("p.service", "[D-BUS Service]\nName=x\n"
+                             "Exec=/usr/libexec/gcr-prompter\n")
+        self.assertTrue(self.f.prompter_falls_back(shipped))
+        other = self.write("q.service", "[D-BUS Service]\nExec=/bin/true\n")
+        self.assertFalse(self.f.prompter_falls_back(other))
+        self.assertFalse(self.f.prompter_falls_back(self.dir + "/none"))
+
+    def test_the_portal_waits_only_where_wlr_is_installed(self):
+        self.assertTrue(self.f.wlr_portal_waits(self.write("wlr.portal", "")))
+        self.assertFalse(self.f.wlr_portal_waits(self.dir + "/none"))
+
+    def test_modules_are_looked_up_in_the_kernels_own_list(self):
+        dep = self.write("modules.dep",
+                         "kernel/net/can/can.ko: \n"
+                         "kernel/fs/hfsplus/hfsplus.ko.xz: kernel/a.ko\n")
+        self.assertEqual(["can", "hfsplus"], self.f.loadable_modules(
+            ["rds", "can", "hfsplus"], dep))
+        self.assertTrue(self.f.modules_loadable(
+            {"modules": {"can": False}}, dep))
+        self.assertFalse(self.f.modules_loadable(
+            {"modules": {"rds": False}}, dep))
+        self.assertIsNone(self.f.modules_loadable({}, dep))
+
+    def test_pin_tries_count_once_anything_in_the_stack_counts(self):
+        bare = self.write("auth", "auth [success=1] pam_unix.so\n"
+                          "#auth required pam_faillock.so\n")
+        self.assertTrue(self.f.pin_tries_unlimited(bare))
+        ours = self.write("auth2", "auth x pam_furios_lockout.so preauth\n")
+        self.assertFalse(self.f.pin_tries_unlimited(ours))
+        self.assertIsNone(self.f.pin_tries_unlimited(self.dir + "/none"))
+
+    def test_the_rest_reads_the_tools_answers(self):
+        self.assertTrue(self.f.sysctl_open({"keys": {"a": {"ok": False}}}))
+        self.assertFalse(self.f.sysctl_open({"keys": {"a": {"ok": True},
+                                                      "b": {"ok": None}}}))
+        self.assertTrue(self.f.modem_checks_fail("  FAIL  utils.py NOT patched"))
+        self.assertFalse(self.f.modem_checks_fail("  ok    utils.py"))
+        self.assertTrue(self.f.firefox_profiles({"profiles": "3"}))
+        self.assertFalse(self.f.firefox_profiles({"profiles": "0"}))
+        self.assertFalse(self.f.firefox_profiles({"profiles": "x"}))
+        self.assertTrue(self.f.btsave_bites(True))
+        self.assertFalse(self.f.btsave_bites(None))
+        self.assertTrue(self.f.sensor_unit_off((False, False)))
+        self.assertFalse(self.f.sensor_unit_off((True, True)))
+
+
+class OffersOnlyWhatIsBroken(unittest.TestCase):
+    """A repair is shown where its fault is there or where ours is in place -
+    then it is the way back. Neither: hidden, not greyed out."""
+
+    def setUp(self):
+        self.win = switcher.Window(switcher.Adw.Application())
+        self.win._offered = set()
+        self.faults = importlib.import_module("miscde.faults")
+
+    def test_ours_or_the_fault_shows_it_neither_hides_it(self):
+        for ours, fault, shown in ((True, False, True), (False, True, True),
+                                   (False, None, False), (False, False, False)):
+            with self.subTest(ours=ours, fault=fault):
+                self.win._offered = set()
+                row = Recording()
+                self.win.offer("x", row, ours, fault)
+                self.assertEqual(shown, row.visible)
+
+    def test_a_row_once_shown_stays_while_the_window_is_open(self):
+        """Switched off, the fault is gone - and the row with it, under the
+        finger that just used it, if this did not hold."""
+        row = Recording()
+        self.win.offer("x", row, True, False)
+        self.win.offer("x", row, False, False)
+        self.assertTrue(row.visible)
+
+    def test_echo_suppression_needs_a_vendor_no_or_ours(self):
+        win = self.win
+        win.dmnr_row = Recording()
+        fine = ("state=off\npersistent=no\n"
+                "usip:  /dev/usip open to group audio - x\n"
+                "  MTK_HANDSFREE_DMNR_SUPPORT = yes\n")
+        win.on_dmnr_status(True, fine)
+        self.assertFalse(win.dmnr_row.visible)
+        win.on_dmnr_status(True, fine.replace("= yes", "= no"))
+        self.assertTrue(win.dmnr_row.visible)
+        win._offered = set()
+        win.on_dmnr_status(True, fine.replace("state=off", "state=on"))
+        self.assertTrue(win.dmnr_row.visible)
+        win._offered = set()
+        win.on_dmnr_status(False, "")
+        self.assertFalse(win.dmnr_row.visible)
+
+    def test_the_modem_repairs_need_a_failing_check_or_ours(self):
+        win = self.win
+        for name in ("modem_group", "modem_row", "mrow_profile",
+                     "mrow_health", "mrow_signal"):
+            setattr(win, name, Recording())
+        win._modem_actual = win._modem_fault = None
+        win.on_modem_profile(True, "recorded: shipped\nactual: shipped\n")
+        win.on_modem_status(True, "  ok    utils.py\n")
+        self.assertFalse(win.modem_group.visible)
+        win.on_modem_status(False, "  FAIL  utils.py NOT patched\n")
+        self.assertTrue(win.modem_group.visible)
+        win._offered = set()
+        win._modem_fault = None
+        win.on_modem_profile(True, "recorded: fixed\nactual: fixed\n")
+        self.assertTrue(win.modem_group.visible)
+
+    def test_hardening_rows_show_what_is_open_or_ours(self):
+        win = self.win
+        win.sec_group = Recording()
+        win.sec_switches = {k: Recording() for k, _t, _s in switcher.Window.PARTS}
+        self.enterContext(mock.patch.object(self.faults, "pin_tries_unlimited",
+                                            lambda: False))
+        self.enterContext(mock.patch.object(self.faults, "modules_loadable",
+                                            lambda part: False))
+        parts = {"sysctl": {"state": "off", "keys": {"a": {"ok": True}}},
+                 "modules": {"state": "off", "modules": {"can": False}},
+                 "lockout": {"state": "off", "module": True}}
+        win.say_security_parts(parts)
+        self.assertEqual([False] * 3,
+                         [r.visible for r in win.sec_switches.values()])
+        self.assertFalse(win.sec_group.visible, "a heading over nothing")
+        parts["sysctl"]["keys"]["a"]["ok"] = False
+        parts["lockout"]["state"] = "on"
+        win.say_security_parts(parts)
+        self.assertTrue(win.sec_switches["sysctl"].visible)
+        self.assertFalse(win.sec_switches["modules"].visible)
+        self.assertTrue(win.sec_switches["lockout"].visible)
+        self.assertTrue(win.sec_group.visible)
+
+    def test_powersave_shows_while_it_bites_or_while_our_off_stands(self):
+        audio = importlib.import_module("miscde.pages.audio")
+        win = self.win
+        win.btsave_row = Recording()
+        win.bt_group = Recording()
+        win.codec_ok = False
+        forget_all_records()
+        conf = os.path.join(tempfile.mkdtemp(prefix="miscde-test-"), "config")
+        self.enterContext(mock.patch.object(audio, "BATMAN_CONFIG", conf))
+        with open(conf, "w") as fh:
+            fh.write("BTSAVE=false\n")
+        win.sync_btsave()
+        self.assertFalse(win.btsave_row.visible, "FuriOS's own false")
+        self.assertFalse(win.bt_group.visible)
+        original.remember_lines(conf, "BTSAVE", "BTSAVE=true\n")
+        win.sync_btsave()
+        self.assertTrue(win.btsave_row.visible, "our false is the way back")
+        forget_all_records()
+        win._offered = set()
+        with open(conf, "w") as fh:
+            fh.write("BTSAVE=true\n")
+        win.sync_btsave()
+        self.assertTrue(win.btsave_row.visible)
+        self.assertTrue(win.bt_group.visible)
+
+    def test_the_mask_shows_for_a_flapping_slider_or_while_it_is_on(self):
+        sw = importlib.import_module("miscde.pages.switches")
+        win = self.win
+        win.sw_nwk_mask = Recording()
+        win.sw_nwk_mask_group = Recording()
+        state = {"on": False, "flaps": False}
+        self.enterContext(mock.patch.object(sw, "nwk_mask_installed", lambda: True))
+        self.enterContext(mock.patch.object(sw, "nwk_mask_enabled",
+                                            lambda: state["on"]))
+        self.enterContext(mock.patch.object(self.faults, "sliders_flap",
+                                            lambda: state["flaps"]))
+        win.sync_nwk_mask()
+        self.assertFalse(win.sw_nwk_mask_group.visible)
+        state["flaps"] = True
+        win.sync_nwk_mask()
+        self.assertTrue(win.sw_nwk_mask_group.visible)
+        win._offered = set()
+        state.update(on=True, flaps=False)
+        win.sync_nwk_mask()
+        self.assertTrue(win.sw_nwk_mask_group.visible)
+        win._offered = set()
+        self.enterContext(mock.patch.object(sw, "nwk_mask_installed", lambda: False))
+        win.sync_nwk_mask()
+        self.assertFalse(win.sw_nwk_mask_group.visible, "not installed: hidden")
+
+    def test_firefox_wait_needs_a_profile_or_ours(self):
+        win = self.win
+        win.gps_firefox = Recording()
+        win.gps_firefox_group = Recording()
+        win.on_gps_firefox_status(True, "firefox_wait=no\nprofiles=0\n")
+        self.assertFalse(win.gps_firefox_group.visible)
+        win.on_gps_firefox_status(True, "firefox_wait=no\nprofiles=2\n")
+        self.assertTrue(win.gps_firefox_group.visible)
+
+    def test_brightness_shows_for_a_unit_that_is_off_or_ours(self):
+        other = importlib.import_module("miscde.pages.other")
+        win = self.win
+        win.brightness_row = Recording()
+        win.brightness_group = Recording()
+        settings = mock.Mock()
+        settings.get_boolean.return_value = True
+        win.brightness_settings = settings
+        state = {"s": (True, True)}
+        self.enterContext(mock.patch.object(other, "sensor_state",
+                                            lambda: state["s"]))
+        forget_all_records()
+        win.sync_brightness()
+        self.assertFalse(win.brightness_group.visible,
+                         "the unit as FuriOS ships it: nothing to repair")
+        state["s"] = (False, False)
+        win.sync_brightness()
+        self.assertTrue(win.brightness_group.visible)
+        win._offered = set()
+        win.brightness_settings = None
+        win.sync_brightness()
+        self.assertFalse(win.brightness_group.visible)
+
+
 if __name__ == "__main__":
     # Built by hand rather than through unittest.main(), which looks for tests
     # in sys.modules["__main__"] - and under the coverage tracer that is the
