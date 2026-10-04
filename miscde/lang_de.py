@@ -7,6 +7,8 @@ that the placeholders ({name}, %s, %d) match - a German text that drops one
 would fail when it is filled in."""
 
 TRANSLATIONS = {
+    'recorded is "{rec}" - that does not match the running system.':
+        'gespeichert ist "{rec}" - das passt nicht zum laufenden System.',
     # --- the window --------------------------------------------------------
     "Language": "Sprache",
     "Could not save the language": "Die Sprache konnte nicht gespeichert werden",

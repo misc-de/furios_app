@@ -148,8 +148,29 @@ class AppReadsAudioctl(unittest.TestCase):
     # same one - the label has to appear in the file it is read from.
     OTHER_SOURCES = {"BTSAVE=": switcher.BATMAN_CONFIG}
 
+    # What an audioctl from before 4.10.2026 printed, and the app still reads
+    # when "status --json" brings no JSON back. A current audioctl answers in
+    # JSON instead, checked key by key below.
+    LEGACY_STATUS_LABELS = {"Profile (active):", "Profile (persistent):",
+                            "WARNING:", "Fell back:", "Test mode:",
+                            "Pulse server:", "Sinks:"}
+
     def labels_in_app(self):
         return re.findall(r'line\.startswith\("([^"]+)"\)', self.app)
+
+    def json_keys_in_app(self):
+        return re.findall(r'status_json\.get\("([a-z_]+)"\)', self.app)
+
+    def test_every_status_key_the_app_reads_is_one_audioctl_writes(self):
+        keys = self.json_keys_in_app()
+        self.assertGreaterEqual(len(keys), 5)
+        audioctl = self.tool(self.audioctl, "audioctl")
+        if '"profile":' not in audioctl:
+            self.skipTest("this audioctl predates status --json")
+        for key in keys:
+            with self.subTest(key=key):
+                self.assertIn('"%s":' % key, audioctl,
+                              "the app reads a key audioctl does not write")
 
     def test_every_label_the_app_looks_for_is_one_audioctl_prints(self):
         for label in self.labels_in_app():
@@ -157,6 +178,8 @@ class AppReadsAudioctl(unittest.TestCase):
                 other = self.OTHER_SOURCES.get(label)
                 if other is None:
                     audioctl = self.tool(self.audioctl, "audioctl")
+                    if label in self.LEGACY_STATUS_LABELS and '"profile":' in audioctl:
+                        continue      # answered in JSON by this audioctl
                     self.assertIn(
                         label, audioctl,
                         "the app waits for a line audioctl never prints")
@@ -176,7 +199,7 @@ class AppReadsAudioctl(unittest.TestCase):
     def test_test_mode_is_recognised_by_the_word_audioctl_uses(self):
         audioctl = self.tool(self.audioctl, "audioctl")
         self.assertIn('startswith("yes")', self.app)
-        self.assertRegex(audioctl, r"Test mode:\s+yes")
+        self.assertRegex(audioctl, r'Test mode:\s+yes|"test_mode":')
 
     def test_the_dmnr_switch_speaks_the_words_the_helper_understands(self):
         helper = self.tool(self.dmnr, "furios-audio-dmnr")
@@ -1299,6 +1322,23 @@ class TheWindow(unittest.TestCase):
                         "a permanent profile was shown as not remembered")
         # The owner's description (29.9.), and nothing added: it holds.
         self.assertEqual(self.win.PERSIST_WORDS, self.win.persist_row.subtitle)
+
+    JSON_TRY = ('{"profile": "pw-hal", "recorded": "pw-hal", "persistent": '
+                '"standard", "test_mode": true, "fell_back": null, '
+                '"ofono_dropin_conflict": null, "pulse_server": '
+                '"PulseAudio (on PipeWire 1.6.6)", "sinks": ["droid-sink", '
+                '"bluez_output.X"], "units": {}}')
+
+    def test_json_status_is_read(self):
+        self.win.on_status(True, self.JSON_TRY)
+        sub = self.win.row_profile.subtitle
+        self.assertIn("until the next reboot", sub)
+        self.assertEqual(self.win.row_sinks.subtitle, "droid-sink, bluez_output.X")
+
+    def test_json_status_names_a_record_that_disagrees(self):
+        self.win.on_status(True, self.JSON_TRY.replace('"recorded": "pw-hal"',
+                                                       '"recorded": "standard"'))
+        self.assertIn('recorded is "standard"', self.win.row_profile.subtitle)
 
     SHIPPED = ("Profile (active):   standard\n"
                "Profile (persistent): standard\n"

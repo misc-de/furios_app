@@ -8,6 +8,7 @@ here is everything that happens after somebody touches it."""
 
 from gi.repository import Adw, Gtk
 
+import json
 import glob
 
 from .. import askpass, components, faults, original, process, tools
@@ -258,7 +259,26 @@ class AudioPage:
         warn = None
         fell_back = None
         testmode = False
-        for line in out.splitlines():
+        # "audioctl status --json" since 4.10.2026; an older audioctl ignores
+        # the flag and prints the lines below, which are still understood.
+        status_json = None
+        if out.lstrip().startswith("{"):
+            try:
+                status_json = json.loads(out)
+            except ValueError:
+                status_json = None
+        if isinstance(status_json, dict):
+            profile = status_json.get("profile") or "unknown"
+            persistent = status_json.get("persistent") or "unknown"
+            recorded = status_json.get("recorded")
+            if recorded and recorded != profile:
+                warn = _('recorded is "{rec}" - that does not match the '
+                         'running system.').format(rec=recorded)
+            fell_back = status_json.get("fell_back")
+            testmode = bool(status_json.get("test_mode"))
+            server = status_json.get("pulse_server") or "-"
+            sinks = ",".join(status_json.get("sinks") or [])
+        for line in ([] if status_json is not None else out.splitlines()):
             if line.startswith("Profile (active):"):
                 profile = line.split(":", 1)[1].strip()
             elif line.startswith("Profile (persistent):"):

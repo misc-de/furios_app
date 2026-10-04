@@ -512,7 +512,8 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         takes the callback down with an AttributeError nobody sees.
         """
         if self.live.get("audio"):
-            process.run_async([self.live["audio"], "status"], self.on_status)
+            process.run_async([self.live["audio"], "status", "--json"],
+                              self.on_status)
             process.run_async([self.live["audio"], "bt-codec", "status"],
                               self.on_codec_status)
             process.run_async([self.live["audio"], "bt-extras", "status"],
