@@ -5281,6 +5281,13 @@ class TheVibrationTheme(unittest.TestCase):
     def setUp(self):
         self.v = switcher.pages.vibration
         self.v.reload_feedbackd = lambda: None
+        # Never this phone's multiplier: whether somebody moved it aside in
+        # the real app must not decide what a test writes.
+        self.mult = tempfile.mkdtemp()
+        self.v.MULTIPLIER = os.path.join(self.mult, "vibrator-sysfs-multiplier")
+        self.v.MULTIPLIER_ASIDE = self.v.MULTIPLIER + ".misc-de-off"
+        with open(self.v.MULTIPLIER, "w") as f:
+            f.write("10\n")
         forget_all_records()
         try:
             os.remove(self.v.theme_path())
@@ -5398,8 +5405,38 @@ class TheVibrationTheme(unittest.TestCase):
             self.assertIn("--remove", self.v.multiplier_argv(False, secret="x"))
             self.assertEqual(["sudo", "-S", "-p", ""], self.v.multiplier_argv(False, "x")[:4])
         finally:
-            self.v.MULTIPLIER = "/usr/lib/furios/device/vibrator-sysfs-multiplier"
-            self.v.MULTIPLIER_ASIDE = self.v.MULTIPLIER + ".misc-de-off"
+            pass
+
+    def test_a_ringing_call_repeats_until_stopped(self):
+        d = tempfile.mkdtemp()
+        for a in ("duration", "activate"):
+            open(os.path.join(d, a), "w").close()
+        p = self.v.Player(d)
+        ended = []
+        p.play({"magnitudes": [1.0, 0.0], "durations": [100, 200]}, loop=True,
+               on_end=lambda: ended.append(1))
+        p._step(2)                         # past the end: starts over
+        self.assertEqual("100\n", open(os.path.join(d, "duration")).read())
+        self.assertTrue(p.playing())
+        self.assertEqual([], ended)
+        p.stop()
+        self.assertEqual("0\n", open(os.path.join(d, "activate")).read())
+        self.assertEqual([1], ended)
+
+    def test_the_loop_has_a_limit(self):
+        d = tempfile.mkdtemp()
+        for a in ("duration", "activate"):
+            open(os.path.join(d, a), "w").close()
+        p = self.v.Player(d)
+        ended = []
+        p.play({"magnitudes": [1.0], "durations": [100]}, loop=True,
+               on_end=lambda: ended.append(1))
+        p.left_ms = 0
+        p._step(1)
+        self.assertEqual([1], ended)
+
+    def test_only_the_call_loops(self):
+        self.assertEqual({"phone-incoming-call"}, self.v.LOOPING)
 
     def test_the_player_writes_duration_then_activate(self):
         d = tempfile.mkdtemp()
@@ -5407,7 +5444,8 @@ class TheVibrationTheme(unittest.TestCase):
             open(os.path.join(d, a), "w").close()
         p = self.v.Player(d)
         self.assertTrue(p.available())
-        p._step([(1.0, 120), (0.0, 50)])
+        p.steps = [(1.0, 120), (0.0, 50)]
+        p._step(0)
         self.assertEqual("120\n", open(os.path.join(d, "duration")).read())
         self.assertEqual("1\n", open(os.path.join(d, "activate")).read())
 

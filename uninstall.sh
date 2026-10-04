@@ -145,7 +145,10 @@ echo "1) program"
 # The Vibration tab moved FuriOS' vibration multiplier aside for exact
 # rhythms (pages/vibration.py): the diversion goes, and the file is back.
 MULT=/usr/lib/furios/device/vibrator-sysfs-multiplier
-if [ "$(dpkg-divert --truename "$MULT" 2>/dev/null)" = "$MULT.misc-de-off" ]; then
+# Not with DESTDIR: a staged root has no dpkg database of its own, and the
+# real one is this phone's.
+if [ -z "${DESTDIR:-}" ] && \
+   [ "$(dpkg-divert --truename "$MULT" 2>/dev/null)" = "$MULT.misc-de-off" ]; then
     sudo dpkg-divert --local --rename --divert "$MULT.misc-de-off" --remove "$MULT" >/dev/null \
         && echo "  vibration multiplier back in place"
 fi

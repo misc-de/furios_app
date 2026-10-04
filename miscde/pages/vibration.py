@@ -103,6 +103,9 @@ PATTERNS = (
 )
 PATTERN = {pid: feedback for pid, _title, feedback in PATTERNS}
 
+# Events feedbackd plays over and over until they end - the ringing call.
+LOOPING = {"phone-incoming-call"}
+
 # Without the multiplier these defaults (7, 12 and 25 ms) are too short to
 # feel. What they get instead while it is aside - one firm tap per key or
 # button, its release silent. key-released follows the keyboard row: one
@@ -274,9 +277,18 @@ class Player:
     would add the event's sound on top, and the test is about the feel. The
     same steps feedbackd runs - on for N ms, or a pause."""
 
+    # A call rings until it is answered; the try button repeats its rhythm
+    # the same way, but never for longer than this - a motor left running
+    # by a forgotten button is the one thing a test must not do.
+    LOOP_LIMIT_MS = 30000
+
     def __init__(self, sysfs=SYSFS):
         self.sysfs = sysfs
         self.timer = 0
+        self.on_end = None
+        self.steps = []
+        self.loop = False
+        self.left_ms = 0
 
     def available(self):
         return all(os.access(os.path.join(self.sysfs, a), os.W_OK)
@@ -286,6 +298,9 @@ class Player:
         with open(os.path.join(self.sysfs, attr), "w") as f:
             f.write("%s\n" % value)
 
+    def playing(self):
+        return bool(self.timer)
+
     def stop(self):
         if self.timer:
             GLib.source_remove(self.timer)
@@ -294,26 +309,44 @@ class Player:
             self._write("activate", 0)
         except OSError:
             pass
+        self._ended()
 
-    def play(self, feedback):
+    def _ended(self):
+        on_end, self.on_end = self.on_end, None
+        if on_end is not None:
+            on_end()
+
+    def play(self, feedback, loop=False, on_end=None):
+        """loop: again and again, as feedbackd repeats a ringing call, until
+        stop() or LOOP_LIMIT_MS. on_end: called once when it is over."""
         self.stop()
         if not feedback:
             return
-        steps = list(zip(feedback["magnitudes"], feedback["durations"]))
-        self._step(steps)
+        self.steps = list(zip(feedback["magnitudes"], feedback["durations"]))
+        if not any(d > 0 for _m, d in self.steps):
+            return
+        self.loop = loop
+        self.left_ms = self.LOOP_LIMIT_MS
+        self.on_end = on_end
+        self._step(0)
 
-    def _step(self, steps):
+    def _step(self, pos):
         self.timer = 0
-        if not steps:
-            return GLib.SOURCE_REMOVE
-        magnitude, duration = steps[0]
+        if pos >= len(self.steps):
+            if not self.loop or self.left_ms <= 0:
+                self._ended()
+                return GLib.SOURCE_REMOVE
+            pos = 0
+        magnitude, duration = self.steps[pos]
         try:
             if magnitude > 0:
                 self._write("duration", duration)
                 self._write("activate", 1)
         except OSError:
+            self._ended()
             return GLib.SOURCE_REMOVE
-        self.timer = GLib.timeout_add(duration, self._step, steps[1:])
+        self.left_ms -= duration
+        self.timer = GLib.timeout_add(max(1, duration), self._step, pos + 1)
         return GLib.SOURCE_REMOVE
 
 
@@ -347,6 +380,7 @@ class VibrationPage:
             play.add_css_class("flat")
             play.connect("clicked", self.on_vibra_try, row)
             row.add_suffix(play)
+            row.play_btn = play
             grp.add(row)
             self.vibra_rows[event] = row
         self._vibra_loading = False
@@ -372,6 +406,9 @@ class VibrationPage:
             return
         row.set_subtitle("")
         choices = self.vibra_choices()
+        if self.vibra_player.playing() and getattr(self, "_vibra_btn", None) is getattr(row, "play_btn", None):
+            self.vibra_player.stop()
+            self.vibra_play(row)
         state = apply(choices, self.vibra_settings)
         if state == "changed":
             self.toast(_("The theme file was changed by someone else - "
@@ -423,13 +460,34 @@ class VibrationPage:
         dlg.connect("response", done)
         dlg.present(self)
 
-    def on_vibra_try(self, _btn, row):
+    def on_vibra_try(self, btn, row):
+        """Play, or stop what plays. A call's rhythm repeats as it does when
+        the phone rings, until the button is pressed again."""
+        was_this = self.vibra_player.playing() and getattr(self, "_vibra_btn", None) is btn
+        self.vibra_player.stop()
+        if was_this:
+            return
+        self.vibra_play(row)
+
+    def vibra_play(self, row):
         pid = [p for p, _t, _fb in PATTERNS][row.get_selected()]
         event = next(e for e, r in self.vibra_rows.items() if r is row)
         feedback = PATTERN.get(pid)
         if feedback is None:
             feedback = default_feedback(event)
-        self.vibra_player.play(_as_pattern(feedback))
+        btn = row.play_btn
+        loop = event in LOOPING
+
+        def ended():
+            btn.set_icon_name("media-playback-start-symbolic")
+            btn.set_tooltip_text(_("Try"))
+            if getattr(self, "_vibra_btn", None) is btn:
+                self._vibra_btn = None
+        self._vibra_btn = btn
+        if loop:
+            btn.set_icon_name("media-playback-stop-symbolic")
+            btn.set_tooltip_text(_("Stop"))
+        self.vibra_player.play(_as_pattern(feedback), loop=loop, on_end=ended)
 
 
 def default_feedback(event):
