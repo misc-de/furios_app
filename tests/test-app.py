@@ -5354,6 +5354,53 @@ class TheVibrationTheme(unittest.TestCase):
         self.assertEqual({"magnitudes": [1.0], "durations": [1000]},
                          self.v._as_pattern({"type": "VibraPeriodic", "duration": 1000}))
 
+    def test_with_the_multiplier_aside_short_defaults_get_a_firm_tap(self):
+        text = self.v.theme_text({"message-new-sms": "double"}, exact=True)
+        fbs = {f["event-name"]: f for f in json.loads(text)["profiles"][0]["feedbacks"]}
+        self.assertEqual([50], fbs["key-pressed"]["durations"])
+        self.assertEqual([0.0], fbs["key-released"]["magnitudes"])
+        self.assertEqual([50], fbs["button-pressed"]["durations"])
+        self.assertEqual([40], fbs["window-close"]["durations"])
+
+    def test_a_chosen_keyboard_pattern_wins_over_the_tap(self):
+        text = self.v.theme_text({"key-pressed": "off"}, exact=True)
+        fbs = {f["event-name"]: f for f in json.loads(text)["profiles"][0]["feedbacks"]}
+        self.assertEqual([0.0], fbs["key-pressed"]["magnitudes"])
+
+    def test_no_stand_ins_while_the_multiplier_is_in_place(self):
+        text = self.v.theme_text({"message-new-sms": "double"}, exact=False)
+        events = [f["event-name"] for f in json.loads(text)["profiles"][0]["feedbacks"]]
+        self.assertEqual(["message-new-sms"], events)
+
+    def test_stand_ins_are_not_read_as_hand_written(self):
+        self.v.apply({"message-new-sms": "double"}, FakeFeedbackdSettings(), exact=True)
+        self.assertEqual([], self.v.foreign_entries())
+        self.v.apply({}, FakeFeedbackdSettings(user="misc-de"), exact=True)
+        self.assertFalse(os.path.exists(self.v.theme_path()))
+
+    def test_the_keyboard_stand_in_reads_as_standard(self):
+        self.v.apply({"message-new-sms": "double"}, FakeFeedbackdSettings(), exact=True)
+        self.assertEqual("default", self.v.read_choices()["key-pressed"])
+
+    def test_the_multiplier_is_moved_by_dpkg_divert(self):
+        d = tempfile.mkdtemp()
+        m = os.path.join(d, "vibrator-sysfs-multiplier")
+        open(m, "w").write("10\n")
+        self.v.MULTIPLIER, self.v.MULTIPLIER_ASIDE = m, m + ".misc-de-off"
+        try:
+            argv = self.v.multiplier_argv(True)
+            self.assertEqual(["sudo", "-n", "dpkg-divert", "--local", "--rename",
+                              "--divert", m + ".misc-de-off", "--add", m], argv)
+            self.assertIsNone(self.v.multiplier_argv(False))      # already in place
+            os.rename(m, m + ".misc-de-off")
+            self.assertTrue(self.v.multiplier_aside())
+            self.assertIsNone(self.v.multiplier_argv(True))
+            self.assertIn("--remove", self.v.multiplier_argv(False, secret="x"))
+            self.assertEqual(["sudo", "-S", "-p", ""], self.v.multiplier_argv(False, "x")[:4])
+        finally:
+            self.v.MULTIPLIER = "/usr/lib/furios/device/vibrator-sysfs-multiplier"
+            self.v.MULTIPLIER_ASIDE = self.v.MULTIPLIER + ".misc-de-off"
+
     def test_the_player_writes_duration_then_activate(self):
         d = tempfile.mkdtemp()
         for a in ("duration", "activate"):

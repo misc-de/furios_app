@@ -30,7 +30,7 @@ import subprocess
 
 from gi.repository import Adw, GLib, Gio, Gtk
 
-from .. import original
+from .. import original, process
 from ..i18n import _
 
 
@@ -49,6 +49,18 @@ def _words():
 
 # key, title, icon - the same three a component carries for its tab.
 TAB = ("vibration", "Vibration", "phone-symbolic")
+
+# FuriOS has feedbackd write every duration times ten to the driver
+# (adaptation-radon-configs), and feedbackd only switches the motor off at
+# the end of a feedback, not between its steps - so with the multiplier a
+# pattern's pauses vanish: "triple" measured as one buzz of ~650 ms, and
+# FuriOS' own notification pattern (50/250/50) is one buzz too. Without it
+# every step runs exactly as long as written: three pulses of 118 ms with
+# 120 ms between them (4.10.2026). So a rhythm of ours moves the file aside
+# with dpkg-divert - kept, and an update of the package lands beside it -
+# and the very short haptics FuriOS relies on it for get a firm tap instead.
+MULTIPLIER = "/usr/lib/furios/device/vibrator-sysfs-multiplier"
+MULTIPLIER_ASIDE = MULTIPLIER + ".misc-de-off"
 
 THEME = "misc-de"
 SCHEMA = "org.sigxcpu.feedbackd"
@@ -91,6 +103,34 @@ PATTERNS = (
 )
 PATTERN = {pid: feedback for pid, _title, feedback in PATTERNS}
 
+# Without the multiplier these defaults (7, 12 and 25 ms) are too short to
+# feel. What they get instead while it is aside - one firm tap per key or
+# button, its release silent. key-released follows the keyboard row: one
+# feedback per key, whatever was chosen for the press.
+COMPENSATION = {
+    "button-pressed": _pattern(50),
+    "button-released": PATTERN["off"],
+    "window-close": _pattern(40),
+}
+FIRM_TAP = _pattern(50)
+
+
+def multiplier_aside():
+    """True while the multiplier is moved aside by us."""
+    return not os.path.exists(MULTIPLIER) and os.path.exists(MULTIPLIER_ASIDE)
+
+
+def multiplier_argv(aside, secret=None):
+    """The sudo command that moves the multiplier aside or back, or None when
+    it is where it has to be already (then nobody is asked anything)."""
+    if aside == multiplier_aside() or (aside and not os.path.exists(MULTIPLIER)):
+        return None
+    front = (["sudo", "-S", "-p", ""] if secret is not None
+             else ["sudo", "-n"])
+    return front + ["dpkg-divert", "--local", "--rename", "--divert",
+                    MULTIPLIER_ASIDE, "--remove" if not aside else "--add",
+                    MULTIPLIER]
+
 
 def theme_path():
     """Read at call time: the tests point XDG_CONFIG_HOME somewhere harmless
@@ -116,18 +156,31 @@ def read_choices(path=None):
             event = fb.get("event-name")
             body = {k: v for k, v in fb.items() if k != "event-name"}
             pid = next((p for p, f in PATTERN.items() if f == body), "custom")
+            if event == "key-pressed" and body == FIRM_TAP:
+                pid = "default"           # the stand-in, not a choice
             choices[event] = pid
     return choices
 
 
-def theme_text(choices, keep=None):
+def theme_text(choices, keep=None, exact=False):
     """The theme for these choices. keep: entries from the file that this
-    page does not manage (other events, "custom" ones) and carries over."""
+    page does not manage (other events, "custom" ones) and carries over.
+    exact: the multiplier is aside, so the too-short defaults get theirs."""
     feedbacks = []
     for event, pid in sorted(choices.items()):
         if pid in ("default", "custom"):
             continue
         feedbacks.append(dict({"event-name": event}, **PATTERN[pid]))
+    if exact:
+        chosen = {f["event-name"] for f in feedbacks}
+        kept = {f.get("event-name") for f in keep or ()}
+        extra = dict(COMPENSATION)
+        if choices.get("key-pressed", "default") == "default":
+            extra["key-pressed"] = FIRM_TAP
+        extra["key-released"] = PATTERN["off"]
+        for event, fb in sorted(extra.items()):
+            if event not in chosen and event not in kept:
+                feedbacks.append(dict({"event-name": event}, **fb))
     feedbacks.extend(keep or ())
     theme = {"name": THEME, "parent-name": "default",
              "profiles": [{"name": "quiet", "feedbacks": feedbacks}]}
@@ -142,14 +195,15 @@ def foreign_entries(path=None):
             theme = json.load(f)
     except (OSError, ValueError):
         return []
-    ours = {e for e, _t in EVENTS}
+    ours = {e for e, _t in EVENTS} | set(COMPENSATION) | {"key-released"}
     keep = []
     for profile in theme.get("profiles") or ():
         if profile.get("name") != "quiet":
             continue
         for fb in profile.get("feedbacks") or ():
             body = {k: v for k, v in fb.items() if k != "event-name"}
-            if fb.get("event-name") not in ours or body not in PATTERN.values():
+            known = list(PATTERN.values()) + list(COMPENSATION.values()) + [FIRM_TAP]
+            if fb.get("event-name") not in ours or body not in known:
                 keep.append(fb)
     return keep
 
@@ -172,12 +226,13 @@ def reload_feedbackd():
                    capture_output=True)
 
 
-def apply(choices, settings=None):
+def apply(choices, settings=None, exact=None):
     """Write what the choices say, or put everything back once none is left.
 
     Returns "on" (our theme in use), "off" (back to what was there) or
     "changed" (somebody changed key or file after us - left alone)."""
     settings = settings if settings is not None else _settings()
+    exact = multiplier_aside() if exact is None else exact
     path = theme_path()
     keep = foreign_entries(path)
     wanted = {e: p for e, p in choices.items() if p not in ("default",)}
@@ -202,7 +257,7 @@ def apply(choices, settings=None):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".misc-de.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
-        f.write(theme_text(choices, keep))
+        f.write(theme_text(choices, keep, exact))
     os.replace(tmp, path)
     original.wrote_file(path)
     if settings is not None and settings.get_string(KEY) != THEME:
@@ -316,10 +371,57 @@ class VibrationPage:
         if self._vibra_loading:
             return
         row.set_subtitle("")
-        state = apply(self.vibra_choices(), self.vibra_settings)
+        choices = self.vibra_choices()
+        state = apply(choices, self.vibra_settings)
         if state == "changed":
             self.toast(_("The theme file was changed by someone else - "
                          "left as it is"))
+        self.vibra_multiplier(state == "on")
+
+    def vibra_multiplier(self, aside, secret=None):
+        """Rhythms need the multiplier aside; Standard everywhere puts it back."""
+        argv = multiplier_argv(aside, secret)
+        if argv is None:
+            return
+        process.run_async(argv, lambda ok, out: self.on_vibra_multiplier(ok, out, aside),
+                          stdin=secret)
+
+    def on_vibra_multiplier(self, ok, out, aside):
+        low = (out or "").lower()
+        if not ok and ("password is required" in low or "askpass" in low):
+            self.ask_vibra_password(aside)
+            return
+        if not ok:
+            self.report(out or _("No output."))
+            return
+        # The theme again, now with or without the stand-ins for the short
+        # defaults - they belong to the multiplier being aside.
+        apply(self.vibra_choices(), self.vibra_settings, exact=aside)
+
+    def ask_vibra_password(self, aside):
+        entry = Adw.PasswordEntryRow(title=_("Your password (for sudo)"))
+        group = Adw.PreferencesGroup()
+        group.add(entry)
+        dlg = Adw.AlertDialog(
+            heading=_("Exact rhythms"),
+            body=_("FuriOS stretches every vibration tenfold, which melts the "
+                   "pauses of a rhythm into one buzz. Switching that off needs "
+                   "sudo; the password goes to sudo through a pipe and nowhere "
+                   "else."))
+        dlg.set_extra_child(group)
+        dlg.add_response("cancel", _("Cancel"))
+        dlg.add_response("go", _("Change it"))
+        dlg.set_response_appearance("go", Adw.ResponseAppearance.SUGGESTED)
+        dlg.set_default_response("go")
+        dlg.set_close_response("cancel")
+
+        def done(_d, response):
+            secret = entry.get_text()
+            entry.set_text("")
+            if response == "go":
+                self.vibra_multiplier(aside, secret)
+        dlg.connect("response", done)
+        dlg.present(self)
 
     def on_vibra_try(self, _btn, row):
         pid = [p for p, _t, _fb in PATTERNS][row.get_selected()]

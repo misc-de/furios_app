@@ -142,6 +142,13 @@ was() {
 
 echo "1) program"
 # furios-audio-switch is what the app was called until 13.9.2026.
+# The Vibration tab moved FuriOS' vibration multiplier aside for exact
+# rhythms (pages/vibration.py): the diversion goes, and the file is back.
+MULT=/usr/lib/furios/device/vibrator-sysfs-multiplier
+if [ "$(dpkg-divert --truename "$MULT" 2>/dev/null)" = "$MULT.misc-de-off" ]; then
+    sudo dpkg-divert --local --rename --divert "$MULT.misc-de-off" --remove "$MULT" >/dev/null \
+        && echo "  vibration multiplier back in place"
+fi
 sudo rm -f "$PREFIX/bin/misc-de" "$PREFIX/bin/furios-audio-switch"
 sudo rm -rf "$PREFIX/lib/misc-de"
 

@@ -7,6 +7,10 @@ that the placeholders ({name}, %s, %d) match - a German text that drops one
 would fail when it is filled in."""
 
 TRANSLATIONS = {
+    'Exact rhythms':
+        'Exakte Rhythmen',
+    'FuriOS stretches every vibration tenfold, which melts the pauses of a rhythm into one buzz. Switching that off needs sudo; the password goes to sudo through a pipe and nowhere else.':
+        'FuriOS dehnt jede Vibration auf das Zehnfache, dadurch verschmelzen die Pausen eines Rhythmus zu einem Brummen. Das abzuschalten braucht sudo; das Passwort geht nur über eine Pipe an sudo, sonst nirgendwohin.',
     'Vibration':
         'Vibration',
     'Incoming call':
