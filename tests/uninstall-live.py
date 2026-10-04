@@ -53,6 +53,10 @@ KNOWN_WRITERS = {
         "~/.config/xdg-desktop-portal/phosh-portals.conf",
     ("pages/other.py", "set_ambient"):
         "gsd's ambient-enabled, with the light sensor unit beside it",
+    ("pages/vibration.py", "apply"):
+        "~/.config/feedbackd/themes/misc-de.json and feedbackd's theme key",
+    # The motor's on/off for the try button: sysfs, gone at the next write.
+    ("pages/vibration.py", "_write"): "the vibrator's sysfs files - nothing lasts",
     # The records of what was there before, in ~/.config/misc-de/original/,
     # and the originals they put back - each where it was recorded.
     ("original.py", "save"): "a record under ~/.config/misc-de/original",

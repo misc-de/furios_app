@@ -2769,7 +2769,7 @@ class TheWindow(unittest.TestCase):
         pages = [c[1] for c in recorder.calls
                   if c[0] == "Adw.ViewStack.add_titled_with_icon()" and c[1]]
         self.assertEqual(["audio", "modem", "gps", "switches", "security",
-                          "battery", "other"],
+                          "battery", "other", "vibration"],
                          [args[1] for args in pages])
         self.assertIsNotNone(win)
 
@@ -5240,6 +5240,129 @@ class IgnoresTheNetworkSwitch(unittest.TestCase):
             lambda self, wanted, then=None: asked.append(wanted)))
         win.apply_nwk_mask(True)
         self.assertEqual([True], asked)
+
+
+class FakeFeedbackdSettings:
+    """feedbackd's theme key: unset ("default") until something sets it."""
+
+    def __init__(self, user=None):
+        self.user = user
+
+    def get_string(self, key):
+        assert key == "theme"
+        return self.user if self.user is not None else "default"
+
+    def set_string(self, key, value):
+        assert key == "theme"
+        self.user = value
+
+    def reset(self, key):
+        assert key == "theme"
+        self.user = None
+
+    def get_user_value(self, key):
+        assert key == "theme"
+        if self.user is None:
+            return None
+
+        class V:
+            def __init__(self, v):
+                self.v = v
+
+            def get_string(self):
+                return self.v
+        return V(self.user)
+
+
+class TheVibrationTheme(unittest.TestCase):
+    """The Vibration tab: a feedbackd theme of ours with only what changed,
+    and everything back as it was once nothing is changed any more."""
+
+    def setUp(self):
+        self.v = switcher.pages.vibration
+        self.v.reload_feedbackd = lambda: None
+        forget_all_records()
+        try:
+            os.remove(self.v.theme_path())
+        except FileNotFoundError:
+            pass
+
+    def test_nothing_is_written_until_something_changes(self):
+        s = FakeFeedbackdSettings()
+        self.assertEqual("off", self.v.apply({"message-new-sms": "default"}, s))
+        self.assertFalse(os.path.exists(self.v.theme_path()))
+        self.assertIsNone(s.user)
+
+    def test_a_choice_writes_a_minimal_theme_and_selects_it(self):
+        s = FakeFeedbackdSettings()
+        self.assertEqual("on", self.v.apply({"message-new-sms": "double",
+                                             "phone-incoming-call": "default"}, s))
+        with open(self.v.theme_path()) as f:
+            theme = json.load(f)
+        self.assertEqual("default", theme["parent-name"])
+        self.assertEqual(["quiet"], [p["name"] for p in theme["profiles"]])
+        self.assertEqual(["message-new-sms"],
+                         [f["event-name"] for f in theme["profiles"][0]["feedbacks"]])
+        self.assertEqual("misc-de", s.user)
+        self.assertEqual({"message-new-sms": "double"}, self.v.read_choices())
+
+    def test_off_is_a_pause_not_a_rumble(self):
+        self.v.apply({"key-pressed": "off"}, FakeFeedbackdSettings())
+        fb = json.load(open(self.v.theme_path()))["profiles"][0]["feedbacks"][0]
+        self.assertEqual([0.0], fb["magnitudes"])
+
+    def test_all_back_to_standard_puts_back_what_was_there(self):
+        s = FakeFeedbackdSettings(user="strict")
+        self.v.apply({"message-new-sms": "long"}, s)
+        self.assertEqual("misc-de", s.user)
+        self.assertEqual("off", self.v.apply({"message-new-sms": "default"}, s))
+        self.assertEqual("strict", s.user)
+        self.assertFalse(os.path.exists(self.v.theme_path()))
+
+    def test_unset_before_is_unset_after(self):
+        s = FakeFeedbackdSettings()
+        self.v.apply({"message-new-sms": "long"}, s)
+        self.v.apply({}, s)
+        self.assertIsNone(s.user)
+
+    def test_a_hand_written_entry_is_kept(self):
+        os.makedirs(os.path.dirname(self.v.theme_path()), exist_ok=True)
+        with open(self.v.theme_path(), "w") as f:
+            json.dump({"name": "misc-de", "parent-name": "default", "profiles": [
+                {"name": "quiet", "feedbacks": [
+                    {"event-name": "message-new-sms", "type": "VibraRumble",
+                     "duration": 333}]}]}, f)
+        self.assertEqual({"message-new-sms": "custom"}, self.v.read_choices())
+        self.v.apply({"message-new-email": "short"}, FakeFeedbackdSettings())
+        fbs = json.load(open(self.v.theme_path()))["profiles"][0]["feedbacks"]
+        self.assertIn({"event-name": "message-new-sms", "type": "VibraRumble",
+                       "duration": 333}, fbs)
+
+    def test_every_pattern_is_valid_for_feedbackd(self):
+        for pid, _title, fb in self.v.PATTERNS:
+            if fb is None:
+                continue
+            with self.subTest(pid=pid):
+                self.assertEqual(len(fb["magnitudes"]), len(fb["durations"]))
+                self.assertTrue(all(0.0 <= m <= 1.0 for m in fb["magnitudes"]))
+                self.assertTrue(all(isinstance(d, int) and d > 0 for d in fb["durations"]))
+
+    def test_the_default_feedbacks_play_as_steps(self):
+        self.assertEqual({"magnitudes": [1.0, 0.0, 1.0], "durations": [150, 100, 150]},
+                         self.v._as_pattern({"type": "VibraRumble", "duration": 500,
+                                             "count": 2, "pause": 100}))
+        self.assertEqual({"magnitudes": [1.0], "durations": [1000]},
+                         self.v._as_pattern({"type": "VibraPeriodic", "duration": 1000}))
+
+    def test_the_player_writes_duration_then_activate(self):
+        d = tempfile.mkdtemp()
+        for a in ("duration", "activate"):
+            open(os.path.join(d, a), "w").close()
+        p = self.v.Player(d)
+        self.assertTrue(p.available())
+        p._step([(1.0, 120), (0.0, 50)])
+        self.assertEqual("120\n", open(os.path.join(d, "duration")).read())
+        self.assertEqual("1\n", open(os.path.join(d, "activate")).read())
 
 
 class FakePluginSettings:

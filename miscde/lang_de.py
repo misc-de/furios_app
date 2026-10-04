@@ -7,6 +7,54 @@ that the placeholders ({name}, %s, %d) match - a German text that drops one
 would fail when it is filled in."""
 
 TRANSLATIONS = {
+    'Vibration':
+        'Vibration',
+    'Incoming call':
+        'Eingehender Anruf',
+    'SMS':
+        'SMS',
+    'Messenger':
+        'Messenger',
+    'E-mail':
+        'E-Mail',
+    'Other notifications':
+        'Andere Benachrichtigungen',
+    'Keyboard':
+        'Tastatur',
+    'Standard':
+        'Standard',
+    'Off':
+        'Aus',
+    'Tap':
+        'Tipp',
+    'Short':
+        'Kurz',
+    'Double':
+        'Doppelt',
+    'Triple':
+        'Dreifach',
+    'Long':
+        'Lang',
+    'Heartbeat':
+        'Herzschlag',
+    'Staccato':
+        'Stakkato',
+    'SOS':
+        'SOS',
+    'Rhythm':
+        'Rhythmus',
+    'Written by hand - kept until changed here':
+        'Von Hand eingetragen - bleibt, bis es hier geändert wird',
+    'Try':
+        'Ausprobieren',
+    'Strength':
+        'Stärke',
+    'Not adjustable on this phone':
+        'Auf diesem Telefon nicht einstellbar',
+    'The motor only knows on and off - strength values are ignored by the driver. Short pulses with pauses feel lighter.':
+        'Der Motor kennt nur ein und aus - Stärkewerte ignoriert der Treiber. Kurze Impulse mit Pausen fühlen sich leichter an.',
+    'The theme file was changed by someone else - left as it is':
+        'Die Theme-Datei wurde von jemand anderem geändert - sie bleibt, wie sie ist',
     'recorded is "{rec}" - that does not match the running system.':
         'gespeichert ist "{rec}" - das passt nicht zum laufenden System.',
     # --- the window --------------------------------------------------------

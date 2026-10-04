@@ -30,11 +30,12 @@ from .pages.modem import ModemPage
 from .pages.other import TAB as OTHER_TAB, OtherPage
 from .pages.security import SecurityPage
 from .pages.switches import SwitchesPage
+from .pages.vibration import TAB as VIBRATION_TAB, VibrationPage
 from .i18n import _
 
 
 class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
-             SecurityPage, OtherPage, InstallPage,
+             SecurityPage, OtherPage, VibrationPage, InstallPage,
              Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title="misc-de")
@@ -346,6 +347,10 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         # shows an offer and always has its real page.
         self.pages[OTHER_TAB[0]] = self.build_other_page()
         self.stack.add_titled_with_icon(self.pages[OTHER_TAB[0]], *OTHER_TAB)
+        # The same kind: configuration this window writes itself, as the user.
+        self.pages[VIBRATION_TAB[0]] = self.build_vibration_page()
+        self.stack.add_titled_with_icon(self.pages[VIBRATION_TAB[0]],
+                                        *VIBRATION_TAB)
 
         # A list to start from and a page behind each entry (asked for 29.9.,
         # after a mock-up): seven tabs no longer fit a phone's width, and the
@@ -393,6 +398,7 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
     .menu-switches { background: #9141ac; }
     .menu-security { background: #e01b24; }
     .menu-battery { background: #2ec27e; }
+    .menu-vibration { background: #865e3c; }
     """
 
     def build_menu(self):
@@ -407,6 +413,7 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         self.menu_rows = {}
         entries = [(c["key"], c["page"], c["icon"]) for c in COMPONENTS]
         entries.append(OTHER_TAB)
+        entries.append(VIBRATION_TAB)
         for key, title, icon in entries:
             # The Switches tab is not built on a phone without the hardware.
             if self.pages.get(key) is None:
@@ -432,7 +439,8 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         """Say in the list which tools are not here, before anyone opens one."""
         row = self.menu_rows.get(key)
         if row is not None:
-            row.set_subtitle("" if key == OTHER_TAB[0] or self.live.get(key)
+            row.set_subtitle("" if key in (OTHER_TAB[0], VIBRATION_TAB[0])
+                             or self.live.get(key)
                              else _("Not installed"))
 
     def open_page(self, key):

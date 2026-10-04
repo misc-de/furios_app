@@ -293,6 +293,16 @@ for record in original.all_records():
             say("kept %s: changed since misc-de wrote it - before, %s"
                 % (path, "there was no such file" if record.get("content") is None
                    else "it held something else"))
+    elif kind == "gsettings" and record.get("schema") == "org.sigxcpu.feedbackd":
+        # The Vibration tab's theme key: back to what it was, while it still
+        # names our theme - a theme somebody chose since stays theirs.
+        fkey = ("org.sigxcpu.feedbackd", record.get("key", "theme"))
+        if gsettings("get", *fkey).stdout.strip().strip("'") == "misc-de":
+            if record.get("user_value") is None:
+                gsettings("reset", *fkey)
+            else:
+                gsettings("set", *fkey, record["user_value"])
+        original.forget(original.setting_ident(*fkey))
     elif kind == "gsettings":
         seen.add("gsettings")
         try:
@@ -437,6 +447,16 @@ if service not in seen and shim not in seen:
 # a list back at the default is reset rather than written - a value in
 # dconf, even the default one, pins the key against a later phosh.
 phosh = original.phosh_plugin_record()
+# feedbackd ends with "Failed to load any theme" when its key names a theme
+# file that is gone - whatever happened to the record, never leave that.
+_ft = ("org.sigxcpu.feedbackd", "theme")
+if (gsettings("get", *_ft).stdout.strip().strip("'") == "misc-de"
+        and not os.path.exists(os.path.join(
+            os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"),
+            "feedbackd", "themes", "misc-de.json"))):
+    gsettings("reset", *_ft)
+    say("feedbackd's theme was misc-de without the file - reset")
+
 if "gsettings" not in seen and phosh is not None:
     seen.add("gsettings")
     try:
