@@ -156,6 +156,7 @@ TRANSLATIONS = {
     " · on again after the next reboot": " · nach dem nächsten Neustart wieder an",
     "not available on this device": "auf diesem Gerät nicht verfügbar",
     "Remember these choices": "Diese Auswahl merken",
+    "Remembering …": "Wird gemerkt …",
     "Saves the options above": "Die obigen Optionen werden gespeichert",
     " · a reboot returns to {profile}": " · ein Neustart kehrt zurück zu {profile}",
     "Status": "Status",

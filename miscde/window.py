@@ -71,6 +71,11 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         # happened as long as set_busy was the only hand on the sensitivity.
         self.audio_ok = True
         self.dmnr_ok = True
+        # What a late "Remember these choices" has to make permanent - the
+        # profile and the echo suppression that run now but not after a
+        # reboot. Nothing until a status has said so.
+        self._profile_unremembered = None
+        self._dmnr_unremembered = None
         # Whether batman's config could be read at all. Without it the row is
         # closed rather than shown as "off" - nothing is powering the adapter
         # down in that case, but saying so from a file that is not there

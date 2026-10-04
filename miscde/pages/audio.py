@@ -231,6 +231,7 @@ class AudioPage:
     def on_dmnr_status(self, ok, out):
         if not ok:
             self.dmnr_ok = False
+            self._dmnr_unremembered = None
             self.dmnr_row.set_sensitive(False)
             self.dmnr_row.set_subtitle(_("not available on this device"))
             self.offer("dmnr", self.dmnr_row, False, False)
@@ -245,6 +246,10 @@ class AudioPage:
         # The tool reports both, because one cannot be read off the other:
         # switched on now and not remembered looks identical until the reboot.
         remembered = "persistent=yes" in out
+        # What "Remember these choices" has to write when it is switched on
+        # now: the running state, where it differs from what a reboot brings.
+        self._dmnr_unremembered = None if on == remembered else (
+            "on" if on else "off")
         if on:
             self.dmnr_row.set_subtitle(
                 self.DMNR_WORDS if remembered else
@@ -300,6 +305,11 @@ class AudioPage:
         # the state is how this window claimed the shipped stack was set while
         # the phone had been on pw-hal permanently for two days.
         sticks = profile != "unknown" and persistent == profile and not testmode
+        # The profile a late "remember" has to make permanent - see
+        # on_persist_toggled. Nothing when it holds already or is unknown.
+        self._profile_unremembered = (
+            profile if profile != "unknown" and persistent != "unknown"
+            and not sticks else None)
 
         # Nothing came back that names a profile: say that, and leave both
         # switches where they are. Showing them off would be a statement about
@@ -370,9 +380,40 @@ class AudioPage:
 
 
     def on_persist_toggled(self, row, _param):
-        """Only somebody's own tap: what on_status sets is a report."""
-        if not self._syncing:
-            self._persist_wish = row.get_active()
+        """Only somebody's own tap: what on_status sets is a report.
+
+        Switched on after the choice was made, it used to be a wish for the
+        NEXT switch only (4.10.2026): pw-hal chosen first, remember second,
+        and nothing was written - the next refresh turned the switch back off
+        and the reboot went to PulseAudio. Now switching it on makes what is
+        running permanent: the profile first, then echo suppression."""
+        if self._syncing:
+            return
+        self._persist_wish = row.get_active()
+        if not row.get_active() or self.busy:
+            return
+        profile = self._profile_unremembered
+        dmnr = self._dmnr_unremembered \
+            if self.dmnr_ok else None
+        if profile and self.live.get("audio"):
+            self.set_busy(True)
+            self.pulse_start(_("Remembering …"))
+            process.run_async([self.live["audio"], "set", profile],
+                              lambda ok, out: self.on_persisted(ok, out, dmnr),
+                              on_line=self.on_progress_line)
+        elif dmnr:
+            self._dmnr_args = ["set", dmnr]
+            self.apply_dmnr()
+
+    def on_persisted(self, ok, out, dmnr=None):
+        if ok and dmnr:
+            # apply_dmnr takes busy over and refreshes when it is done.
+            self.pulse_stop()
+            self.set_busy(False)
+            self._dmnr_args = ["set", dmnr]
+            self.apply_dmnr()
+            return
+        self.on_switched(ok, out)
 
     def on_switch(self, row, _param):
         if self._syncing or self.busy:

@@ -1370,6 +1370,50 @@ class TheWindow(unittest.TestCase):
         self.win.on_status(True, self.SHIPPED)
         self.assertFalse(self.win.persist_row.active)
 
+    def _tap_remember(self):
+        self.win._syncing = False
+        self.win.busy = False
+        row = Recording()
+        row.active = True
+        row.get_active = lambda: True
+        self.win.on_persist_toggled(row, None)
+
+    def test_remember_after_a_trial_makes_it_permanent(self):
+        """4.10.2026: pw-hal chosen first, remember switched on second -
+        nothing was written, and the reboot went back to PulseAudio."""
+        self.win.live["audio"] = "audioctl"
+        self.win.on_status(True, self.STATUS)
+        self._tap_remember()
+        self.assertEqual([["audioctl", "set", "pw-hal"]],
+                         [argv for argv, *_ in self.ran])
+
+    def test_remember_on_a_permanent_profile_runs_nothing(self):
+        self.win.live["audio"] = "audioctl"
+        self.win.on_status(True, self.PERMANENT)
+        self._tap_remember()
+        self.assertEqual([], self.ran)
+
+    def test_remember_on_the_shipped_stack_stays_a_wish(self):
+        self.win.live["audio"] = "audioctl"
+        self.win.on_status(True, self.SHIPPED)
+        self._tap_remember()
+        self.assertEqual([], self.ran)
+
+    def test_remember_without_a_persistent_line_runs_nothing(self):
+        """An older audioctl: whether it holds is unknown, so nothing is set."""
+        self.win.live["audio"] = "audioctl"
+        self.win.on_status(True, "Profile (active):   pw-hal\nSinks:              x\n")
+        self._tap_remember()
+        self.assertEqual([], self.ran)
+
+    def test_remember_also_keeps_echo_suppression_that_runs_for_now(self):
+        self.win.live["audio"] = "audioctl"
+        self.win.on_dmnr_status(True, "state=on\npersistent=no\n")
+        self.win.on_status(True, self.PERMANENT)
+        self._tap_remember()
+        self.assertEqual([["set", "on"]],
+                         [argv[1:] for argv, *_ in self.ran])
+
     def test_a_profile_that_only_holds_until_the_reboot_says_what_returns(self):
         self.win.on_status(True, self.STATUS)
         self.assertFalse(self.win.persist_row.active)
@@ -5587,22 +5631,31 @@ class BluetoothPowersave(unittest.TestCase):
     def run_script(self, contents, value):
         """The real script, against a scratch file.
 
-        systemctl is the last line and it fails here - there is no such unit
-        - which is why the file is what gets checked and not the exit code.
-        Everything this script does to the config happens before it.
+        systemctl is the last line and it fails here, which is why the file
+        is what gets checked and not the exit code. Everything this script
+        does to the config happens before it.
+
+        Not the real systemctl (4.10.2026): a system-wide restart, even of a
+        unit that does not exist, goes through polkit first, and on a desktop
+        with an agent that is a password dialog per test - three per run.
         """
         with tempfile.NamedTemporaryFile("w", suffix=".conf",
                                          delete=False) as handle:
             handle.write(contents)
             path = handle.name
+        fake = tempfile.mkdtemp()
+        Path(fake, "systemctl").write_text("#!/bin/sh\nexit 1\n")
+        os.chmod(Path(fake, "systemctl"), 0o755)
+        env = dict(os.environ, PATH=fake + os.pathsep + os.environ.get("PATH", ""))
         try:
             subprocess_real.run(
                 ["sh", "-c", self.audio.BTSAVE_SCRIPT, "sh", path,
                  "miscde-no-such-unit.service", value],
-                capture_output=True)
+                capture_output=True, env=env)
             return Path(path).read_text()
         finally:
             os.unlink(path)
+            shutil_real.rmtree(fake, ignore_errors=True)
 
     def test_an_existing_line_is_rewritten_in_place(self):
         out = self.run_script("[Settings]\nBTSAVE=true\nWIFI=true\n", "false")
