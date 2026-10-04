@@ -165,6 +165,19 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         self.btx_row.connect("notify::active", self.on_btx)
         grp.add(self.btx_row)
 
+        # The ringback tone for outgoing calls: VoLTE sends none here, and
+        # the phone has to make its own. Off until switched on, like every
+        # option; hidden while audioctl has no such unit to switch.
+        self.ringback_row = Adw.SwitchRow(
+            title=_("Ringback tone"),
+            subtitle=_("While an outgoing call rings – VoLTE sends none"),
+        )
+        self.ringback_ok = False
+        self.ringback_row.set_sensitive(False)
+        self.ringback_row.set_visible(False)
+        self.ringback_row.connect("notify::active", self.on_ringback)
+        grp.add(self.ringback_row)
+
         # Echo during a call, above the switch that decides how long a
         # choice lasts - because that switch applies to this one too, and a
         # control has to sit above what qualifies it, not below.
@@ -504,6 +517,8 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
                               self.on_codec_status)
             process.run_async([self.live["audio"], "bt-extras", "status"],
                               self.on_btx_status)
+            process.run_async([self.live["audio"], "ringback", "status"],
+                              self.on_ringback_status)
             dmnr = tools._tool_maybe(DMNR)
             if dmnr:
                 process.run_async([dmnr, "status"], self.on_dmnr_status)
@@ -607,6 +622,7 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         self.codec_row.set_sensitive(not busy and self.codec_ok)
         self.codec_scope_row.set_sensitive(not busy and self.codec_ok)
         self.btx_row.set_sensitive(not busy and self.btx_ok)
+        self.ringback_row.set_sensitive(not busy and self.ringback_ok)
         # Sensitive only while there is something behind it. show_update_count
         # owns whether it is there at all; this owns whether it can be
         # pressed, and a batch that is running must not be started twice.

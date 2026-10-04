@@ -422,6 +422,42 @@ class AudioPage:
             self.toast(last[-1].strip() if last else _("Done"))
         self.refresh()
 
+    def on_ringback_status(self, ok, out):
+        """audioctl ringback status: ringback=on|off, available=yes|no. An
+        audioctl without the command answers with its usage - no row then."""
+        values = dict(z.split("=", 1) for z in (out or "").splitlines()
+                      if "=" in z)
+        if not ok or values.get("available") != "yes" \
+                or values.get("ringback") not in ("on", "off"):
+            self.ringback_ok = False
+            self.ringback_row.set_visible(False)
+            return
+        self.ringback_row.set_visible(True)
+        self.ringback_ok = True
+        self._syncing = True
+        self.ringback_row.set_active(values["ringback"] == "on")
+        self._syncing = False
+        self.ringback_row.set_sensitive(not self.busy)
+
+    def on_ringback(self, row, _param):
+        if self._syncing or self.busy or not self.ringback_ok \
+                or not self.live.get("audio"):
+            return
+        self.set_busy(True)
+        process.run_async([self.live["audio"], "ringback",
+                           "on" if row.get_active() else "off"],
+                          self.on_ringback_done)
+
+    def on_ringback_done(self, ok, out):
+        self.set_busy(False)
+        if not ok:
+            self.toast(_("Could not change the ringback tone"))
+            self.report(out or _("No output."))
+        else:
+            last = [l for l in (out or "").splitlines() if l.strip()]
+            self.toast(last[-1].strip() if last else _("Done"))
+        self.refresh()
+
     def on_dmnr(self, row, _param):
         if self._syncing or self.busy:
             return

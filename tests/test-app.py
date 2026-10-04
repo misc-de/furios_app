@@ -1192,7 +1192,7 @@ class TheWindow(unittest.TestCase):
         self.win = switcher.Window(switcher.Adw.Application())
         names = ["row_profile", "row_server", "row_sinks", "switch_row",
                  "persist_row", "dmnr_row", "btsave_row", "codec_row",
-                 "codec_scope_row", "btx_row",
+                 "codec_scope_row", "btx_row", "ringback_row",
                  "update_btn",
                  "progress", "progress_revealer", "toasts"]
         # The modem widgets only exist when the page was built, and the page is
@@ -1735,6 +1735,37 @@ class TheWindow(unittest.TestCase):
         self.win.on_btx_status(True, "bt-extras=on\nprofile=standard\noffered=no\neffective=none\n")
         self.assertFalse(self.win.btx_row.visible)
         self.assertFalse(self.win.btx_ok)
+
+    # --- the ringback tone ---
+
+    def test_ringback_follows_audioctl_and_switches_through_it(self):
+        self.win.busy = False
+        self.win.live["audio"] = "/usr/bin/audioctl"
+        self.win.on_ringback_status(True, "ringback=off\navailable=yes\n")
+        self.assertTrue(self.win.ringback_row.visible)
+        self.assertFalse(self.win.ringback_row.get_active())
+        self.assertTrue(self.win.ringback_row.sensitive)
+        self.win.ringback_row.active = True
+        self.win.on_ringback(self.win.ringback_row, None)
+        self.assertEqual(["/usr/bin/audioctl", "ringback", "on"], self.ran[-1][0])
+        self.win.on_ringback_status(True, "ringback=on\navailable=yes\n")
+        self.assertTrue(self.win.ringback_row.get_active())
+
+    def test_reading_the_state_switches_nothing(self):
+        self.win.busy = False
+        self.win.live["audio"] = "/usr/bin/audioctl"
+        before = len(self.ran)
+        self.win.on_ringback_status(True, "ringback=on\navailable=yes\n")
+        self.assertEqual(before, len(self.ran))
+
+    def test_no_ringback_row_without_the_unit_or_the_command(self):
+        self.win.on_ringback_status(True, "ringback=off\navailable=no\n")
+        self.assertFalse(self.win.ringback_row.visible)
+        # an older audioctl answers with its usage
+        self.win.on_ringback_status(False, "audioctl - switch the audio stack\n")
+        self.assertFalse(self.win.ringback_row.visible)
+        self.assertFalse(self.win.ringback_ok)
+        self.win.on_ringback(self.win.ringback_row, None)     # runs nothing
 
     def test_an_older_audioctl_is_judged_by_its_profile(self):
         self.win.on_btx_status(True, "bt-extras=on\nprofile=standard\neffective=basic\n")
@@ -2416,8 +2447,9 @@ class TheWindow(unittest.TestCase):
         # Audio is counted like the rest now: audioctl can be missing too, and
         # asking a tool that is not there was how a callback ended up at rows
         # nobody had built.
-        # status, bt-codec status, bt-extras status and the echo helper's
-        expected = ((3 + bool(DMNR) if AUDIOCTL else 0)
+        # status, bt-codec status, bt-extras status, ringback status and the
+        # echo helper's
+        expected = ((4 + bool(DMNR) if AUDIOCTL else 0)
                     # profile, status, sim and nr
                     + (4 if MODEMCTL else 0)
                     # status of the contribution tool, and of the Firefox

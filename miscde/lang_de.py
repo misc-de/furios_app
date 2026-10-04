@@ -88,6 +88,11 @@ TRANSLATIONS = {
         "gesetzt werden",
     "Could not change the Bluetooth helpers":
         "Die Bluetooth-Helfer konnten nicht geändert werden",
+    "Ringback tone": "Freizeichen",
+    "While an outgoing call rings – VoLTE sends none":
+        "Solange ein ausgehender Anruf klingelt – VoLTE sendet keins",
+    "Could not change the ringback tone":
+        "Das Freizeichen konnte nicht umgeschaltet werden",
     "Handsfree echo suppression (DMNR)": "Echounterdrückung beim Freisprechen (DMNR)",
     "Suppresses the echo in speakerphone calls":
         "Unterdrückt das Echo bei Lautsprechertelefonie",
