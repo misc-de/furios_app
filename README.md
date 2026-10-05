@@ -4,6 +4,14 @@ An app for the FuriPhone FLX1. It switches the fixes for audio, modem, GPS,
 the hardware switches, security, battery icon, phosh and vibration on and
 off - one tab each.
 
+---
+⚠️ **AI-assisted project**  
+Large parts of this app's code and texts were written with the help of an AI
+assistant (Claude) and reviewed, tested and shipped by a human maintainer.
+If that matters to you, now you know.
+
+---
+
 The app repairs nothing itself; it drives the tools that do. A tab whose
 tool is missing offers to install it. When an update is waiting, an icon
 appears in the top left of the header bar.
