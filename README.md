@@ -26,6 +26,21 @@ a count appears in the top left of the header bar. Pressing it lists what would
 be taken and asks once: one password for all of them, and the app restarts when
 they are in. With nothing waiting there is no button at all.
 
+## Screenshots
+
+<p>
+  <img src="screenshots/overview.webp" alt="Overview" width="180">
+  <img src="screenshots/audio.webp" alt="Audio" width="180">
+  <img src="screenshots/modem.webp" alt="Modem" width="180">
+  <img src="screenshots/switches.webp" alt="Switches" width="180">
+</p>
+
+<p>
+  <img src="screenshots/battery.webp" alt="Battery" width="180">
+  <img src="screenshots/phosh.webp" alt="Phosh" width="180">
+  <img src="screenshots/vibration.webp" alt="Vibration" width="180">
+</p>
+
 ## Install
 
 Fetch the repository, then run the installer from inside it:
