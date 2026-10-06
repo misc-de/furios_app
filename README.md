@@ -36,6 +36,9 @@ appears in the top left of the header bar.
 Run it without `sudo` - it asks for the password itself. Then start
 **misc-de** from the app grid. Keep the folder: the app updates itself from it.
 
+Updates are only installed when their commit carries misc-de's SSH
+signature (key pinned in `miscde/allowed_signers`).
+
 To remove it: `./uninstall.sh`. The tools behind the tabs stay installed;
 each has its own uninstaller.
 

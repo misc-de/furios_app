@@ -591,11 +591,15 @@ TRANSLATIONS = {
         "Installiert · wirkt nach dem nächsten Neustart",
     "{tool} ran, but is not on the phone": "{tool} lief, ist aber nicht auf dem Telefon",
     "Could not set up {tool}": "{tool} konnte nicht eingerichtet werden",
+    "{tool}: not signed by misc-de - not installed":
+        "{tool}: nicht von misc-de signiert - nicht installiert",
+    "git fetch in {path}, the new commit checked for misc-de's signature, then merged":
+        "git fetch in {path}, der neue Commit auf die Signatur von misc-de geprüft, dann übernommen",
+    "git clone {url} to {path}, checked for misc-de's signature before anything is checked out":
+        "git clone {url} nach {path}, auf die Signatur von misc-de geprüft, bevor etwas ausgecheckt wird",
     "Could not restart: {error}": "Neustart nicht möglich: {error}",
-    "git clone {url} to {path}": "git clone {url} nach {path}",
     "nothing is fetched - the clone in {path} is used exactly as it is":
         "es wird nichts geholt - der Klon in {path} wird genau so verwendet",
-    "git pull --ff-only in {path}": "git pull --ff-only in {path}",
     "the clone in {path} is already here - update it if possible, install from "
     "it either way":
         "der Klon in {path} ist schon da - wenn möglich aktualisieren, in jedem "

@@ -211,7 +211,8 @@ SELF = {
 # instead of an installer that dies half-way with its error in a dialog.
 # git fetches every one of them. Checked by name with dpkg-query, like the
 # audio installer checks its own build packages.
-ALWAYS = ["git"]
+# ssh-keygen (openssh-client) is what git checks a signature with.
+ALWAYS = ["git", "openssh-client"]
 
 
 def packages_needed(comp):
@@ -368,6 +369,105 @@ def clone_elsewhere(url, base=None):
     return max(clones, key=head_time)
 
 
+# ------------------------------------------------------------ signatures
+#
+# Whatever is fetched here is run by an installer that becomes root. Until
+# 6.10.2026 that meant: whoever controls the GitHub account controls this
+# phone. Now a commit is only checked out, merged or installed when it carries
+# an SSH signature by the one key below - the maintainer's, pinned in this
+# repository (miscde/allowed_signers) and installed by install.sh beside the
+# package, where only root can change it. Read from there and nowhere else: a
+# copy the user's own processes could write would pin nothing.
+#
+# There is no "allow unsigned" anywhere. A refusal leaves the working tree
+# exactly as it was and says so in one line.
+ALLOWED_SIGNERS = "/usr/local/lib/misc-de/allowed_signers"
+# Who has to own that file. Only the tests change this, along with the path.
+SIGNERS_OWNER = 0
+# Said by every refusal, and looked for in the output to say it on screen.
+NOT_SIGNED = "not signed by misc-de - not installed"
+
+# The shell every signature step starts with. Arguments: $1 the clone,
+# $2 the allowed-signers file, $3 its owner's uid, $4 NOT_SIGNED, then the
+# step's own. A commit is named by its hash once it is known, so what is
+# checked is exactly what is merged, checked out or installed - never a ref
+# that could move in between.
+_SIGNED_SH = r'''
+clone=$1 signers=$2 owner=$3 not_signed=$4
+refuse() { echo "$1"; exit 1; }
+signed() {
+    if [ ! -f "$signers" ] || [ -L "$signers" ] \
+       || [ "$(stat -c %u "$signers")" != "$owner" ] \
+       || [ -n "$(find "$signers" -perm /022)" ]; then
+        echo "no trusted signing key at $signers"
+        return 1
+    fi
+    git -C "$clone" -c gpg.format=ssh \
+        -c gpg.ssh.allowedSignersFile="$signers" verify-commit "$1" 2>&1
+}
+'''
+
+
+def _signed_step(name, body, path, *extra):
+    """One bash step with the signature check in front of `body`."""
+    return (["bash", "-c", _SIGNED_SH + body, name, path, ALLOWED_SIGNERS,
+             str(SIGNERS_OWNER), NOT_SIGNED] + list(extra), None, None, None)
+
+
+def verified_head_step(path):
+    """What every install runs right before it: the clone is clean, and the
+    commit it has checked out is signed. The "reinstall" of this app takes no
+    pull at all, and an update may stop half-way - so this is checked here,
+    whatever came before."""
+    return _signed_step("verified_head", r'''
+[ -z "$(git -C "$clone" status --porcelain)" ] \
+    || refuse "$clone has uncommitted changes - not installed"
+head=$(git -C "$clone" rev-parse --verify --quiet "HEAD^{commit}") \
+    || refuse "$clone has nothing checked out - not installed"
+signed "$head" || refuse "$clone $head: $not_signed"
+''', path)
+
+
+def fetch_verified_step(path, tolerant=False):
+    """git fetch, the fetched tip checked, and only then merged - by hash.
+
+    `tolerant` is the second press of Install: no network, or a merge that is
+    not a fast-forward, installs what is already there (and the check before
+    the installer still looks at that). A tip that is not signed never is.
+    """
+    if tolerant:
+        body = r'''
+if git -C "$clone" fetch --quiet \
+   && tip=$(git -C "$clone" rev-parse --verify --quiet "@{u}^{commit}"); then
+    signed "$tip" || refuse "$clone $tip: $not_signed"
+    git -C "$clone" merge --ff-only --quiet "$tip" && exit 0
+fi
+echo "Could not update the clone - installing what is already in it."
+'''
+    else:
+        body = r'''
+git -C "$clone" fetch --quiet || exit 1
+tip=$(git -C "$clone" rev-parse --verify --quiet "@{u}^{commit}") \
+    || refuse "$clone has no upstream to update from"
+signed "$tip" || refuse "$clone $tip: $not_signed"
+git -C "$clone" merge --ff-only --quiet "$tip"
+'''
+    return _signed_step("fetch_verified", body, path)
+
+
+def clone_verified_step(url, path):
+    """A fresh clone: nothing checked out until its tip is checked. A refused
+    clone is removed again - it is ours, made a moment ago, and left behind it
+    would turn the next press into an update of a clone with no files."""
+    return _signed_step("clone_verified", r'''
+git clone --quiet --no-checkout "$5" "$clone" || exit 1
+tip=$(git -C "$clone" rev-parse --verify --quiet "HEAD^{commit}") \
+    || { rm -rf -- "$clone"; refuse "$5 has nothing to check out"; }
+signed "$tip" || { rm -rf -- "$clone"; refuse "$5 $tip: $not_signed"; }
+git -C "$clone" reset --hard --quiet "$tip"
+''', path, url)
+
+
 def source_steps(comp, state, path):
     """Getting the code here: the commands, and the sentence somebody is asked
     to agree to. Both from one place, because the question in front of a
@@ -379,11 +479,14 @@ def source_steps(comp, state, path):
     not an empty directory" - for ever, with no way out from inside the app.
     Seen on the phone on 14.9.2026, after an install that had failed further
     down for another reason.
+
+    Nothing unsigned is merged or checked out in any of them (see
+    ALLOWED_SIGNERS), and component_steps checks the result once more before
+    the installer runs.
     """
     if state == "reinstall":
-        # Nothing to fetch: what is wanted is what is already in the clone.
-        # A pull here would be the wrong question, and with uncommitted work
-        # in that clone its guard would refuse the install as well.
+        # Nothing to fetch: what is wanted is what is already in the clone -
+        # if it is clean and signed, which component_steps checks.
         return ([], _("nothing is fetched - the clone in {path} is used "
                       "exactly as it is").format(path=path))
     if state == "update":
@@ -403,17 +506,14 @@ def source_steps(comp, state, path):
                    '[ "$u" = "$2" ] || { echo "$1 does not pull from $2 any '
                    'more. Nothing was touched."; exit 1; }',
                    "origin", path, comp["url"].lower()], None, None, None)
-        return ([origin, guard,
-                 (["git", "-C", path, "pull", "--ff-only"], None, None, None)],
-                _("git pull --ff-only in {path}").format(path=path))
+        return ([origin, guard, fetch_verified_step(path)],
+                _("git fetch in {path}, the new commit checked for "
+                  "misc-de's signature, then merged").format(path=path))
     if is_clone_of(path, comp["url"]):
         # Ours, from an earlier press. Bring it up to date if that works and
         # install from it either way: no network is a reason to install what
         # is here, not a reason to refuse.
-        return ([(["bash", "-c",
-                   'git -C "$1" pull --ff-only || echo "Could not update the '
-                   'clone - installing what is already in it."',
-                   "retry", path], None, None, None)],
+        return ([fetch_verified_step(path, tolerant=True)],
                 _("the clone in {path} is already here - update it if "
                   "possible, install from it either way").format(path=path))
     if os.path.exists(path):
@@ -425,8 +525,10 @@ def source_steps(comp, state, path):
                   None, None, None)],
                 _("{path} is in the way - it is not a clone of {url}").format(
                     path=path, url=comp["url"]))
-    return ([(["git", "clone", comp["url"], path], None, None, None)],
-            _("git clone {url} to {path}").format(url=comp["url"], path=path))
+    return ([clone_verified_step(comp["url"], path)],
+            _("git clone {url} to {path}, checked for misc-de's signature "
+              "before anything is checked out").format(url=comp["url"],
+                                                       path=path))
 
 
 def installer_env(askpass):
@@ -471,6 +573,10 @@ def component_steps(comp, state, secret, path=None, askpass=None):
     """
     path = path or clone_path(comp)
     steps = list(source_steps(comp, state, path)[0])
+    # Whatever the source steps did or did not do - a reinstall does
+    # nothing - what the installer is about to run is clean and signed, or
+    # it does not run. Before sudo: refused code gets no ticket either.
+    steps.append(verified_head_step(path))
     if comp["root"]:
         # -S reads the password from the pipe; -p "" keeps sudo's prompt out
         # of the output this window shows. It stays even though the helper

@@ -84,6 +84,10 @@ sudo rm -rf "$PREFIX/lib/misc-de/miscde"
 sudo install -d -m755 "$PREFIX/lib/misc-de"
 sudo cp -r miscde "$PREFIX/lib/misc-de/miscde"
 sudo find "$PREFIX/lib/misc-de/miscde" -name __pycache__ -prune -exec rm -rf {} +
+# The one key an update may be signed with (see ALLOWED_SIGNERS in
+# miscde/components.py). Here and owned by root, so that nothing running as
+# the user can swap it for its own.
+sudo install -m644 miscde/allowed_signers "$PREFIX/lib/misc-de/allowed_signers"
 # Which commit this is. The app offers to reinstall itself when a clone's
 # files differ from the running ones - and without knowing which side is
 # newer, an old checkout beside a new one offered a downgrade. Empty when

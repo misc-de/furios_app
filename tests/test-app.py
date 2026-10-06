@@ -394,7 +394,7 @@ class ComponentTable(unittest.TestCase):
         # And the clone itself is still the clone - cloning into the
         # subdirectory would put a repository inside a directory of it.
         self.assertIn("git clone", " ".join(steps[0][0]))
-        self.assertEqual(path, steps[0][0][-1])
+        self.assertEqual(path, steps[0][0][4])
 
     def test_a_single_project_still_installs_from_the_clone(self):
         comp = self.comp("furios-gps-contribute")
@@ -439,7 +439,7 @@ class ComponentTable(unittest.TestCase):
                                             self.clone_dir(comp["url"]))
         commands = [" ".join(argv) for argv, _s, _c, _e in steps]
         self.assertEqual([], [b for b in commands if "git clone" in b])
-        self.assertTrue(any("pull --ff-only" in b for b in commands), commands)
+        self.assertTrue(any("merge --ff-only" in b for b in commands), commands)
         self.assertTrue(any(b.endswith("install.sh") for b in commands))
 
     def test_a_clone_that_cannot_be_updated_is_installed_anyway(self):
@@ -590,8 +590,8 @@ class ComponentTable(unittest.TestCase):
         self.assertIn("status --porcelain", guard)
         self.assertIn("uncommitted", guard)
         self.assertIn("/home/furios/Projekte/eigen", steps[1][0])
-        self.assertIn("pull", steps[2][0])
-        self.assertIn("--ff-only", steps[2][0],
+        self.assertIn("verify-commit", " ".join(steps[2][0]))
+        self.assertIn("merge --ff-only", " ".join(steps[2][0]),
                       "a merge is not this app's decision to make")
 
     def test_an_update_works_in_the_clone_it_was_given(self):
@@ -604,6 +604,221 @@ class ComponentTable(unittest.TestCase):
                     self.assertIn("/elsewhere", argv)
                 if argv[0].endswith("install.sh"):
                     self.assertEqual("/elsewhere", cwd)
+
+
+class SignedUpdates(unittest.TestCase):
+    """Nothing is merged, checked out or installed unless misc-de signed it.
+
+    Real repositories and a real SSH key, made for the test in a directory of
+    its own: the point is what git and ssh-keygen answer, and a stand-in for
+    them would only agree with whatever this file believes. A second key
+    plays somebody who got hold of the GitHub account - a good signature by
+    the wrong key has to be refused like no signature at all.
+    """
+
+    def setUp(self):
+        if not shutil_real.which("ssh-keygen"):
+            self.skipTest("no ssh-keygen")
+        self.tmp = tempfile.mkdtemp(prefix="miscde-sign-")
+        self.addCleanup(shutil_real.rmtree, self.tmp, True)
+        for name in ("good", "other"):
+            subprocess_real.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "",
+                                 "-C", name, "-f", self.at(name)], check=True)
+        signers = self.at("allowed_signers")
+        with open(self.at("good.pub")) as fh:
+            key = " ".join(fh.read().split()[:2])
+        with open(signers, "w") as fh:
+            fh.write("11610690+misc-de@users.noreply.github.com %s\n" % key)
+        os.chmod(signers, 0o644)
+        self.enterContext(mock.patch.object(
+            switcher.components, "ALLOWED_SIGNERS", signers))
+        self.enterContext(mock.patch.object(
+            switcher.components, "SIGNERS_OWNER", os.getuid()))
+        # Upstream, and a working tree that commits and pushes to it.
+        self.upstream = self.at("upstream")
+        self.git("init", "-q", "--bare", "-b", "main", self.upstream)
+        self.work = self.at("work")
+        self.git("clone", "-q", self.upstream, self.work)
+        self.git("-C", self.work, "checkout", "-q", "-b", "main")
+        self.comp = dict(next(c for c in switcher.COMPONENTS
+                              if c["tool"] == "modemctl"),
+                         url=self.upstream)
+
+    def at(self, name):
+        return os.path.join(self.tmp, name)
+
+    @staticmethod
+    def git(*args):
+        return subprocess_real.run(
+            ["git", "-c", "init.defaultBranch=main", "-c", "user.name=t",
+             "-c", "user.email=t@t"] + list(args),
+            check=True, capture_output=True, text=True).stdout.strip()
+
+    def push(self, text, key=None):
+        """A commit upstream changing install.sh: signed by `key`, or not."""
+        with open(os.path.join(self.work, "install.sh"), "w") as fh:
+            fh.write(text)
+        self.git("-C", self.work, "add", "install.sh")
+        sign = (["-c", "gpg.format=ssh", "-c", "user.signingkey=" + self.at(key),
+                 "commit", "-S"] if key else
+                ["-c", "commit.gpgsign=false", "commit"])
+        self.git("-C", self.work, *sign, "-q", "-m", text)
+        self.git("-C", self.work, "push", "-q", "origin", "main")
+        return self.git("-C", self.work, "rev-parse", "HEAD")
+
+    @staticmethod
+    def run_step(step):
+        done = subprocess_real.run(step[0], capture_output=True, text=True)
+        return done.returncode, done.stdout + done.stderr
+
+    def tree(self, path):
+        with open(os.path.join(path, "install.sh")) as fh:
+            return fh.read()
+
+    def head(self, path):
+        return self.git("-C", path, "rev-parse", "HEAD")
+
+    # -- a fresh clone
+
+    def test_a_signed_tip_is_cloned_and_checked_out(self):
+        tip = self.push("v1", "good")
+        path = self.at("clone")
+        rc, out = self.run_step(
+            switcher.components.clone_verified_step(self.upstream, path))
+        self.assertEqual(0, rc, out)
+        self.assertEqual(tip, self.head(path))
+        self.assertEqual("v1", self.tree(path))
+        self.assertEqual("", self.git("-C", path, "status", "--porcelain"))
+        rc, out = self.run_step(switcher.components.verified_head_step(path))
+        self.assertEqual(0, rc, out)
+
+    def test_an_unsigned_or_foreign_tip_is_not_even_checked_out(self):
+        for key in (None, "other"):
+            with self.subTest(key=key):
+                self.push("evil %s" % key, key)
+                path = self.at("clone-%s" % key)
+                rc, out = self.run_step(
+                    switcher.components.clone_verified_step(self.upstream, path))
+                self.assertNotEqual(0, rc)
+                self.assertIn(switcher.components.NOT_SIGNED, out)
+                self.assertFalse(os.path.exists(path),
+                                 "a refused clone is not left behind")
+
+    # -- an update
+
+    def cloned(self):
+        good = self.push("v1", "good")
+        path = self.at("clone")
+        rc, out = self.run_step(
+            switcher.components.clone_verified_step(self.upstream, path))
+        self.assertEqual(0, rc, out)
+        return path, good
+
+    def test_an_unsigned_or_foreign_tip_leaves_the_clone_untouched(self):
+        path, good = self.cloned()
+        for key in (None, "other"):
+            for tolerant in (False, True):
+                with self.subTest(key=key, tolerant=tolerant):
+                    self.push("evil %s %s" % (key, tolerant), key)
+                    rc, out = self.run_step(switcher.components.fetch_verified_step(
+                        path, tolerant=tolerant))
+                    self.assertNotEqual(0, rc, out)
+                    self.assertIn(switcher.components.NOT_SIGNED, out)
+                    self.assertNotIn("installing what is already", out)
+                    self.assertEqual(good, self.head(path))
+                    self.assertEqual("v1", self.tree(path))
+                    self.assertEqual(
+                        "", self.git("-C", path, "status", "--porcelain"))
+
+    def test_a_signed_tip_is_merged_by_its_hash(self):
+        path, _good = self.cloned()
+        self.push("unsigned in between")
+        tip = self.push("v2", "good")
+        rc, out = self.run_step(switcher.components.fetch_verified_step(path))
+        self.assertEqual(0, rc, out)
+        self.assertEqual(tip, self.head(path))
+        self.assertEqual("v2", self.tree(path))
+
+    def test_the_whole_update_chain_refuses_before_sudo(self):
+        """Run as the window would run it: the first failing step ends the
+        chain, and with an unsigned tip that is before the password."""
+        path, good = self.cloned()
+        self.push("evil", None)
+        steps = switcher.component_steps(self.comp, "update", "pw", path)
+        for n, step in enumerate(steps):
+            if step[0][0] != "bash":
+                self.fail("reached %s" % step[0])
+            rc, out = self.run_step(step)
+            if rc:
+                break
+        self.assertIn(switcher.components.NOT_SIGNED, out)
+        self.assertEqual(good, self.head(path))
+
+    # -- what is about to be installed
+
+    def test_the_head_is_checked_before_every_install(self):
+        path, _good = self.cloned()
+        for comp in switcher.COMPONENTS + [switcher.PHOSH, switcher.SELF]:
+            for state in ("install", "update", "reinstall"):
+                with self.subTest(tool=comp["tool"], state=state):
+                    argvs = [a for a, _s, _c, _e in
+                             switcher.component_steps(comp, state, "pw", path)]
+                    names = [a[3] if a[0] == "bash" else a[0] for a in argvs]
+                    at = names.index("verified_head")
+                    self.assertEqual(path, argvs[at][4])
+                    later = names[at:]
+                    self.assertIn("./install.sh", later)
+                    if comp["root"]:
+                        self.assertIn("sudo", later,
+                                      "no ticket before the check")
+                        self.assertNotIn("sudo", names[:at])
+
+    def test_a_clone_that_is_dirty_or_unsigned_is_not_installed(self):
+        path, _good = self.cloned()
+        step = switcher.components.verified_head_step(path)
+        with open(os.path.join(path, "install.sh"), "w") as fh:
+            fh.write("changed by hand")
+        rc, out = self.run_step(step)
+        self.assertNotEqual(0, rc)
+        self.assertIn("uncommitted changes", out)
+        self.assertEqual("changed by hand", self.tree(path))
+        # Committed, but not by misc-de.
+        self.git("-C", path, "-c", "commit.gpgsign=false", "commit", "-qam", "x")
+        rc, out = self.run_step(step)
+        self.assertNotEqual(0, rc)
+        self.assertIn(switcher.components.NOT_SIGNED, out)
+
+    def test_a_key_file_anybody_could_have_written_pins_nothing(self):
+        path, _good = self.cloned()
+        signers = switcher.components.ALLOWED_SIGNERS
+        os.chmod(signers, 0o664)
+        rc, out = self.run_step(switcher.components.verified_head_step(path))
+        self.assertNotEqual(0, rc)
+        self.assertIn("no trusted signing key", out)
+        os.chmod(signers, 0o644)
+        with mock.patch.object(switcher.components, "SIGNERS_OWNER",
+                               os.getuid() + 1):
+            rc, out = self.run_step(switcher.components.verified_head_step(path))
+        self.assertNotEqual(0, rc)
+        with mock.patch.object(switcher.components, "ALLOWED_SIGNERS",
+                               self.at("nowhere")):
+            rc, out = self.run_step(switcher.components.verified_head_step(path))
+        self.assertNotEqual(0, rc)
+        self.assertIn(switcher.components.NOT_SIGNED, out)
+
+    def test_the_pinned_key_is_shipped_and_installed(self):
+        with open(ROOT / "miscde" / "allowed_signers") as fh:
+            lines = [l.split() for l in fh if l.strip()]
+        self.assertEqual([["11610690+misc-de@users.noreply.github.com",
+                           "ssh-ed25519",
+                           "AAAAC3NzaC1lZDI1NTE5AAAAIPS7j5/fOeP7PkwukD8FBVCpm"
+                           "gRFDqni+GZtqlJbCa+9"]], lines)
+        # Read where only root can write - from the source, since setUp has
+        # pointed the module at this test's own key.
+        self.assertIn('ALLOWED_SIGNERS = "/usr/local/lib/misc-de/allowed_signers"',
+                      (ROOT / "miscde" / "components.py").read_text())
+        self.assertIn('"$PREFIX/lib/misc-de/allowed_signers"',
+                      (ROOT / "install.sh").read_text())
 
 
 class FakeProcess:
@@ -3375,6 +3590,10 @@ class TheWindow(unittest.TestCase):
         self.running_package(b"the old version")
         self.win.live["app"] = "/usr/local/bin/misc-de"
         self.win.update_btn = Recording()
+        # The clone's HEAD is signed - SignedUpdates checks that for real.
+        self.enterContext(mock.patch.object(
+            switcher.process, "run_async",
+            lambda argv, done, **_kw: done(True, "")))
         real = switcher.components.clone_elsewhere
         switcher.components.clone_elsewhere = lambda url, base=None: clone_dir
         try:
@@ -3384,7 +3603,7 @@ class TheWindow(unittest.TestCase):
         self.assertEqual("reinstall", self.win.updates["misc-de"]["mode"])
         self.assertEqual(True, self.win.update_btn.visible)
 
-    def check_against(self, commit, contains):
+    def check_against(self, commit, contains, signed=True):
         comp = self.app_component()
         clone_dir = self.clone_with_program(comp["url"], b"another version")
         self.running_package(b"the installed version", commit=commit)
@@ -3394,7 +3613,7 @@ class TheWindow(unittest.TestCase):
 
         def run_async(argv, done, **_kw):
             asked.append(argv)
-            done(contains, "")
+            done(signed if argv[:1] == ["bash"] else contains, "")
 
         self.enterContext(mock.patch.object(switcher.process, "run_async", run_async))
         self.enterContext(mock.patch.object(
@@ -3417,8 +3636,32 @@ class TheWindow(unittest.TestCase):
 
     def test_an_install_that_named_no_commit_compares_files_as_before(self):
         asked = self.check_against(None, contains=False)
-        self.assertEqual([], asked)
+        self.assertEqual(["verified_head"], [a[3] for a in asked])
         self.assertIn("misc-de", self.win.updates)
+
+    def test_a_clone_whose_head_is_not_signed_is_not_offered(self):
+        """The offer ends in an install as root and an execv of what it
+        installed - so a clone that is dirty or not signed by misc-de is not
+        offered at all, whatever its files say."""
+        asked = self.check_against("abc123", contains=True, signed=False)
+        self.assertEqual("verified_head", asked[-1][3])
+        self.assertNotIn("misc-de", self.win.updates)
+        asked = self.check_against(None, contains=True, signed=False)
+        self.assertNotIn("misc-de", self.win.updates)
+
+    def test_an_unsigned_refusal_is_said_in_one_line(self):
+        comp = self.component("furios-gps-contribute")
+        out = "/x abc: " + switcher.components.NOT_SIGNED
+        said = "furios-gps-contribute: not signed by misc-de - not installed"
+        for finish in (lambda: self.win.component_done(comp, False, out),
+                       lambda: self.win.updates_done(False, out, comp)):
+            self.win.toasts.text = None
+            recorder.reset()
+            finish()
+            self.assertEqual(said, str(self.win.toasts.text))
+            # One line, not a page of git output on top of it.
+            self.assertEqual([], [c for c in recorder.calls
+                                  if c[0] == "Adw.AlertDialog"])
 
     def test_a_program_that_matches_its_clone_is_not_offered(self):
         comp = self.app_component()
@@ -4958,7 +5201,7 @@ class AsksForPackagesFirst(unittest.TestCase):
             [], 1, stdout="git install ok installed\n", stderr="no packages")
         with mock.patch.object(switcher.components.subprocess, "run",
                                lambda *a, **k: done):
-            self.assertEqual(["phosh-dev"], REAL_MISSING_PACKAGES(
+            self.assertEqual(["openssh-client", "phosh-dev"], REAL_MISSING_PACKAGES(
                 {"packages": ["phosh-dev"]}))
 
     def test_git_is_needed_by_every_one(self):
@@ -6897,6 +7140,9 @@ class LetsGoOfAHungInstall(unittest.TestCase):
         self.win.busy = False
         with mock.patch("time.monotonic", lambda: 100.0):
             self.win.run_component(comp, "reinstall", None, "/clone")
+            # First the check of what is about to be installed, then it.
+            self.assertEqual("verified_head", ran[-1][0][3])
+            ran[-1][1](True, "")
         self.assertEqual(["./install.sh"], ran[-1][0])
         self.assertEqual(1900.0, self.win.install_overdue_at)
 

@@ -250,13 +250,24 @@ class InstallPage:
         # ~/Projekte/furios_app beside ~/Projekte/.dev/furios_app - was
         # offered as an update and would have installed the old code. Only
         # a clone that contains what is installed is offered.
+        #
+        # And only a clone that is clean and whose HEAD carries misc-de's
+        # signature: this offer ends in an install as root and an execv of
+        # what it installed. The install checks it again (component_steps)
+        # right before it runs - this is so that nothing is offered that
+        # would only be refused.
+        def checked():
+            argv = components.verified_head_step(source)[0]
+            process.run_async(argv, lambda ok, _out: offer() if ok else None,
+                              timeout=30)
+
         installed = tools.installed_commit()
         if installed is None:
-            offer()                            # an older install: as before
+            checked()                          # an older install: as before
             return
         process.run_async(["git", "-C", source, "merge-base", "--is-ancestor",
                            installed, "HEAD"],
-                          lambda ok, _out: offer() if ok else None, timeout=30)
+                          lambda ok, _out: checked() if ok else None, timeout=30)
 
     def offer_update(self, comp, words, path, state="update"):
         """Write down that this one has something waiting, and count it.
@@ -389,6 +400,7 @@ class InstallPage:
                 error=self.askpass.error))
 
         rest = []
+        current = [None]                       # whose step ran last
         for u in waiting:
             for step in component_steps(u["comp"], u["mode"], secret,
                                            u["path"], helper):
@@ -402,9 +414,10 @@ class InstallPage:
             if self.aborting:
                 return                         # abort_install has it in hand
             if not ok or not rest:
-                self.updates_done(ok, out)
+                self.updates_done(ok, out, current[0])
                 return
             comp, (argv, stdin, cwd, env) = rest.pop(0)
+            current[0] = comp
             self.update_progress(comp["tool"] + ": " + argv[0])
             # The installer gets its own patience. A clone or a pull is over
             # in seconds, but an installer may have to fetch build packages
@@ -449,7 +462,7 @@ class InstallPage:
         if not ok:
             process.run_async(["sudo", "-k"], lambda *_a: None, timeout=10)
 
-    def updates_done(self, ok, out):
+    def updates_done(self, ok, out, comp=None):
         """Everything ran, or something did not.
 
         The socket goes down and the password is forgotten first, before
@@ -460,6 +473,8 @@ class InstallPage:
         self.set_busy(False)
         if not ok:
             self.show_update_count()
+            if comp is not None and self.refused_unsigned(comp, out):
+                return
             self.toast(_("Could not install the updates"))
             # A wrong password shows up here as sudo's own words, which say
             # it better than anything this window could invent.
@@ -743,12 +758,26 @@ class InstallPage:
             self.toast(_("{tool} is installed, but its installer reported "
                          "an error").format(tool=comp["tool"]))
             self.report(out or _("No output."))
+        elif self.refused_unsigned(comp, out):
+            pass
         else:
             self.toast(_("Could not set up {tool}").format(tool=comp["tool"]))
             # A wrong password shows up here as sudo's own words, which say it
             # better than anything this window could invent.
             self.report(out or _("No output."))
         self.refresh()
+
+    def refused_unsigned(self, comp, out):
+        """Was this a refusal for want of misc-de's signature? Then that is
+        the whole message, in one line - the row and a toast, not a page of
+        git output. Nothing was merged, checked out or installed."""
+        if components.NOT_SIGNED not in (out or ""):
+            return False
+        words = _("{tool}: not signed by misc-de - not installed").format(
+            tool=comp["tool"])
+        self.component_says(comp, words)
+        self.toast(words)
+        return True
 
     def restart_self(self):
         """Replace this process with the program that was just installed.
