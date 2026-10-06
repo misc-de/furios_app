@@ -21,7 +21,7 @@ class SecurityPage:
         ("modules", _("Block unused modules"),
          _("protocol families and filesystems nothing here uses")),
         ("lockout", _("Lock screen lockout"),
-         _("3 wrong PINs lock it: 5 min, then 10, 15, 30, 60 and longer")),
+         _("3 wrong PINs lock it: 5 min, then doubling - only the right PIN resets it")),
     )
 
     def build_security_page(self):

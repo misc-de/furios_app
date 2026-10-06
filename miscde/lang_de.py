@@ -452,8 +452,8 @@ TRANSLATIONS = {
     "protocol families and filesystems nothing here uses":
         "Protokollfamilien und Dateisysteme, die hier nichts nutzt",
     "Lock screen lockout": "Sperre nach falschen PINs",
-    "3 wrong PINs lock it: 5 min, then 10, 15, 30, 60 and longer":
-        "3 falsche PINs sperren: 5 min, dann 10, 15, 30, 60 und länger",
+    "3 wrong PINs lock it: 5 min, then doubling - only the right PIN resets it":
+        "3 falsche PINs sperren: 5 min, dann jeweils doppelt so lang - nur die richtige PIN setzt zurück",
     "not installed - run the security install again":
         "nicht installiert - die Sicherheits-Installation erneut ausführen",
     "Locked right now, %d:%02d left": "Gerade gesperrt, noch %d:%02d",
