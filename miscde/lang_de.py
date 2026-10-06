@@ -247,10 +247,16 @@ TRANSLATIONS = {
     # --- Modem -------------------------------------------------------------
     "Modem": "Modem",
     "Repairs active": "Reparaturen aktiv",
-    "On: patched, with a route and a resolver that work without Wi-Fi":
-        "An: gepatcht, mit Route und Namensauflösung, die ohne WLAN funktionieren",
-    "Off: as it shipped - no route and no resolver without Wi-Fi":
-        "Aus: wie ausgeliefert - ohne WLAN keine Route und keine Namensauflösung",
+    "On: mobile data works without Wi-Fi":
+        "An: mobile Daten funktionieren auch ohne WLAN",
+    "Off: as shipped - without Wi-Fi there is no mobile data":
+        "Aus: wie ausgeliefert - ohne WLAN keine mobilen Daten",
+    "Switch the repairs off?": "Reparaturen ausschalten?",
+    "With Wi-Fi off there is then no mobile data: no route out and no name "
+    "resolution.":
+        "Ohne WLAN gibt es dann keine mobilen Daten: keine Route nach "
+        "draußen und keine Namensauflösung.",
+    "Switch off": "Ausschalten",
     "Profile": "Profil",
     "Checks": "Prüfungen",
     "Signal": "Signal",

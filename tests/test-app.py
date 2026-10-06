@@ -4324,9 +4324,26 @@ class TheWindow(unittest.TestCase):
         win = self.modem_win()
         win.modem_row.active = False
         win.on_modem_switch(win.modem_row, None)
+        win.on_modem_off_confirmed(None, "go")
         argv = self.ran[-1][0]
         self.assertIn("pkexec", argv[0])
         self.assertEqual(["set", "shipped"], argv[2:])
+
+    def test_switching_the_repairs_off_asks_first(self):
+        """Off takes mobile data away without Wi-Fi - the cost the restore
+        button asks about. The switch did it on one tap."""
+        win = self.modem_win()
+        self.ran.clear()
+        win.modem_row.active = False
+        win.on_modem_switch(win.modem_row, None)
+        self.assertEqual([], self.ran, "nothing before the answer")
+        win.on_modem_off_confirmed(None, "cancel")
+        self.assertEqual([], self.ran)
+        self.assertTrue(win.modem_row.get_active(), "the switch went back")
+        win.modem_row.active = True
+        win.on_modem_switch(win.modem_row, None)
+        self.assertEqual(["set", "fixed"], self.ran[-1][0][2:],
+                         "on needs no question")
 
     def test_modemctl_not_answering_is_said_and_not_guessed(self):
         """A profile row that invents "shipped" when it was told nothing would

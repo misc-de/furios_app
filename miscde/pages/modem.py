@@ -152,9 +152,9 @@ class ModemPage:
         self.modem_row.set_active(actual == "fixed")
         self._syncing = False
         self.modem_row.set_subtitle(
-            _("On: patched, with a route and a resolver that work without Wi-Fi")
+            _("On: mobile data works without Wi-Fi")
             if actual == "fixed"
-            else _("Off: as it shipped - no route and no resolver without Wi-Fi")
+            else _("Off: as shipped - without Wi-Fi there is no mobile data")
         )
 
     def on_modem_status(self, ok, out):
@@ -192,8 +192,33 @@ class ModemPage:
         # switch that quietly fell back at the next boot was one more thing
         # to remember. There is no "remember" row any more (28.9.); a try is
         # still there for the command line.
+        if not row.get_active():
+            # Off takes mobile data away without Wi-Fi - the cost the restore
+            # button asks about first. The switch did it on one tap.
+            dlg = Adw.AlertDialog(
+                heading=_("Switch the repairs off?"),
+                body=_("With Wi-Fi off there is then no mobile data: no route "
+                       "out and no name resolution."))
+            dlg.add_response("cancel", _("Cancel"))
+            dlg.add_response("go", _("Switch off"))
+            dlg.set_response_appearance("go", Adw.ResponseAppearance.DESTRUCTIVE)
+            dlg.set_default_response("cancel")
+            dlg.set_close_response("cancel")
+            dlg.connect("response", self.on_modem_off_confirmed)
+            dlg.present(self)
+            return
+        self.switch_modem("fixed")
+
+    def on_modem_off_confirmed(self, _dlg, response):
+        if response == "go":
+            self.switch_modem("shipped")
+            return
+        self._syncing = True
+        self.modem_row.set_active(True)
+        self._syncing = False
+
+    def switch_modem(self, want):
         mode = "set"
-        want = "fixed" if row.get_active() else "shipped"
         self.set_busy(True)
         self.modem_progress.set_text(_("Switching …"))
         self.modem_revealer.set_reveal_child(True)
