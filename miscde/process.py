@@ -52,6 +52,10 @@ def run_async(argv, on_done, on_line=None, timeout=CALL_TIMEOUT, cwd=None,
     run beside the first. modemctl nr alone can take over 90 s on a weak
     signal. Such a call is waited for to its real end; when the time is up
     on_line hears that it is still running.
+
+    Returns the Gio.Subprocess (None if it could not be started), so that a
+    caller can find the process tree again - an install that is overdue is
+    ended from the window (InstallPage.abort_install), not from here.
     """
     flags = Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_MERGE
     if stdin is not None:
@@ -71,7 +75,7 @@ def run_async(argv, on_done, on_line=None, timeout=CALL_TIMEOUT, cwd=None,
             proc = launcher.spawnv(argv)
     except GLib.Error as err:
         on_done(False, str(err))
-        return
+        return None
 
     # on_done exactly once, whichever of the two gets there first. The caller's
     # callback is held under its own name: the readers below look "on_done" up
@@ -122,7 +126,7 @@ def run_async(argv, on_done, on_line=None, timeout=CALL_TIMEOUT, cwd=None,
                 on_done(False, str(err))
 
         proc.communicate_utf8_async(stdin, None, finished)
-        return
+        return proc
 
     if stdin is not None:
         # The pipe was opened above, and on this path nothing fills it:
@@ -136,7 +140,7 @@ def run_async(argv, on_done, on_line=None, timeout=CALL_TIMEOUT, cwd=None,
             pipe.close(None)
         except GLib.Error as err:
             on_done(False, str(err))
-            return
+            return proc
 
     stream = Gio.DataInputStream.new(proc.get_stdout_pipe())
     collected = []
@@ -179,6 +183,39 @@ def run_async(argv, on_done, on_line=None, timeout=CALL_TIMEOUT, cwd=None,
             on_done(False, str(err))
 
     read_next()
+    return proc
+
+
+def process_tree(pid, proc_dir="/proc"):
+    """pid and everything below it, as strings, parents first.
+
+    Read from /proc, because the processes that matter in a hung install -
+    sudo, apt, make - are root's and nothing else will list them for us.
+    """
+    children = {}
+    try:
+        names = os.listdir(proc_dir)
+    except OSError:
+        names = []
+    for name in names:
+        if not name.isdigit():
+            continue
+        try:
+            with open(os.path.join(proc_dir, name, "stat")) as fh:
+                raw = fh.read()
+            # comm is in brackets and may hold spaces and brackets itself.
+            parent = raw[raw.rindex(")") + 2:].split()[1]
+        except (OSError, ValueError, IndexError):
+            continue
+        children.setdefault(parent, []).append(name)
+    tree, todo = [], [str(pid)]
+    while todo:
+        current = todo.pop(0)
+        if current in tree:
+            continue
+        tree.append(current)
+        todo += sorted(children.get(current, []), key=int)
+    return tree
 
 
 def json_object(out):

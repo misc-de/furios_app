@@ -6837,6 +6837,147 @@ class StaysOpenWhileItInstalls(unittest.TestCase):
         self.assertFalse(win.on_close_request(win))
 
 
+class LetsGoOfAHungInstall(unittest.TestCase):
+    """A root install that hangs used to lock the window for good: run_async
+    only says "still running" past the deadline, and closing was refused for
+    as long as it ran. Past the deadline closing now asks, and stopping ends
+    the whole process tree."""
+
+    # Taken when the file is loaded: a test in TheWindow leaves its own
+    # stand-in for run_async behind on the module.
+    RUN_ASYNC = staticmethod(switcher.process.run_async)
+
+    def setUp(self):
+        self.win = switcher.Window(switcher.Adw.Application())
+        self.said = []
+        self.enterContext(mock.patch.object(
+            switcher.Window, "toast", lambda _s, text: self.said.append(text)))
+        self.closed = []
+        self.win.close = lambda: self.closed.append(True)
+        self.win.installing = True
+
+    def tree(self):
+        """A real installer stand-in: a shell with a child of its own."""
+        proc = subprocess_real.Popen(["sh", "-c", "sleep 300 & sleep 300"],
+                                     stderr=subprocess_real.DEVNULL)
+        self.addCleanup(lambda: proc.poll() is None and proc.kill())
+        for _ in range(100):                   # until the children exist
+            if len(switcher.process.process_tree(proc.pid)) >= 3:
+                break
+            subprocess_real.run(["sleep", "0.02"])
+        tree = switcher.process.process_tree(proc.pid)
+        self.assertGreaterEqual(len(tree), 3)
+        self.assertEqual(str(proc.pid), tree[0])
+        return proc, tree
+
+    def test_within_the_deadline_closing_is_still_refused(self):
+        self.win.install_overdue_at = 10 ** 9
+        with mock.patch("time.monotonic", lambda: 0):
+            self.assertTrue(self.win.on_close_request(self.win))
+        self.assertTrue(self.said)
+        self.assertEqual([], self.closed)
+
+    def test_past_the_deadline_closing_asks_instead(self):
+        self.win.install_overdue_at = 1
+        gi_stub.recorder.reset()
+        self.assertTrue(self.win.on_close_request(self.win))
+        self.assertTrue(gi_stub.recorder.of("Adw.AlertDialog"))
+        self.assertEqual([], self.closed)
+        self.win.on_abort_response(None, "cancel")
+        self.assertTrue(self.win.installing)
+        self.assertEqual([], self.closed)
+
+    def test_the_installer_deadline_is_written_down(self):
+        comp = dict(switcher.COMPONENTS[0], root=False)
+        ran = []
+        self.enterContext(mock.patch.object(
+            switcher.process, "run_async",
+            lambda argv, done, **kw: ran.append((argv, done)) or None))
+        self.win.installing = False
+        self.win.busy = False
+        with mock.patch("time.monotonic", lambda: 100.0):
+            self.win.run_component(comp, "reinstall", None, "/clone")
+        self.assertEqual(["./install.sh"], ran[-1][0])
+        self.assertEqual(1900.0, self.win.install_overdue_at)
+
+    def test_stopping_kills_the_tree_and_closes(self):
+        proc, tree = self.tree()
+        self.win.install_proc = types.SimpleNamespace(
+            get_identifier=lambda: str(proc.pid))
+        self.win.install_overdue_at = 0
+        self.win.on_abort_response(None, "abort")
+        proc.wait(timeout=5)
+        alive = [pid for pid in tree[1:]
+                 if os.path.exists("/proc/%s" % pid)
+                 and "Z" not in open("/proc/%s/stat" % pid).read().split()[2]]
+        self.assertEqual([], alive)
+        self.assertFalse(self.win.installing)
+        self.assertEqual([True], self.closed)
+
+    def test_a_root_tree_goes_through_sudo_and_the_askpass_helper(self):
+        stopped = []
+        self.win.askpass = types.SimpleNamespace(
+            helper="/run/x/askpass", stop=lambda: stopped.append(True))
+        self.win.install_proc = types.SimpleNamespace(get_identifier=lambda: "4242")
+        ran, timers = [], []
+        self.enterContext(mock.patch.object(
+            switcher.process, "process_tree", lambda pid: [pid, "4243"]))
+        self.enterContext(mock.patch.object(
+            switcher.process, "run_async",
+            lambda argv, done, **kw: ran.append((argv, done, kw))))
+        self.enterContext(mock.patch.object(
+            switcher.GLib, "timeout_add_seconds",
+            lambda secs, fn: timers.append(fn) or 7))
+        self.enterContext(mock.patch.object(switcher.os, "kill",
+                                            lambda *_a: None))
+        self.win.abort_install(self.win.close)
+        kill = [r for r in ran if r[0][0] == "sudo" and "-A" in r[0]]
+        self.assertEqual(1, len(kill))
+        argv, done, kw = kill[0]
+        self.assertEqual(["4242", "4243"], argv[-2:])
+        self.assertEqual("/run/x/askpass", kw["env"]["SUDO_ASKPASS"])
+        # Not closed and the socket still up while sudo may be asking at it.
+        self.assertEqual([], self.closed)
+        self.assertEqual([], stopped)
+        done(True, "")
+        self.assertEqual([True], stopped)
+        self.assertEqual([True], self.closed)
+        self.assertIn(["sudo", "-k"], [r[0] for r in ran])
+        timers[0]()                            # late timer: nothing twice
+        self.assertEqual([True], self.closed)
+
+    def test_a_sudo_that_hangs_too_does_not_keep_the_window(self):
+        self.win.askpass = types.SimpleNamespace(helper="/h", stop=lambda: None)
+        self.win.install_proc = types.SimpleNamespace(get_identifier=lambda: "1")
+        timers = []
+        self.enterContext(mock.patch.object(
+            switcher.process, "run_async", lambda *a, **k: None))
+        self.enterContext(mock.patch.object(
+            switcher.GLib, "timeout_add_seconds",
+            lambda secs, fn: timers.append(fn) or 7))
+        self.enterContext(mock.patch.object(switcher.os, "kill",
+                                            lambda *_a: None))
+        self.win.abort_install(self.win.close)
+        self.assertEqual([], self.closed)
+        timers[0]()
+        self.assertEqual([True], self.closed)
+        self.assertFalse(self.win.installing)
+
+    def test_a_password_socket_does_not_outlive_the_window(self):
+        stopped = []
+        self.win.installing = False
+        self.win._dmnr_askpass = types.SimpleNamespace(
+            stop=lambda: stopped.append(True))
+        self.assertFalse(self.win.on_close_request(self.win))
+        self.assertEqual([True], stopped)
+        self.assertIsNone(self.win._dmnr_askpass)
+
+    def test_run_async_hands_back_the_process(self):
+        process = FakeProcess(lines=["x"])
+        self.enterContext(mock.patch.object(
+            switcher.Gio.Subprocess, "new", lambda *a, **k: process))
+        self.assertIs(process, self.RUN_ASYNC(["true"], lambda *_a: None))
+
 if __name__ == "__main__":
     # Built by hand rather than through unittest.main(), which looks for tests
     # in sys.modules["__main__"] - and under the coverage tracer that is the

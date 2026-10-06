@@ -42,6 +42,11 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         self.set_default_size(360, 480)
         self.busy = False
         self.installing = False
+        # The running install step, its deadline and whether it is being
+        # stopped (InstallPage.abort_install).
+        self.install_proc = None
+        self.install_overdue_at = 0
+        self.aborting = False
         self._syncing = False
         self.connect("close-request", self.on_close_request)
         # Which way back is waiting for an answer, set while the question is
@@ -642,11 +647,25 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         """Not while an installer runs. Closing takes the pipe its output
         goes to with it: the installer dies at its next line, half-way
         through what it copies as root, and the password socket goes with
-        the window. A refusal with a reason is the lesser surprise."""
+        the window. A refusal with a reason is the lesser surprise.
+
+        Except for one that has outlived its deadline: a hung installer
+        would otherwise trap the window for good, so then closing asks
+        whether to stop it (ask_abort_install)."""
         if self.installing:
+            if self.install_overdue():
+                self.ask_abort_install()
+                return True
             self.toast(_("An install is running - the window can be closed "
                          "once it is done"))
             return True
+        # Nothing may outlive the window that answers it: a password socket
+        # left open in $XDG_RUNTIME_DIR, with the password in this process.
+        for name in ("askpass", "_dmnr_askpass"):
+            helper = getattr(self, name, None)
+            if helper is not None:
+                helper.stop()
+                setattr(self, name, None)
         return False
 
     def offered(self):

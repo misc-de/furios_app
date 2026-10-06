@@ -85,6 +85,14 @@ the real page immediately - in the same place in the switcher bar, and the app
 stands on it afterwards. No restart: the tool is on the phone at that moment,
 there is nothing left to wait for.
 
+While an install runs, the window does not close: closing would take the
+installer's pipe and the password socket with it. But an installer that hangs
+as root is never ended by the timer (the window cannot kill root's
+processes), so past its deadline - 30 minutes for `install.sh` - closing asks
+instead. Stopping ends the whole process tree with one `sudo -A kill`, through
+the same askpass socket, kills what is ours directly, drops socket and ticket,
+and only then closes.
+
 ## Without NOPASSWD
 
 This phone carries `furios ALL=(ALL) NOPASSWD:ALL` in `/etc/sudoers`. Every

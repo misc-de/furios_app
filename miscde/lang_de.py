@@ -436,6 +436,13 @@ TRANSLATIONS = {
     "Cancelled - nothing was changed": "Abgebrochen - nichts wurde geändert",
     "An install is running - the window can be closed once it is done":
         "Eine Installation läuft - danach lässt sich das Fenster schließen",
+    "Stop the install?": "Installation abbrechen?",
+    "It has been running far longer than it should. Stopping it may leave it "
+    "half-done; run it again afterwards.":
+        "Sie läuft weit länger als sie sollte. Abbrechen kann sie halb fertig "
+        "zurücklassen; danach erneut ausführen.",
+    "Keep waiting": "Weiter warten",
+    "Stop and close": "Abbrechen und schließen",
     "Stops the coloring and the time left, takes them out of the next boot "
     "and out of the top bar. What the battery reports is untouched - that is "
     "the kernel's.":

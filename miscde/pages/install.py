@@ -9,8 +9,9 @@ the real page in when they are through."""
 
 import os
 import sys
+import time
 
-from gi.repository import Adw, Gtk
+from gi.repository import Adw, GLib, Gtk
 
 from .. import askpass, components, process, tools
 from .other import TAB as OTHER_TAB
@@ -394,9 +395,12 @@ class InstallPage:
                 rest.append((u["comp"], step))
         self.set_busy(True)
         self.installing = True
+        self.aborting = False
         self.update_progress(_("working …"))
 
         def step(ok=True, out=""):
+            if self.aborting:
+                return                         # abort_install has it in hand
             if not ok or not rest:
                 self.updates_done(ok, out)
                 return
@@ -408,10 +412,11 @@ class InstallPage:
             # audio one builds an SPA plugin - and a wait that runs out mid
             # apt-get leaves a half-installed system behind.
             deadline = 1800 if argv[0].endswith("install.sh") else 600
-            process.run_async(argv, step, timeout=deadline, cwd=cwd,
-                              stdin=stdin, env=env,
-                              on_line=lambda line, c=comp: self.update_progress(
-                                  c["tool"] + ": " + line[:40]))
+            self.install_overdue_at = time.monotonic() + deadline
+            self.install_proc = process.run_async(
+                argv, step, timeout=deadline, cwd=cwd, stdin=stdin, env=env,
+                on_line=lambda line, c=comp: self.update_progress(
+                    c["tool"] + ": " + line[:40]))
 
         step()
 
@@ -562,10 +567,13 @@ class InstallPage:
         self.component_says(comp, _("working …"))
         self.set_busy(True)
         self.installing = True
+        self.aborting = False
 
         rest = list(steps)
 
         def step(ok=True, out=""):
+            if self.aborting:
+                return                         # abort_install has it in hand
             if not ok or not rest:
                 self.component_done(comp, ok, out)
                 return
@@ -589,10 +597,91 @@ class InstallPage:
                 # subtitle holds about that much.
                 self.component_says(page, line[:60])
 
-            process.run_async(argv, step, timeout=deadline, cwd=cwd, stdin=stdin,
-                      env=env, on_line=said)
+            self.install_overdue_at = time.monotonic() + deadline
+            self.install_proc = process.run_async(
+                argv, step, timeout=deadline, cwd=cwd, stdin=stdin, env=env,
+                on_line=said)
 
         step()
+
+    def install_overdue(self):
+        """Has the step that is running outlived its deadline?"""
+        at = getattr(self, "install_overdue_at", 0)
+        return self.installing and 0 < at <= time.monotonic()
+
+    def ask_abort_install(self):
+        """The way out of an install that hangs - asked, never taken.
+
+        Within its deadline an install keeps the window (on_close_request):
+        what it does as root is not the window's to cut short. Past it, the
+        note says it is still running and nothing else ever would, so closing
+        asks whether to stop it."""
+        dlg = Adw.AlertDialog(
+            heading=_("Stop the install?"),
+            body=_("It has been running far longer than it should. Stopping "
+                   "it may leave it half-done; run it again afterwards."))
+        dlg.add_response("cancel", _("Keep waiting"))
+        dlg.add_response("abort", _("Stop and close"))
+        dlg.set_response_appearance("abort",
+                                    Adw.ResponseAppearance.DESTRUCTIVE)
+        dlg.set_default_response("cancel")
+        dlg.set_close_response("cancel")
+        dlg.connect("response", self.on_abort_response)
+        dlg.present(self)
+
+    def on_abort_response(self, _dlg, response):
+        if response == "abort" and self.installing:
+            self.abort_install(self.close)
+
+    def abort_install(self, then):
+        """End the running step's whole process tree, clean up, then `then`.
+
+        The installer runs as us, but its sudo lines and the apt or make below
+        them are root's: os.kill on those fails with EPERM. So the tree is
+        ended by one "sudo -A kill", through the same askpass socket the
+        installer's own sudo lines use - the helper is a child of this
+        process, so it is answered whether or not the ticket is still valid.
+        That needs the main loop to keep running (the socket is served from
+        it), hence asynchronous, with a timer so that a sudo that hangs too
+        cannot keep the window either. What is ours is killed directly
+        afterwards in any case; then the socket goes down and the ticket is
+        dropped (forget_password), and only then does the window close.
+        """
+        self.aborting = True
+        proc = getattr(self, "install_proc", None)
+        tree = []
+        if proc is not None:
+            try:
+                tree = process.process_tree(proc.get_identifier())
+            except (TypeError, ValueError):
+                tree = []
+        state = {"done": False, "timer": 0}
+
+        def finished(*_args):
+            if state["done"]:
+                return False
+            state["done"] = True
+            if state["timer"]:
+                GLib.source_remove(state["timer"])
+            for pid in reversed(tree):
+                try:
+                    os.kill(int(pid), 9)
+                except (OSError, ValueError):
+                    pass                       # root's, or already gone
+            self.forget_password(False)
+            self.set_busy(False)
+            then()
+            return False
+
+        helper = self.askpass.helper if self.askpass is not None else None
+        if not tree or helper is None:
+            finished()
+            return
+        state["timer"] = GLib.timeout_add_seconds(20, finished)
+        process.run_async(
+            ["sudo", "-A", "sh", "-c", 'kill -TERM "$@"; sleep 2; '
+             'kill -KILL "$@" 2>/dev/null; true', "kill"] + tree,
+            finished, timeout=0, env=components.installer_env(helper))
 
     def component_says(self, comp, words):
         """Where a single install reports: the row on the tool's own page.
