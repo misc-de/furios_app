@@ -319,8 +319,9 @@ class SwitchesPage:
 
     def after_indicator(self, ok, out, value):
         if not ok:
-            self.toasts.add_toast(
-                Adw.Toast(title=_('Could not switch the icons {0}').format(value)))
+            self.toasts.add_toast(Adw.Toast(
+                title=_("Could not switch the icons on") if value == "on"
+                else _("Could not switch the icons off")))
         elif value == "on":
             # Said once, here, because it is the one thing about this switch
             # that surprises: phosh looks for new plugins only when it starts.
@@ -342,13 +343,15 @@ class SwitchesPage:
                   lambda ok, out: self.after_extra(ok, radio, value))
 
     def after_extra(self, ok, radio, value):
+        # The tool's key ("wifi"), not a word for the screen.
+        name = _("Wi-Fi") if radio == "wifi" else _("Bluetooth")
         if not ok:
-            self.toasts.add_toast(Adw.Toast(title=_('Could not change {0}').format(radio)))
+            self.toasts.add_toast(Adw.Toast(title=_('Could not change {0}').format(name)))
             self.refresh()
             return
         if value == "on":
             self.toasts.add_toast(Adw.Toast(
-                title=_('{0} will go off with the network switch').format(radio)))
+                title=_('{0} will go off with the network switch').format(name)))
 
     def on_switches_restore(self, _btn):
         """Everything this page added, taken back out - in one go.

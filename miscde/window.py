@@ -71,7 +71,7 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         # happened as long as set_busy was the only hand on the sensitivity.
         self.audio_ok = True
         self.dmnr_ok = True
-        # What a late "Remember these choices" has to make permanent - the
+        # What a late "Keep after a restart" has to make permanent - the
         # profile and the echo suppression that run now but not after a
         # reboot. Nothing until a status has said so.
         self._profile_unremembered = None
@@ -114,7 +114,7 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         # was waiting at all. A count says that in one word.
         self.update_btn = Gtk.Button()
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        box.append(Gtk.Image.new_from_icon_name("dialog-warning-symbolic"))
+        box.append(Gtk.Image.new_from_icon_name("software-update-available-symbolic"))
         self.update_label = Gtk.Label(label="")
         box.append(self.update_label)
         self.update_btn.set_child(box)
@@ -176,7 +176,7 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         # option; hidden while audioctl has no such unit to switch.
         self.ringback_row = Adw.SwitchRow(
             title=_("Ringback tone"),
-            subtitle=_("While an outgoing call rings – VoLTE sends none"),
+            subtitle=_("While an outgoing call rings - the network sends no tone on 4G calls"),
         )
         self.ringback_ok = False
         self.ringback_row.set_sensitive(False)
@@ -191,7 +191,7 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         # disabled for calls on this device although the chip could do it,
         # and this lays a modified tuning file over the vendor's.
         self.dmnr_row = Adw.SwitchRow(
-            title=_("Handsfree echo suppression (DMNR)"),
+            title=_("Handsfree echo suppression"),
             subtitle=self.DMNR_WORDS,
         )
         self.dmnr_row.connect("notify::active", self.on_dmnr)
@@ -203,7 +203,7 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         # asking twice whether to keep them would be two questions about one
         # thing.
         self.persist_row = Adw.SwitchRow(
-            title=_("Remember these choices"),
+            title=_("Keep after a restart"),
             subtitle=self.PERSIST_WORDS,
         )
         self.persist_row.connect("notify::active", self.on_persist_toggled)
@@ -282,7 +282,7 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         # they add up to.
         # --- what is actually running right now ---
         info = Adw.PreferencesGroup(title=_("Status"))
-        self.row_profile = Adw.ActionRow(title=_("Owns the Android HAL"), subtitle=_("reading …"))
+        self.row_profile = Adw.ActionRow(title=_("Sound hardware"), subtitle=_("reading …"))
         self.row_server = Adw.ActionRow(title=_("Sound server"), subtitle="…")
         self.row_sinks = Adw.ActionRow(title=_("Outputs"), subtitle="…")
         for row in (self.row_profile, self.row_server, self.row_sinks):
@@ -446,9 +446,26 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         """Say in the list which tools are not here, before anyone opens one."""
         row = self.menu_rows.get(key)
         if row is not None:
-            row.set_subtitle("" if key in (OTHER_TAB[0], VIBRATION_TAB[0])
+            row.set_subtitle(self.tab_blurb(key)
+                             if key in (OTHER_TAB[0], VIBRATION_TAB[0])
                              or self.live.get(key)
                              else _("Not installed"))
+
+    @staticmethod
+    def tab_blurb(key):
+        """One line under each tab in the list - what it is for, short
+        enough for a phone row. The long form is "does" in components.py.
+        Built here, not at import, so it follows the chosen language."""
+        return {
+            "audio": _("PipeWire for playback, calls and Bluetooth"),
+            "modem": _("Mobile data without Wi-Fi, 5G, SIM"),
+            "gps": _("Helps Wi-Fi location via beaconDB"),
+            "switches": _("What the hardware switches take down"),
+            "security": _("Kernel hardening and PIN lockout"),
+            "battery": _("Battery icon colors and time left"),
+            "other": _("Dock, blur and app names"),
+            "vibration": _("Exact vibration rhythms"),
+        }.get(key, "")
 
     def open_page(self, key):
         self.stack.set_visible_child_name(key)

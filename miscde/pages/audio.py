@@ -226,7 +226,7 @@ class AudioPage:
     # The owner's descriptions (29.9.) - what the row is for, whatever state
     # it is in. What differs by state is added behind them.
     DMNR_WORDS = _("Suppresses the echo in speakerphone calls")
-    PERSIST_WORDS = _("Saves the options above")
+    PERSIST_WORDS = _("Sound server and echo suppression")
 
     def on_dmnr_status(self, ok, out):
         if not ok:
@@ -246,7 +246,7 @@ class AudioPage:
         # The tool reports both, because one cannot be read off the other:
         # switched on now and not remembered looks identical until the reboot.
         remembered = "persistent=yes" in out
-        # What "Remember these choices" has to write when it is switched on
+        # What "Keep after a restart" has to write when it is switched on
         # now: the running state, where it differs from what a reboot brings.
         self._dmnr_unremembered = None if on == remembered else (
             "on" if on else "off")
@@ -328,9 +328,9 @@ class AudioPage:
         if persistent == "unknown":
             pass
         elif sticks:
-            text += _(" - permanent")
+            text += _(" (kept after a restart)")
         else:
-            text += _(" - until the next reboot, then {profile}").format(
+            text += _(" - until the next restart, then {profile}").format(
                 profile=profile_in_words(persistent))
         if warn:
             text += f" | {warn}"
@@ -367,7 +367,7 @@ class AudioPage:
             self.persist_row.set_subtitle(self.PERSIST_WORDS)
         else:
             self.persist_row.set_subtitle(
-                self.PERSIST_WORDS + _(" · a reboot returns to {profile}").format(
+                self.PERSIST_WORDS + _(" · a restart now brings back {profile}").format(
                     profile=profile_in_words(persistent)))
         # Re-applied, not released. This answer arrives from every refresh,
         # and refreshes run while other things are in flight - a battery
@@ -425,17 +425,21 @@ class AudioPage:
                 else [audioctl, "set", "standard"])
         self.set_busy(True)
         self.pulse_start(_("Switching …"))
-        process.run_async(argv, self.on_switched, on_line=self.on_progress_line)
+        name = "PipeWire" if want_pw else "PulseAudio"
+        process.run_async(argv, lambda ok, out: self.on_switched(ok, out, name),
+                          on_line=self.on_progress_line)
 
-    def on_switched(self, ok, out):
+    def on_switched(self, ok, out, name=None):
         self.pulse_stop()
         self.set_busy(False)
         if not ok:
             self.toast(_("Switching failed"))
             self.report(out or _("No output."))
         else:
-            last = [l for l in out.splitlines() if l.strip()]
-            self.toast(last[-1].strip() if last else _("Done"))
+            # audioctl's last line is an English success message; the
+            # sentence is ours so it can be translated.
+            self.toast(_("{0} is active now").format(name) if name
+                       else _("Done"))
         self.refresh()
 
     def on_btx_status(self, ok, out):
@@ -479,8 +483,7 @@ class AudioPage:
             self.toast(_("Could not change the Bluetooth helpers"))
             self.report(out or _("No output."))
         else:
-            last = [l for l in (out or "").splitlines() if l.strip()]
-            self.toast(last[-1].strip() if last else _("Done"))
+            self.toast(_("Done"))
         self.refresh()
 
     def on_ringback_status(self, ok, out):
@@ -515,8 +518,7 @@ class AudioPage:
             self.toast(_("Could not change the ringback tone"))
             self.report(out or _("No output."))
         else:
-            last = [l for l in (out or "").splitlines() if l.strip()]
-            self.toast(last[-1].strip() if last else _("Done"))
+            self.toast(_("Done"))
         self.refresh()
 
     def on_dmnr(self, row, _param):

@@ -83,7 +83,7 @@ class ModemPage:
 
         info = Adw.PreferencesGroup(title=_("Status"))
         self.mrow_profile = Adw.ActionRow(title=_("Profile"), subtitle="…")
-        self.mrow_health = Adw.ActionRow(title=_("Checks"), subtitle="…")
+        self.mrow_health = Adw.ActionRow(title=_("Self-test"), subtitle="…")
         self.mrow_signal = Adw.ActionRow(title=_("Signal"), subtitle="…")
         for row in (self.mrow_profile, self.mrow_health, self.mrow_signal):
             row.set_subtitle_selectable(True)
@@ -166,7 +166,7 @@ class ModemPage:
         bad = sum(1 for line in out.splitlines() if "FAIL" in line)
         good = sum(1 for line in out.splitlines() if " ok " in line)
         self.mrow_health.set_subtitle(
-            _('{0} in place').format(good) if bad == 0 else _('{0} in place, {1} not').format(good, bad)
+            _('{0} OK').format(good) if bad == 0 else _('{0} OK, {1} failed').format(good, bad)
         )
         for line in out.splitlines():
             if "signal quality" in line:
@@ -223,7 +223,8 @@ class ModemPage:
         self.modem_revealer.set_reveal_child(True)
         self.pulse_start(_("Switching the modem …"),
                          self.modem_progress, self.modem_revealer)
-        process.run_async([tools.PKEXEC, self.live["modem"], mode, want], self.on_modem_switched,
+        process.run_async([tools.PKEXEC, self.live["modem"], mode, want],
+                          lambda ok, out: self.on_modem_switched(ok, out, want),
                   on_line=self.on_progress_line)
 
     def on_modem_restore(self, _btn):
@@ -253,7 +254,7 @@ class ModemPage:
             self.report(out or _("No output."))
         self.refresh()
 
-    def on_modem_switched(self, ok, out):
+    def on_modem_switched(self, ok, out, want=None):
         self.pulse_stop()
         self.set_busy(False)
         self.modem_revealer.set_reveal_child(False)
@@ -263,8 +264,11 @@ class ModemPage:
             self.toast(_("Switching the modem failed"))
             self.report(out or _("No output."))
         else:
-            last = [l for l in out.splitlines() if l.strip()]
-            self.toast(last[-1].strip() if last else _("Done"))
+            # modemctl's last line is an English success message; the
+            # sentence is ours so it can be translated.
+            self.toast(_("Modem repairs are on") if want == "fixed" else
+                       _("Shipped state - no network without Wi-Fi")
+                       if want == "shipped" else _("Done"))
         self.refresh()
 
     # --- which SIM ---------------------------------------------------------

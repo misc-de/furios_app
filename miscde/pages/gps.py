@@ -49,7 +49,7 @@ class GpsPage:
         browser = Adw.PreferencesGroup(title=_("Firefox and web apps"))
         self.gps_firefox_group = browser
         self.gps_firefox = Adw.SwitchRow(
-            title=_("Wait for the satellite fix"),
+            title=_("Wait for the satellite position"),
             subtitle=_("reading …"),
         )
         self.gps_firefox.connect("notify::active", self.on_gps_firefox)
@@ -131,8 +131,8 @@ class GpsPage:
                 % values["leftover"])
         else:
             self.gps_firefox.set_subtitle(
-                _("Off - Firefox gives up after 12 seconds, before a cold fix "
-                "arrives"))
+                _("Off - Firefox gives up after 12 seconds, before there is a "
+                "satellite position after switching on"))
 
     def refresh_gps_contrib(self):
         ff = firefox_tool(self.live.get("gps"))

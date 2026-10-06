@@ -27,9 +27,9 @@ def server_in_words(raw):
 
 
 PROFILE_WORDS = {
-    "pw-hal": _("PipeWire owns the HAL"),
-    "standard": _("PulseAudio owns the HAL (as shipped)"),
-    "pw-tunnel": _("PulseAudio owns the HAL, PipeWire gets a sink"),
+    "pw-hal": _("PipeWire"),
+    "standard": _("PulseAudio (as shipped)"),
+    "pw-tunnel": _("PulseAudio, with PipeWire on top"),
 }
 
 

@@ -724,7 +724,7 @@ class OtherPage:
                    faults.prompter_falls_back())
         self.prompter_row = Adw.SwitchRow(
             title=_("Keyring prompt in phosh style"),
-            subtitle=_("Instead of the light window after a restart"))
+            subtitle=_("Instead of the bright window after a restart"))
         self._loading = True
         self.prompter_row.set_active(prompter_fixed())
         self._loading = False

@@ -1198,12 +1198,12 @@ class TheMenu(unittest.TestCase):
         self.assertEqual("Not installed", row.subtitle)
         self.win.live["gps"] = "/usr/bin/furios-gps-contribute"
         self.win.mark_installed("gps")
-        self.assertEqual("", row.subtitle)
+        self.assertEqual("Helps Wi-Fi location via beaconDB", row.subtitle)
 
     def test_the_other_page_has_no_tool_to_miss(self):
         self.win.menu_rows["other"] = row = Recording()
         self.win.mark_installed("other")
-        self.assertEqual("", row.subtitle)
+        self.assertEqual("Dock, blur and app names", row.subtitle)
 
     def test_opening_pushes_the_page_once(self):
         pushed = []
@@ -1333,8 +1333,8 @@ class TheWindow(unittest.TestCase):
 
     def test_status_is_turned_into_something_a_person_can_read(self):
         self.win.on_status(True, self.STATUS)
-        self.assertIn("PipeWire owns the HAL", self.win.row_profile.subtitle)
-        self.assertIn("until the next reboot", self.win.row_profile.subtitle)
+        self.assertIn("PipeWire", self.win.row_profile.subtitle)
+        self.assertIn("until the next restart", self.win.row_profile.subtitle)
         self.assertIn("older apps", self.win.row_server.subtitle)
         self.assertEqual("droid-sink, droid-voip-sink", self.win.row_sinks.subtitle)
         self.assertEqual(1, self.win.switch_row.selected)
@@ -1346,7 +1346,7 @@ class TheWindow(unittest.TestCase):
         its default - off - on a phone that was on pw-hal for good.
         """
         self.win.on_status(True, self.PERMANENT)
-        self.assertIn("permanent", self.win.row_profile.subtitle)
+        self.assertIn("kept after a restart", self.win.row_profile.subtitle)
         self.assertTrue(self.win.persist_row.active,
                         "a permanent profile was shown as not remembered")
         # The owner's description (29.9.), and nothing added: it holds.
@@ -1361,7 +1361,7 @@ class TheWindow(unittest.TestCase):
     def test_json_status_is_read(self):
         self.win.on_status(True, self.JSON_TRY)
         sub = self.win.row_profile.subtitle
-        self.assertIn("until the next reboot", sub)
+        self.assertIn("until the next restart", sub)
         self.assertEqual(self.win.row_sinks.subtitle, "droid-sink, bluez_output.X")
 
     def test_json_status_names_a_record_that_disagrees(self):
@@ -1497,7 +1497,7 @@ class TheWindow(unittest.TestCase):
 
     def test_the_tunnel_profile_has_its_own_sentence(self):
         self.win.on_status(True, "Profile (active):   pw-tunnel\n")
-        self.assertIn("PipeWire gets a sink", self.win.row_profile.subtitle)
+        self.assertIn("with PipeWire on top", self.win.row_profile.subtitle)
 
     def test_a_profile_it_does_not_know_is_shown_as_it_is(self):
         self.win.on_status(True, "Profile (active):   something-else\n")
@@ -1574,9 +1574,9 @@ class TheWindow(unittest.TestCase):
         self.win.on_progress_line("audio")
         self.assertEqual("audio", self.win.progress.text, "and back to audio")
 
-    def test_a_finished_switch_shows_the_last_thing_it_said(self):
-        self.win.on_switched(True, "step\nplease check telephony\n")
-        self.assertIn("check telephony", str(self.win.toasts.text))
+    def test_a_finished_switch_names_the_server_now_active(self):
+        self.win.on_switched(True, "step\nswitched to pw-hal\n", "PipeWire")
+        self.assertEqual("PipeWire is active now", str(self.win.toasts.text))
 
     def test_a_switch_with_no_output_still_says_something(self):
         self.win.on_switched(True, "")
@@ -1828,7 +1828,7 @@ class TheWindow(unittest.TestCase):
         titles = [str(c[2].get("title", "")) for c in recorder.calls
                  if c[0] == "Adw.SwitchRow"]
         echo = [i for i, t in enumerate(titles) if "echo suppression" in t.lower()]
-        remember = [i for i, t in enumerate(titles) if t.startswith("Remember")]
+        remember = [i for i, t in enumerate(titles) if t.startswith("Keep after")]
         self.assertTrue(echo and remember, "rows not built: %s" % titles)
         self.assertLess(echo[0], remember[0])
 
@@ -4302,7 +4302,7 @@ class TheWindow(unittest.TestCase):
         win = self.switches_win()
         self.ran.clear()
         win.after_extra(False, "wifi", "on")
-        self.assertIn("Could not change wifi", str(win.toasts.text))
+        self.assertIn("Could not change Wi-Fi", str(win.toasts.text))
         # and the page is re-read, so the switch returns to what is true
         self.assertTrue(self.ran)
 
@@ -4629,13 +4629,13 @@ class TheWindow(unittest.TestCase):
                             "  ok    mobile default route: ccmni0\n"
                             "  FAIL  resolv.conf -> systemd-resolved\n"
                             "  ok    signal quality 26% (recent)\n")
-        self.assertIn("3 in place, 1 not", win.mrow_health.subtitle)
+        self.assertIn("3 OK, 1 failed", win.mrow_health.subtitle)
         self.assertIn("26%", win.mrow_signal.subtitle)
 
     def test_everything_in_place_is_not_dressed_up_with_a_zero(self):
         win = self.modem_win()
         win.on_modem_status(True, "  ok    utils.py\n  ok    main.py\n")
-        self.assertEqual("2 in place", win.mrow_health.subtitle)
+        self.assertEqual("2 OK", win.mrow_health.subtitle)
 
     def test_a_status_without_a_signal_line_says_so(self):
         win = self.modem_win()
@@ -4647,7 +4647,7 @@ class TheWindow(unittest.TestCase):
         exactly the thing worth showing."""
         win = self.modem_win()
         win.on_modem_status(False, "  ok    utils.py\n  FAIL  mobile default route\n")
-        self.assertIn("1 in place, 1 not", win.mrow_health.subtitle)
+        self.assertIn("1 OK, 1 failed", win.mrow_health.subtitle)
 
     def test_a_status_with_no_output_at_all_claims_nothing(self):
         win = self.modem_win()
@@ -4677,10 +4677,11 @@ class TheWindow(unittest.TestCase):
         finally:
             switcher.tools.PKEXEC = real
 
-    def test_a_finished_switch_repeats_modemctls_last_word(self):
+    def test_a_finished_switch_says_what_is_on_now(self):
         win = self.modem_win()
-        win.on_modem_switched(True, "Recorded: shipped. This survives a reboot.\n\n")
-        self.assertIn("Recorded: shipped", str(win.toasts.text))
+        win.on_modem_switched(True, "Recorded: shipped. This survives a reboot.\n\n",
+                              "shipped")
+        self.assertIn("Shipped state", str(win.toasts.text))
 
     def test_a_switch_that_printed_nothing_still_says_something(self):
         win = self.modem_win()

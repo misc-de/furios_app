@@ -32,7 +32,7 @@ TRANSLATIONS = {
     'Off':
         'Aus',
     'Tap':
-        'Tipp',
+        'Antippen',
     'Short':
         'Kurz',
     'Double':
@@ -95,8 +95,6 @@ TRANSLATIONS = {
     "No output.": "Keine Ausgabe.",
     "Done": "Erledigt",
     "none": "keine",
-    "on": "an",
-    "off": "aus",
     "pkexec is missing - cannot ask for the rights to switch":
         "pkexec fehlt - die Rechte zum Umschalten können nicht angefragt werden",
 
@@ -147,36 +145,36 @@ TRANSLATIONS = {
     "Bluetooth helpers": "Bluetooth-Helfer",
     "Enables the helper that makes sure audio and microphone are set correctly":
         "Aktiviert den Helfer, der dafür sorgt, dass Audio und Mikrofon richtig "
-        "gesetzt werden",
+        "eingestellt sind",
     "Could not change the Bluetooth helpers":
         "Die Bluetooth-Helfer konnten nicht geändert werden",
     "Ringback tone": "Freizeichen",
-    "While an outgoing call rings – VoLTE sends none":
-        "Solange ein ausgehender Anruf klingelt – VoLTE sendet keins",
+    "While an outgoing call rings - the network sends no tone on 4G calls":
+        "Solange ein ausgehender Anruf klingelt - bei 4G-Anrufen sendet das Netz keinen Ton",
     "Could not change the ringback tone":
         "Das Freizeichen konnte nicht umgeschaltet werden",
-    "Handsfree echo suppression (DMNR)": "Echounterdrückung beim Freisprechen (DMNR)",
+    "Handsfree echo suppression": "Echounterdrückung beim Freisprechen",
     "Suppresses the echo in speakerphone calls":
         "Unterdrückt das Echo bei Lautsprechertelefonie",
     " · until the next reboot": " · bis zum nächsten Neustart",
     " · on again after the next reboot": " · nach dem nächsten Neustart wieder an",
     "not available on this device": "auf diesem Gerät nicht verfügbar",
-    "Remember these choices": "Diese Auswahl merken",
+    "Keep after a restart": "Nach einem Neustart behalten",
     "Remembering …": "Wird gemerkt …",
-    "Saves the options above": "Die obigen Optionen werden gespeichert",
-    " · a reboot returns to {profile}": " · ein Neustart kehrt zurück zu {profile}",
+    "Sound server and echo suppression": "Soundserver und Echounterdrückung",
+    " · a restart now brings back {profile}": " · ein Neustart bringt jetzt {profile} zurück",
     "Status": "Status",
-    "Owns the Android HAL": "Hält die Android-HAL",
+    "Sound hardware": "Audio-Hardware",
     "Outputs": "Ausgänge",
-    " - permanent": " - dauerhaft",
-    " - until the next reboot, then {profile}":
+    " (kept after a restart)": " (bleibt nach einem Neustart)",
+    " - until the next restart, then {profile}":
         " - bis zum nächsten Neustart, dann {profile}",
     " | fell back by itself on {when}: {profile} gave no sound at boot":
         " | am {when} von selbst zurückgefallen: {profile} gab beim Start keinen Ton",
-    "PipeWire owns the HAL": "PipeWire hält die HAL",
-    "PulseAudio owns the HAL (as shipped)": "PulseAudio hält die HAL (wie ausgeliefert)",
-    "PulseAudio owns the HAL, PipeWire gets a sink":
-        "PulseAudio hält die HAL, PipeWire bekommt eine Senke",
+    "PipeWire": "PipeWire",
+    "PulseAudio (as shipped)": "PulseAudio (wie ausgeliefert)",
+    "PulseAudio, with PipeWire on top": "PulseAudio, mit PipeWire darüber",
+    "{0} is active now": "{0} ist jetzt aktiv",
     "PulseAudio - the shipped setup": "PulseAudio - wie ausgeliefert",
     "PipeWire{0} - also speaks PulseAudio for older apps":
         "PipeWire{0} - spricht für ältere Apps auch PulseAudio",
@@ -234,8 +232,8 @@ TRANSLATIONS = {
     "Automatic": "Automatisch",
     "the best one both ends know": "der beste, den beide Seiten kennen",
     "Same as for all": "Wie für alle",
-    "Playing %s": "Spielt %s",
-    "Playing %s · %s": "Spielt %s · %s",
+    "Playing %s": "Wiedergabe mit %s",
+    "Playing %s · %s": "Wiedergabe mit %s · %s",
     "%s - no device connected": "%s - kein Gerät verbunden",
     "no device connected": "kein Gerät verbunden",
     "This device does not offer %s - it plays %s":
@@ -262,7 +260,7 @@ TRANSLATIONS = {
         "draußen und keine Namensauflösung.",
     "Switch off": "Ausschalten",
     "Profile": "Profil",
-    "Checks": "Prüfungen",
+    "Self-test": "Selbsttest",
     "Signal": "Signal",
     "modemctl did not answer": "modemctl hat nicht geantwortet",
     "the repairs are in place": "die Reparaturen sind eingespielt",
@@ -271,8 +269,9 @@ TRANSLATIONS = {
         "halb repariert - mit „Reparaturen aktiv“ bereinigen",
     " · not remembered, the next boot returns to \"{recorded}\"":
         " · nicht gemerkt, der nächste Start kehrt zu „{recorded}“ zurück",
-    "{0} in place": "{0} eingespielt",
-    "{0} in place, {1} not": "{0} eingespielt, {1} nicht",
+    "{0} OK": "{0} OK",
+    "{0} OK, {1} failed": "{0} OK, {1} fehlgeschlagen",
+    "Modem repairs are on": "Die Modem-Reparaturen sind an",
     "not readable": "nicht lesbar",
     "Switching the modem …": "Modem wird umgeschaltet …",
     "Switching the modem failed": "Umschalten des Modems fehlgeschlagen",
@@ -314,7 +313,7 @@ TRANSLATIONS = {
     "Send my observations": "Meine Beobachtungen senden",
     "Sent so far": "Bisher gesendet",
     "Firefox and web apps": "Firefox und Web-Apps",
-    "Wait for the satellite fix": "Auf die Satellitenposition warten",
+    "Wait for the satellite position": "Auf die Satellitenposition warten",
     "Could not change the contribution setting":
         "Die Einstellung zum Beitragen konnte nicht geändert werden",
     "Could not change the Firefox setting":
@@ -331,8 +330,10 @@ TRANSLATIONS = {
     "needs a restart":
         "Bis zu 3 Minuten statt 12 Sekunden - %s von %s Profilen. Eine offene App "
         "braucht einen Neustart",
-    "Off - Firefox gives up after 12 seconds, before a cold fix arrives":
-        "Aus - Firefox gibt nach 12 Sekunden auf, bevor eine kalte Position kommt",
+    "Off - Firefox gives up after 12 seconds, before there is a satellite "
+    "position after switching on":
+        "Aus - Firefox gibt nach 12 Sekunden auf, bevor nach dem Einschalten "
+        "eine Satellitenposition da ist",
     "Networks in range with the satellite position, over Wi-Fi only":
         "Netze in Reichweite mit der Satellitenposition, nur über WLAN",
     "Off - nothing is collected or sent. On: networks in range, never hidden "
@@ -385,12 +386,14 @@ TRANSLATIONS = {
     "Bluetooth is on right now": "Bluetooth ist gerade an",
     "Bluetooth is off right now": "Bluetooth ist gerade aus",
     " - but the service that would act is not running":
-        " - aber der Dienst, der handeln würde, läuft nicht",
+        " - aber der zuständige Dienst läuft nicht",
     "Shipped state - no icons, and the switch takes only the modem":
         "Auslieferungszustand - keine Symbole, und der Schalter nimmt nur das Modem mit",
     "On. After a fresh install they appear at the next boot.":
         "An. Nach einer Neuinstallation erscheinen sie beim nächsten Start.",
-    "Could not switch the icons {0}": "Die Symbole konnten nicht umgeschaltet werden ({0})",
+    "Could not switch the icons on": "Die Symbole konnten nicht eingeschaltet werden",
+    "Could not switch the icons off": "Die Symbole konnten nicht ausgeschaltet werden",
+    "Wi-Fi": "WLAN",
     "Could not change {0}": "{0} konnte nicht geändert werden",
     "{0} will go off with the network switch": "{0} geht mit dem Netzschalter aus",
     "Takes the icons out of the top bar, stops the service behind them and "
@@ -404,35 +407,36 @@ TRANSLATIONS = {
 
     # --- Battery -----------------------------------------------------------
     "While charging": "Beim Laden",
-    "Colour the bolt": "Den Blitz einfärben",
+    "Color the bolt": "Den Blitz einfärben",
     "Charge level": "Ladestand",
-    "Colour the filling": "Die Füllung einfärben",
+    "Color the filling": "Die Füllung einfärben",
     "Drain": "Verbrauch",
-    "Colour the frame": "Den Rahmen einfärben",
+    "Color the frame": "Den Rahmen einfärben",
     "Time left": "Restlaufzeit",
     "Show it in the top bar": "In der Leiste oben anzeigen",
     "how long the battery lasts, as 00:00, left of the battery icon":
         "wie lange der Akku reicht, als 00:00, links vom Akkusymbol",
     "Charging time": "Ladezeit",
     "While the cable is in": "Solange das Kabel steckt",
-    "how long until full, in the same place - off, there is no time while "
-    "charging":
-        "wie lange bis voll, an derselben Stelle - aus, dann steht beim Laden "
-        "keine Zeit da",
-    "Green": "Grün",
-    "Amber": "Gelb",
-    "Red": "Rot",
+    "Shows the time until full in the same place while charging":
+        "Zeigt beim Laden an derselben Stelle die Zeit bis voll",
+    "Green from": "Grün ab",
+    "Amber from": "Gelb ab",
+    "Amber below": "Gelb unter",
+    "Red below": "Rot unter",
+    "Amber above": "Gelb über",
+    "Red above": "Rot über",
     "Lower": "Weniger",
     "Higher": "Mehr",
     "%.*f %s": "%.*f %s",
-    "Could not change the colouring": "Die Einfärbung konnte nicht geändert werden",
-    "Shipped state - no colouring": "Auslieferungszustand - keine Einfärbung",
+    "Could not change the coloring": "Die Einfärbung konnte nicht geändert werden",
+    "Shipped state - no coloring": "Auslieferungszustand - keine Einfärbung",
     "Could not restore the shipped state":
         "Der Auslieferungszustand konnte nicht hergestellt werden",
     "Cancelled - nothing was changed": "Abgebrochen - nichts wurde geändert",
     "An install is running - the window can be closed once it is done":
         "Eine Installation läuft - danach lässt sich das Fenster schließen",
-    "Stops the colouring and the time left, takes them out of the next boot "
+    "Stops the coloring and the time left, takes them out of the next boot "
     "and out of the top bar. What the battery reports is untouched - that is "
     "the kernel's.":
         "Beendet die Einfärbung und die Restlaufzeit, nimmt sie aus dem nächsten "
@@ -451,14 +455,15 @@ TRANSLATIONS = {
     "3 wrong PINs lock it: 5 min, then 10, 15, 30, 60 and longer":
         "3 falsche PINs sperren: 5 min, dann 10, 15, 30, 60 und länger",
     "not installed - run the security install again":
-        "nicht installiert - die Security-Installation erneut ausführen",
+        "nicht installiert - die Sicherheits-Installation erneut ausführen",
     "Locked right now, %d:%02d left": "Gerade gesperrt, noch %d:%02d",
     "secctl did not answer": "secctl hat nicht geantwortet",
     "unreadable answer": "unlesbare Antwort",
-    "some values did not take - press twice to write them again":
-        "einige Werte haben nicht gegriffen - zweimal drücken, um sie neu zu schreiben",
+    "some values did not take - switch off and on again":
+        "einige Werte haben nicht gegriffen - aus- und wieder einschalten",
     "%d of %d blocked": "%d von %d gesperrt",
-    "Could not switch {part} {state}": "{part} konnte nicht auf {state} geschaltet werden",
+    "Could not switch on {part}": "{part} konnte nicht eingeschaltet werden",
+    "Could not switch off {part}": "{part} konnte nicht ausgeschaltet werden",
     "Shipped state - nothing of ours is left in /etc":
         "Auslieferungszustand - nichts von uns ist mehr in /etc",
     "Could not take it back out": "Es konnte nicht wieder herausgenommen werden",
@@ -499,7 +504,7 @@ TRANSLATIONS = {
     "The camera and network switches work again": "Kamera- und Netzschalter wirken wieder",
     "This hangs two files into the Android container, so sudo asks for a password. It goes to sudo through a pipe and nowhere else.":
         "Das hängt zwei Dateien in den Android-Container ein, deshalb fragt sudo nach einem Passwort. Es geht über eine Pipe an sudo und nirgendwohin sonst.",
-    "Display": "Anzeige",
+    "Display": "Bildschirm",
     "Automatic brightness": "Automatische Helligkeit",
     "Follows the light sensor · full brightness outdoors":
         "Folgt dem Lichtsensor · draußen volle Helligkeit",
@@ -507,7 +512,7 @@ TRANSLATIONS = {
         "Das schaltet den Lichtsensor-Dienst, deshalb fragt sudo nach einem Passwort. Es geht über eine Pipe an sudo und nirgendwohin sonst.",
     "Unlock": "Entsperren",
     "Keyring prompt in phosh style": "Schlüsselbund-Abfrage im phosh-Stil",
-    "Instead of the light window after a restart":
+    "Instead of the bright window after a restart":
         "Statt des hellen Fensters nach einem Neustart",
     "Could not write %s:\n%s": "%s konnte nicht geschrieben werden:\n%s",
     "Changed since misc-de wrote it, so left as it is:\n{paths}":
@@ -515,6 +520,16 @@ TRANSLATIONS = {
 
     # --- installing and updating -------------------------------------------
     "{page} · not installed": "{page} · nicht installiert",
+    "PipeWire for playback, calls and Bluetooth":
+        "PipeWire für Wiedergabe, Anrufe und Bluetooth",
+    "Mobile data without Wi-Fi, 5G, SIM": "Mobile Daten ohne WLAN, 5G, SIM",
+    "Helps Wi-Fi location via beaconDB": "Hilft der WLAN-Ortung über beaconDB",
+    "What the hardware switches take down":
+        "Was die Hardware-Schalter mit abschalten",
+    "Kernel hardening and PIN lockout": "Kernel-Härtung und PIN-Sperre",
+    "Battery icon colors and time left": "Farben und Restzeit am Akkusymbol",
+    "Dock, blur and app names": "Dock, Unschärfe und App-Namen",
+    "Exact vibration rhythms": "Exakte Vibrationsrhythmen",
     "This tab drives {tool}, and that is not on this phone. It can be fetched "
     "and installed from here; until then there is nothing to show.":
         "Dieser Reiter steuert {tool}, und das ist nicht auf diesem Telefon. Es "
@@ -535,7 +550,7 @@ TRANSLATIONS = {
     "%d Updates": "%d Updates",
     "1 update": "1 Update",
     "%d updates": "%d Updates",
-    "%d new commit(s)": "%d neue(r) Commit(s)",
+    "%d new commit(s)": "%d neue Änderung(en)",
     "the misc-de in this clone is not the program that is running":
         "das misc-de in diesem Klon ist nicht das laufende Programm",
     "something new on the server": "etwas Neues auf dem Server",

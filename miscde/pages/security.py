@@ -116,8 +116,8 @@ class SecurityPage:
                        state in ("on", "partial"), self.hardening_missing(key, part))
             shown += ("security-" + key) in self.offered()
             if key == "sysctl" and state == "partial":
-                row.set_subtitle(_("some values did not take - press twice to "
-                                 "write them again"))
+                row.set_subtitle(_("some values did not take - switch off and "
+                                 "on again"))
             elif key == "modules":
                 blocked = sum(1 for v in (part.get("modules") or {}).values()
                               if v)
@@ -174,8 +174,9 @@ class SecurityPage:
     def after_security(self, ok, out, key, value):
         self.set_busy(False)
         if not ok:
-            self.toast(_("Could not switch {part} {state}").format(
-                part=key, state=_("on") if value == "on" else _("off")))
+            title = next(t for k, t, _s in self.PARTS if k == key)
+            self.toast((_("Could not switch on {part}") if value == "on"
+                        else _("Could not switch off {part}")).format(part=title))
             # secctl's refusals are sentences, not error codes.
             if out and out.strip():
                 self.report(out.strip())

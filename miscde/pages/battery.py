@@ -27,15 +27,15 @@ class BatteryPage:
     # furniture, and which pair belonged to which switch was a thing to work
     # out rather than to see.
     BATTERY_OPTIONS = (
-        ("charging", _("While charging"), _("Colour the bolt"), None, (
-            (_("Green"), "charge_green_w", 1.0, 12.0, 0.5, 1, "W"),
-            (_("Amber"), "charge_amber_w", 0.5, 11.0, 0.5, 1, "W"))),
-        ("level", _("Charge level"), _("Colour the filling"), None, (
-            (_("Amber"), "level_amber_pct", 20.0, 95.0, 5.0, 0, "%"),
-            (_("Red"), "level_red_pct", 5.0, 90.0, 5.0, 0, "%"))),
-        ("discharging", _("Drain"), _("Colour the frame"), None, (
-            (_("Amber"), "drain_amber_w", 0.5, 8.0, 0.5, 1, "W"),
-            (_("Red"), "drain_red_w", 1.0, 12.0, 0.5, 1, "W"))),
+        ("charging", _("While charging"), _("Color the bolt"), None, (
+            (_("Green from"), "charge_green_w", 1.0, 12.0, 0.5, 1, "W"),
+            (_("Amber from"), "charge_amber_w", 0.5, 11.0, 0.5, 1, "W"))),
+        ("level", _("Charge level"), _("Color the filling"), None, (
+            (_("Amber below"), "level_amber_pct", 20.0, 95.0, 5.0, 0, "%"),
+            (_("Red below"), "level_red_pct", 5.0, 90.0, 5.0, 0, "%"))),
+        ("discharging", _("Drain"), _("Color the frame"), None, (
+            (_("Amber above"), "drain_amber_w", 0.5, 8.0, 0.5, 1, "W"),
+            (_("Red above"), "drain_red_w", 1.0, 12.0, 0.5, 1, "W"))),
         # No sliders on these two: there is nothing to set, only whether it
         # is shown.
         # It is shown by the phosh plugin, left of the battery icon; the
@@ -48,8 +48,7 @@ class BatteryPage:
         # want one without the other. Off, there is no time while the cable
         # is in.
         ("charge_time", _("Charging time"), _("While the cable is in"),
-         _("how long until full, in the same place - off, there is no time "
-           "while charging"), ()),
+         _("Shows the time until full in the same place while charging"), ()),
     )
 
     # Which threshold has to stay below which, and by how much.
@@ -156,7 +155,7 @@ class BatteryPage:
             bpage.add(grp)
 
         back, self.batt_restore_btn = self.build_restore_group(
-            _("Stops the colouring and the time left, takes them out of the "
+            _("Stops the coloring and the time left, takes them out of the "
               "next boot and out of the top bar. What the battery reports is "
               "untouched - that is the kernel's."),
             self.on_battery_restore)
@@ -332,7 +331,7 @@ class BatteryPage:
 
     def after_battery(self, ok, out, verb):
         if not ok:
-            self.toast(_("Could not change the colouring"))
+            self.toast(_("Could not change the coloring"))
             if out:
                 self.report(out)
         self.refresh()
@@ -355,7 +354,7 @@ class BatteryPage:
     def on_battery_restored(self, ok, out):
         self.set_busy(False)
         if ok:
-            self.toast(_("Shipped state - no colouring"))
+            self.toast(_("Shipped state - no coloring"))
         else:
             self.toast(_("Could not restore the shipped state"))
             self.report(out or _("No output."))
