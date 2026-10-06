@@ -344,11 +344,24 @@ TRANSLATIONS = {
     "Icons for the camera and network switch":
         "Symbole für den Kamera- und Netzschalter",
     "Network switch": "Netzschalter",
-    "The mobile network goes with the switch": "Der Mobilfunk geht mit dem Schalter",
-    "always, and not ours to change - firmware does it. (Settings switches "
-    "mobile data off separately, any time.)":
-        "immer, und nicht von uns änderbar - das macht die Firmware. (In den "
-        "Einstellungen lassen sich mobile Daten jederzeit getrennt abschalten.)",
+    "Mobile network: always switched off by the firmware":
+        "Mobilfunk: schaltet die Firmware immer mit ab",
+    "Settings switches mobile data off separately, any time":
+        "Mobile Daten lassen sich in den Einstellungen jederzeit getrennt abschalten",
+    "On: the camera and network sliders do nothing":
+        "An: Kamera- und Netzschalter bewirken nichts",
+    "For a loose slider that switches by itself":
+        "Für einen lockeren Schalter, der von selbst umschaltet",
+    "Not in effect while the sliders are ignored":
+        "Wirkungslos, solange die Schalter ignoriert werden",
+    "Ignore the sliders?": "Schalter ignorieren?",
+    "The camera slider will no longer block the cameras, and the network "
+    "slider will no longer cut the network. Meant for a slider that switches "
+    "by itself.":
+        "Der Kameraschalter sperrt dann die Kameras nicht mehr, und der "
+        "Netzschalter trennt das Netz nicht mehr. Gedacht für einen Schalter, "
+        "der von selbst umschaltet.",
+    "Ignore them": "Ignorieren",
     "Take Wi-Fi down with it as well": "WLAN auch abschalten",
     "Take Bluetooth down with it as well": "Bluetooth auch abschalten",
     "killswitch-indicator did not answer": "killswitch-indicator hat nicht geantwortet",
@@ -359,8 +372,10 @@ TRANSLATIONS = {
         "dieser killswitch-indicator ist zu alt, um sie umzuschalten - bitte aktualisieren",
     "phosh's plugin list is not readable here":
         "die Plugin-Liste von phosh ist hier nicht lesbar",
-    "currently on": "gerade an",
-    "currently off": "gerade aus",
+    "Wi-Fi is on right now": "WLAN ist gerade an",
+    "Wi-Fi is off right now": "WLAN ist gerade aus",
+    "Bluetooth is on right now": "Bluetooth ist gerade an",
+    "Bluetooth is off right now": "Bluetooth ist gerade aus",
     " - but the service that would act is not running":
         " - aber der Dienst, der handeln würde, läuft nicht",
     "Shipped state - no icons, and the switch takes only the modem":

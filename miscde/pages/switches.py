@@ -80,22 +80,20 @@ class SwitchesPage:
         self.sw_row.connect("notify::active", self.on_indicator_switch)
         grp.add(self.sw_row)
         spage.add(grp)
+        self.sw_ind_group = grp
 
         # The camera and microphone groups are gone (28.9., on request):
         # they only described what the sliders do, and nothing there could be
         # changed. What is left is what this page actually sets.
         net = Adw.PreferencesGroup(title=_("Network switch"))
-        # Shown as a switch like the other two, but fixed on: the Android side
-        # stops the RIL before any program here learns the slider moved. The
-        # only way to "deselect" it would be to start the modem back up behind
-        # the switch - undermining the very thing somebody flipped it for.
-        self.sw_modem = Adw.SwitchRow(
-            title=_("The mobile network goes with the switch"),
-            subtitle=_("always, and not ours to change - firmware does it. "
-            "(Settings switches mobile data off separately, any time.)"),
-            active=True,
+        self.sw_net_group = net
+        # A fact, not a choice: the Android side stops the RIL before any
+        # program here learns the slider moved. It was a greyed switch fixed
+        # on, which read as a control somebody had locked - so a plain row.
+        self.sw_modem = Adw.ActionRow(
+            title=_("Mobile network: always switched off by the firmware"),
+            subtitle=_("Settings switches mobile data off separately, any time"),
         )
-        self.sw_modem.set_sensitive(False)
         net.add(self.sw_modem)
         self.sw_wifi = Adw.SwitchRow(
             title=_("Take Wi-Fi down with it as well"),
@@ -110,6 +108,8 @@ class SwitchesPage:
         self.sw_bt.connect("notify::active", self.on_extra_bt)
         net.add(self.sw_bt)
         spage.add(net)
+        if nwk_mask_installed():
+            self.say_mask_effect(self.sw_nwk_mask.get_active())
 
         # Nothing here can undo what the sliders do - they are hardware, and
         # Android acts on them before this program hears about it. What this
@@ -139,17 +139,56 @@ class SwitchesPage:
             on = nwk_mask_enabled()
             row.set_active(on)
             row.set_sensitive(True)
-            row.set_subtitle("")
+            self.say_mask_effect(on)
             # The fault is a slider that moves with nobody touching it -
             # read off the kernel's edge count, see faults.sliders_flap.
             self.offer("nwk-mask", self.sw_nwk_mask_group, on,
                        faults.sliders_flap())
         self._loading = False
 
+    def say_mask_effect(self, on):
+        """What ignoring the sliders costs, said where it shows.
+
+        It weakens privacy: the camera slider stops blocking the cameras. The
+        row said nothing, and the groups below went on describing what the
+        network slider does - which, while it is ignored, it does not.
+        """
+        self.sw_nwk_mask.set_subtitle(
+            _("On: the camera and network sliders do nothing") if on else
+            _("For a loose slider that switches by itself"))
+        note = _("Not in effect while the sliders are ignored") if on else ""
+        for group in (getattr(self, "sw_ind_group", None),
+                      getattr(self, "sw_net_group", None)):
+            if group is not None:
+                group.set_description(note)
+
     def on_nwk_mask(self, row, _param):
         if getattr(self, "_loading", False):
             return
-        self.apply_nwk_mask(row.get_active())
+        if not row.get_active():
+            self.apply_nwk_mask(False)
+            return
+        # Switching protection off asks first, the way every restore does.
+        dlg = Adw.AlertDialog(
+            heading=_("Ignore the sliders?"),
+            body=_("The camera slider will no longer block the cameras, and "
+                   "the network slider will no longer cut the network. Meant "
+                   "for a slider that switches by itself."))
+        dlg.add_response("cancel", _("Cancel"))
+        dlg.add_response("go", _("Ignore them"))
+        dlg.set_response_appearance("go", Adw.ResponseAppearance.DESTRUCTIVE)
+        dlg.set_default_response("cancel")
+        dlg.set_close_response("cancel")
+        dlg.connect("response", self.on_nwk_mask_confirmed)
+        dlg.present(self)
+
+    def on_nwk_mask_confirmed(self, _dlg, response):
+        if response == "go":
+            self.apply_nwk_mask(True)
+            return
+        self._loading = True
+        self.sw_nwk_mask.set_active(False)
+        self._loading = False
 
     def apply_nwk_mask(self, wanted, secret=None, then=None):
         """Switch the mask, asking for a password if sudo wants one.
@@ -251,10 +290,15 @@ class SwitchesPage:
         phone does not keep.
         """
         radios = getattr(self, "_radios", {})
+        # The radio's state right now, not the setting - "currently on" next
+        # to a switch that was off read as a contradiction.
+        words = {"wifi": (_("Wi-Fi is on right now"), _("Wi-Fi is off right now")),
+                 "bluetooth": (_("Bluetooth is on right now"),
+                               _("Bluetooth is off right now"))}
         for row, key in ((self.sw_wifi, "wifi"), (self.sw_bt, "bluetooth")):
             state = radios.get(key)
-            text = (_("currently on") if state else
-                    _("currently off") if state is False else _("not reachable"))
+            text = (words[key][0] if state else
+                    words[key][1] if state is False else _("not reachable"))
             if getattr(self, "_daemon_active", True) is False:
                 text += _(" - but the service that would act is not running")
             row.set_subtitle(text)

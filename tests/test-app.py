@@ -2649,17 +2649,18 @@ class TheWindow(unittest.TestCase):
                   and str(c[2].get("title", "")) == "Position"]
         self.assertEqual([], titled, titled)
 
-    def test_the_modem_row_cannot_be_switched_off(self):
-        """Firmware stops the RIL before any program here hears about it, so
-        the row is shown switched on and cannot be touched. Checked against
-        what the page actually built, not against a stand-in a test wrote."""
+    def test_the_modem_row_is_a_fact_not_a_switch(self):
+        """Firmware stops the RIL before any program here hears about it.
+        It was a greyed switch fixed on, which read as a control somebody had
+        locked - now a plain row. Checked against what the page actually
+        built, not against a stand-in a test wrote."""
         self.switches_win()
         built = switcher.Window(switcher.Adw.Application())
-        created = [c for c in recorder.calls if c[0] == "Adw.SwitchRow"]
-        modem = [c for c in created
-                 if "mobile network" in str(c[2].get("title", "")).lower()]
+        modem = [c for c in recorder.calls
+                 if c[0] in ("Adw.ActionRow", "Adw.SwitchRow")
+                 and "mobile network" in str(c[2].get("title", "")).lower()]
         self.assertTrue(modem, "no row for the mobile network")
-        self.assertIs(True, modem[-1][2].get("active"))
+        self.assertEqual("Adw.ActionRow", modem[-1][0])
         self.assertIsNotNone(built)
         # And it must not read as "mobile data cannot be turned off at all",
         # which is how the first wording landed: Settings switches it off
@@ -2672,7 +2673,7 @@ class TheWindow(unittest.TestCase):
         win = self.switches_win()
         win.on_switches_status(True, self.JSON)
         self.assertIn("not reachable", win.sw_bt.subtitle)
-        self.assertIn("currently on", win.sw_wifi.subtitle)
+        self.assertIn("Wi-Fi is on right now", win.sw_wifi.subtitle)
 
     def test_choosing_a_radio_is_written_through_the_tool(self):
         win = self.switches_win()
@@ -4192,7 +4193,7 @@ class TheWindow(unittest.TestCase):
         self.assertNotIn("not running", win.sw_wifi.subtitle)
         win.on_indicator_active(True, "failed\n")
         self.assertIn("not running", win.sw_wifi.subtitle)
-        self.assertIn("currently on", win.sw_wifi.subtitle)
+        self.assertIn("Wi-Fi is on right now", win.sw_wifi.subtitle)
 
     def test_icons_that_could_not_be_switched_say_so(self):
         win = self.switches_win()
@@ -5284,6 +5285,29 @@ class IgnoresTheNetworkSwitch(unittest.TestCase):
         self.enterContext(mock.patch.object(switcher.process, "run_async",
                                             run_async))
         return win, ran
+
+    def test_ignoring_the_sliders_asks_first_and_says_what_it_costs(self):
+        """It weakens privacy: the camera slider stops protecting. One tap
+        used to do it, with nothing on the row to say so."""
+        win, ran = self.window(True, False, [(True, "")])
+        win._loading = False
+        win.sw_nwk_mask.set_active(True)
+        win.on_nwk_mask(win.sw_nwk_mask, None)
+        self.assertEqual([], ran, "nothing changed before the answer")
+        win.on_nwk_mask_confirmed(None, "cancel")
+        self.assertFalse(win.sw_nwk_mask.get_active())
+        self.assertEqual([], ran)
+        win.sw_nwk_mask.set_active(True)
+        win.on_nwk_mask_confirmed(None, "go")
+        self.assertEqual("enable", ran[0][0][3])
+        self.assertIn("do nothing", win.sw_nwk_mask.subtitle)
+
+    def test_switching_the_sliders_back_on_needs_no_question(self):
+        win, ran = self.window(True, True, [(True, "")])
+        win._loading = False
+        win.sw_nwk_mask.set_active(False)
+        win.on_nwk_mask(win.sw_nwk_mask, None)
+        self.assertEqual("disable", ran[0][0][3])
 
     def test_without_the_unit_the_row_is_closed(self):
         win, _ran = self.window(False, False, [])
