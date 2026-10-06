@@ -220,9 +220,9 @@ class ModemPage:
     def switch_modem(self, want):
         mode = "set"
         self.set_busy(True)
-        self.modem_progress.set_text(_("Switching …"))
         self.modem_revealer.set_reveal_child(True)
-        self.pulse_start(_("Switching the modem …"))
+        self.pulse_start(_("Switching the modem …"),
+                         self.modem_progress, self.modem_revealer)
         process.run_async([tools.PKEXEC, self.live["modem"], mode, want], self.on_modem_switched,
                   on_line=self.on_progress_line)
 
@@ -233,9 +233,9 @@ class ModemPage:
             self.toast(_("pkexec is missing - cannot ask for the rights to switch"))
             return
         self.set_busy(True)
-        self.modem_progress.set_text(_("Restoring …"))
         self.modem_revealer.set_reveal_child(True)
-        self.pulse_start(_("Back to the shipped state …"))
+        self.pulse_start(_("Back to the shipped state …"),
+                         self.modem_progress, self.modem_revealer)
         # "set", not "try": the same promise the audio button makes - what it
         # restores is what the phone comes back to. And the same command a
         # person would type, so there is one truth about what this does.
@@ -349,11 +349,11 @@ class ModemPage:
             self._syncing = False
             return
         self.set_busy(True)
-        self.modem_progress.set_text(_("Switching SIM …"))
         self.modem_revealer.set_reveal_child(True)
         # About half a minute: oFono comes back on the other slot, then
         # ModemManager and NetworkManager are put in order behind it.
-        self.pulse_start(_('Switching to SIM {0} - mobile network away for about 30 s …').format(slot))
+        self.pulse_start(_('Switching to SIM {0} - mobile network away for about 30 s …').format(slot),
+                         self.modem_progress, self.modem_revealer)
         process.run_async([tools.PKEXEC, self.live["modem"], "sim", str(slot)],
                           self.on_sim_switched, on_line=self.on_progress_line)
 
@@ -403,11 +403,11 @@ class ModemPage:
             return
         want = "on" if row.get_active() else "off"
         self.set_busy(True)
-        self.modem_progress.set_text(_("Switching 5G …"))
         self.modem_revealer.set_reveal_child(True)
         # The radio registers afresh so the network hears about it: mobile
         # data is away for a moment.
-        self.pulse_start(_("Switching 5G - mobile data away for a few seconds …"))
+        self.pulse_start(_("Switching 5G - mobile data away for a few seconds …"),
+                         self.modem_progress, self.modem_revealer)
         process.run_async([tools.PKEXEC, self.live["modem"], "nr", want],
                           self.on_nr_switched, on_line=self.on_progress_line)
 

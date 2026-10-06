@@ -226,6 +226,8 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         grp.add(self.progress_revealer)
         page.add(grp)
         self._pulse_id = 0
+        self._pulse_bar = None
+        self._pulse_revealer = None
 
         # --- what switches Bluetooth off behind everybody's back ---
         #
@@ -576,23 +578,33 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
             process.run_async([self.live["security"], "status", "--json"],
                       self.on_security_status)
 
-    def pulse_start(self, text):
-        self.progress.set_text(text)
-        self.progress.set_fraction(0.0)
-        self.progress.pulse()
-        self.progress_revealer.set_reveal_child(True)
+    def pulse_start(self, text, bar=None, revealer=None):
+        """Pulse the bar of the page that is working - the audio one unless
+        another is named. It was always the audio one: the modem page showed
+        its own bar frozen and empty for 30 s while its words ("mobile network
+        away for about 30 s") went into a bar on a page nobody was looking
+        at."""
+        self._pulse_bar = bar or self.progress
+        self._pulse_revealer = revealer or self.progress_revealer
+        self._pulse_bar.set_text(text)
+        self._pulse_bar.set_fraction(0.0)
+        self._pulse_bar.pulse()
+        self._pulse_revealer.set_reveal_child(True)
         if self._pulse_id == 0:
             self._pulse_id = GLib.timeout_add(120, self._pulse_tick)
 
+    def pulse_bar(self):
+        return self._pulse_bar or self.progress
+
     def _pulse_tick(self):
-        self.progress.pulse()
+        self.pulse_bar().pulse()
         return GLib.SOURCE_CONTINUE
 
     def pulse_stop(self):
         if self._pulse_id:
             GLib.source_remove(self._pulse_id)
             self._pulse_id = 0
-        self.progress_revealer.set_reveal_child(False)
+        (self._pulse_revealer or self.progress_revealer).set_reveal_child(False)
 
     def offer(self, key, widget, ours, fault):
         """Show a repair only where it has something to do.
@@ -673,7 +685,9 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
             if rows.get("button") is not None:
                 rows["button"].set_sensitive(not busy)
         if busy:
-            self.switch_row.set_subtitle(_("Switching, this takes a moment …"))
+            # Any page can be the busy one; this row only says why it is
+            # closed, not that audio is switching.
+            self.switch_row.set_subtitle(_("Waiting - a change is running …"))
         elif not self.audio_ok:
             self.switch_row.set_subtitle(_("audioctl did not answer"))
         else:
@@ -685,7 +699,7 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
     def on_progress_line(self, line):
         """Shows the step audioctl is currently reporting - shortened so it
         fits on one line."""
-        self.progress.set_text(line[:60])
+        self.pulse_bar().set_text(line[:60])
 
 
     def toast(self, text):

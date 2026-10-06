@@ -138,7 +138,7 @@ TRANSLATIONS = {
     "Sound server": "Soundserver",
     "Choose the main service for your audio input and output":
         "Wähle den primären Dienst für deine Audio-Ein- und -Ausgabe aus",
-    "Switching, this takes a moment …": "Wird umgeschaltet, das dauert einen Moment …",
+    "Waiting - a change is running …": "Wartet - eine Änderung läuft gerade …",
     "audioctl did not answer": "audioctl hat nicht geantwortet",
     "Bluetooth helpers": "Bluetooth-Helfer",
     "Enables the helper that makes sure audio and microphone are set correctly":
@@ -292,7 +292,6 @@ TRANSLATIONS = {
     "Insert a second card to choose between them":
         "Lege eine zweite Karte ein, um zwischen ihnen zu wählen",
     "No card in slot {0}": "Keine Karte in Steckplatz {0}",
-    "Switching SIM …": "SIM wird umgeschaltet …",
     "Switching to SIM {0} - mobile network away for about 30 s …":
         "Wechsel auf SIM {0} - Mobilfunk etwa 30 s weg …",
     "Switching the SIM failed": "Umschalten der SIM fehlgeschlagen",
@@ -301,7 +300,6 @@ TRANSLATIONS = {
     "Switched on, but the modem does not allow it right now": "Eingeschaltet, aber das Modem erlaubt es gerade nicht",
     "On - used where the network offers it": "An - genutzt, wo das Netz es anbietet",
     "Off: LTE, as FuriOS ships it": "Aus: LTE, wie FuriOS es ausliefert",
-    "Switching 5G …": "5G wird umgeschaltet …",
     "Switching 5G - mobile data away for a few seconds …": "5G wird umgeschaltet - mobile Daten für einige Sekunden weg …",
     "Switching 5G failed": "Umschalten von 5G fehlgeschlagen",
     "5G switched on": "5G eingeschaltet",

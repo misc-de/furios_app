@@ -1561,6 +1561,19 @@ class TheWindow(unittest.TestCase):
         self.win.on_progress_line("x" * 200)
         self.assertEqual(60, len(self.win.progress.text))
 
+    def test_the_modem_page_pulses_its_own_bar(self):
+        """The modem page showed its bar frozen and empty for 30 s while its
+        words went into the audio bar, on a page nobody was looking at."""
+        bar, shown = Recording(), Recording()
+        self.win.pulse_start("Switching to SIM 2", bar, shown)
+        self.win.on_progress_line("oFono is back")
+        self.assertEqual("oFono is back", bar.text)
+        self.assertNotEqual("oFono is back", self.win.progress.text)
+        self.win.pulse_stop()
+        self.win.pulse_start("Switching …")
+        self.win.on_progress_line("audio")
+        self.assertEqual("audio", self.win.progress.text, "and back to audio")
+
     def test_a_finished_switch_shows_the_last_thing_it_said(self):
         self.win.on_switched(True, "step\nplease check telephony\n")
         self.assertIn("check telephony", str(self.win.toasts.text))
@@ -4682,7 +4695,7 @@ class TheWindow(unittest.TestCase):
     def test_busy_says_what_is_happening_and_locks_the_controls(self):
         self.win.set_busy(True)
         self.assertFalse(self.win.switch_row.sensitive)
-        self.assertIn("takes a moment", self.win.switch_row.subtitle)
+        self.assertIn("a change is running", self.win.switch_row.subtitle)
         self.win.switch_row.selected = 1
         self.win.set_busy(False)
         self.assertTrue(self.win.switch_row.sensitive)
