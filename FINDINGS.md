@@ -142,7 +142,9 @@ How it looks depends on who owns the clone:
   repository is called `furios_gps_fix` here and `furios_gps` upstream):
   `git ls-remote` asks the server for its HEAD, `git rev-parse` reads the
   clone's. **No fetch, no pull** - that would write into somebody else's
-  `.git`.
+  `.git`. Looked for two levels deep in `~/Projekte`, hidden directories
+  included (the working clones here sit in `~/Projekte/.dev`); of several
+  clones of one repository the one whose HEAD was committed last is asked.
 
 An update in a clone that belongs to you says so in the question, and it
 begins with a guard: if anything uncommitted is there, **nothing** is touched

@@ -287,6 +287,64 @@ class ComponentTable(unittest.TestCase):
         finally:
             shutil_real.rmtree(base, ignore_errors=True)
 
+    def make_clone(self, path, url, when=None):
+        """A real git clone of `url` at path, its HEAD committed at `when`."""
+        os.makedirs(path)
+        subprocess_real.run(["git", "init", "-q", path], check=True)
+        subprocess_real.run(["git", "-C", path, "remote", "add", "origin", url],
+                            check=True)
+        if when is not None:
+            env = dict(os.environ, GIT_COMMITTER_DATE="@%d +0000" % when,
+                       GIT_AUTHOR_DATE="@%d +0000" % when)
+            subprocess_real.run(
+                ["git", "-C", path, "-c", "user.name=t", "-c", "user.email=t@t",
+                 "commit", "-q", "--allow-empty", "-m", "x"],
+                check=True, env=env)
+
+    def test_a_clone_one_level_down_in_a_hidden_directory_is_found(self):
+        """~/Projekte/.dev/furios_app was never found: the scan stopped at
+        the first level, and the stale ~/Projekte/furios_app was compared."""
+        base = tempfile.mkdtemp()
+        url = "https://github.com/misc-de/furios_app"
+        try:
+            self.make_clone(os.path.join(base, ".dev", "furios_app"), url)
+            self.assertEqual(os.path.join(base, ".dev", "furios_app"),
+                             switcher.components.clone_elsewhere(url, base))
+        finally:
+            shutil_real.rmtree(base, ignore_errors=True)
+
+    def test_of_two_clones_the_one_committed_last_wins(self):
+        base = tempfile.mkdtemp()
+        url = "https://github.com/misc-de/furios_app"
+        try:
+            self.make_clone(os.path.join(base, "furios_app"), url, 1000)
+            self.make_clone(os.path.join(base, ".dev", "furios_app"), url, 2000)
+            self.assertEqual(os.path.join(base, ".dev", "furios_app"),
+                             switcher.components.clone_elsewhere(url, base))
+            # And the other way round: the place is not what decides.
+            shutil_real.rmtree(base)
+            self.make_clone(os.path.join(base, "furios_app"), url, 3000)
+            self.make_clone(os.path.join(base, ".dev", "furios_app"), url, 2000)
+            self.assertEqual(os.path.join(base, "furios_app"),
+                             switcher.components.clone_elsewhere(url, base))
+        finally:
+            shutil_real.rmtree(base, ignore_errors=True)
+
+    def test_the_scan_stops_at_two_levels_and_skips_clones_and_heavy_dirs(self):
+        base = tempfile.mkdtemp()
+        url = "https://github.com/misc-de/furios_gps"
+        try:
+            for where in (("a", "b", "c"), ("node_modules", "x"),
+                          ("other", "inner")):
+                self.make_clone(os.path.join(base, *where), url)
+            # "other" is a clone of something else: what is inside it is its
+            # own work, not another clone.
+            subprocess_real.run(["git", "init", "-q",
+                                 os.path.join(base, "other")], check=True)
+            self.assertIsNone(switcher.components.clone_elsewhere(url, base))
+        finally:
+            shutil_real.rmtree(base, ignore_errors=True)
+
     def test_a_directory_without_a_git_config_is_not_a_clone(self):
         base = tempfile.mkdtemp()
         try:

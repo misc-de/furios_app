@@ -312,18 +312,60 @@ def is_clone_of(path, url):
     return same_repository(origin_url(path), url)
 
 
-def clone_elsewhere(url, base=None):
-    """A clone of `url` the user keeps themselves, or None."""
-    base = OWN_CLONES if base is None else base
+# Directories that are never anybody's clone and can be large: not looked into.
+NOT_CLONES = {"node_modules", "__pycache__", "venv", ".venv", "build",
+              "target", ".cache", ".git"}
+
+
+def candidate_dirs(base, depth=2):
+    """Every directory down to `depth` levels below base, hidden ones too.
+
+    Two levels and not one: this phone keeps its working clones in
+    ~/Projekte/.dev (since 30.9.2026), and a scan of the first level found
+    only the stale ~/Projekte/furios_app beside them. A clone is not looked
+    into - what is below it is its own work, not another clone - and neither
+    is anything in NOT_CLONES. Nothing is read but directory listings, which
+    is why this costs a few milliseconds and not a git call per directory.
+    """
     try:
         names = sorted(os.listdir(base))
     except OSError:
-        return None
+        return []
+    found = []
     for name in names:
         path = os.path.join(base, name)
-        if is_clone_of(path, url):
-            return path
-    return None
+        if name in NOT_CLONES or not os.path.isdir(path):
+            continue
+        found.append(path)
+        if depth > 1 and not os.path.isdir(os.path.join(path, ".git")):
+            found += candidate_dirs(path, depth - 1)
+    return found
+
+
+def head_time(path):
+    """When the clone's HEAD was committed, as a unix time; 0 if unknown."""
+    try:
+        out = subprocess.run(["git", "-C", path, "log", "-1", "--format=%ct",
+                              "HEAD"], capture_output=True, text=True,
+                             timeout=5)
+        return int(out.stdout.strip() or 0)
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return 0
+
+
+def clone_elsewhere(url, base=None):
+    """A clone of `url` the user keeps themselves, or None.
+
+    With several clones of one repository - an old checkout beside the one
+    being worked in - the one whose HEAD was committed last, the place the
+    next version is being written. git is only asked when there is a choice
+    to make; ties go to the first one in the listing.
+    """
+    base = OWN_CLONES if base is None else base
+    clones = [path for path in candidate_dirs(base) if is_clone_of(path, url)]
+    if len(clones) < 2:
+        return clones[0] if clones else None
+    return max(clones, key=head_time)
 
 
 def source_steps(comp, state, path):
