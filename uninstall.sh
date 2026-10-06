@@ -241,6 +241,17 @@ def say(text):
     print("(%s)" % text)
 
 
+# What could not be put back. Any of it keeps the records: the shell below
+# deletes them only on exit 0, and they are the only memory of what was
+# there before - a wrong sudo password must not cost the original BTSAVE.
+failed = []
+
+
+def fail(text):
+    say(text)
+    failed.append(text)
+
+
 def read(path):
     return original.read_text(path) or ""
 
@@ -318,7 +329,7 @@ for record in original.all_records():
         try:
             now = icons()
         except (ValueError, SyntaxError, OSError):
-            say("could not read %s %s" % tuple(KEY))
+            fail("could not read %s %s" % tuple(KEY))
             continue
         if DOCK not in now:
             continue
@@ -337,7 +348,7 @@ for record in original.all_records():
                 ["sudo", "sh", "-c", original.RESTORE_LINES_SCRIPT, "sh", path,
                  record["key"], "\n".join(record["lines"]), restart_unit(record)])
             if done.returncode != 0:
-                say("could not put %s in %s back" % (record["key"], path))
+                fail("could not put %s in %s back" % (record["key"], path))
         elif state == "changed":
             say("kept %s in %s: changed since misc-de wrote it" % (record["key"], path))
     elif kind == "unit":
@@ -353,7 +364,7 @@ for record in original.all_records():
             if subprocess.run(argv + [unit]).returncode == 0:
                 say("%s disabled again, as it was before the Battery tab" % unit)
             else:
-                say("could not disable %s again" % unit)
+                fail("could not disable %s again" % unit)
 
     elif kind == "auto-brightness":
         # The Phosh tab's automatic brightness: the light sensor service and
@@ -368,7 +379,7 @@ for record in original.all_records():
             if subprocess.run(argv + [unit]).returncode == 0:
                 say("%s disabled again, as it was before the Phosh tab" % unit)
             else:
-                say("could not disable %s again" % unit)
+                fail("could not disable %s again" % unit)
         if gsettings("get", *key).stdout.strip() == "true":
             if record.get("user_value") is None:
                 gsettings("reset", *key)
@@ -515,7 +526,9 @@ if "lines:/var/lib/batman/config" not in seen:
             ["sudo", "sh", "-c", original.RESTORE_LINES_SCRIPT, "sh", batman,
              "BTSAVE", "\n".join(lines), "" if destdir else "batman.service"])
         if done.returncode != 0:
-            say("could not switch batman's Bluetooth powersave back")
+            fail("could not switch batman's Bluetooth powersave back")
+
+sys.exit(1 if failed else 0)
 PY
 then
     # Read, and put back: the records have done their job, and with them

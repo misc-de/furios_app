@@ -558,6 +558,36 @@ class PutsBackWhatWasThere(unittest.TestCase):
         self.uninstall()
         self.assertEqual(mine, batman.read_text())
 
+    def test_a_refused_sudo_keeps_the_record_for_the_next_run(self):
+        """A wrong password during uninstall left BTSAVE=true AND deleted the
+        only record of the false it had been before."""
+        s = self.s
+        batman = s.root / "var/lib/batman/config"
+        mine = BATMAN_SHIPPED.replace("BTSAVE=true", "BTSAVE=false")
+        batman.write_text(mine)
+        self.install()
+        run_app_code(s, """\
+            text = open(%r).read()
+            original.remember_lines("/var/lib/batman/config", "BTSAVE", text,
+                                    unit="batman.service")
+            open(%r, "w").write(text.replace("BTSAVE=false", "BTSAVE=true"))
+            original.wrote_lines("/var/lib/batman/config", "BTSAVE",
+                                 ["BTSAVE=true"])
+            """ % (str(batman), str(batman)))
+        sudo = s.bin / "sudo"
+        stub = sudo.read_text()
+        sudo.write_text("#!/bin/bash\n"
+                        "[ \"$1\" = sh ] && { echo 'Sorry, try again.' >&2; exit 1; }\n"
+                        + stub.split("\n", 1)[1])
+        said = self.uninstall()
+        self.assertIn("could not put BTSAVE", said)
+        self.assertIn("BTSAVE=true", batman.read_text())
+        records = s.home / ".config/misc-de/original"
+        self.assertTrue(any(records.iterdir()), "the record survived")
+        sudo.write_text(stub)
+        self.uninstall()
+        self.assertEqual(mine, batman.read_text(), "and the next run uses it")
+
     def test_btsave_changed_after_us_stays(self):
         s = self.s
         batman = s.root / "var/lib/batman/config"
