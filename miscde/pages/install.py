@@ -237,10 +237,25 @@ class InstallPage:
         ours = tools.source_digest(tools.PACKAGE_DIR)
         if theirs is None or ours is None:
             return                             # nothing to compare, nothing said
-        if theirs != ours:
+        if theirs == ours:
+            return
+
+        def offer():
             self.offer_update(
                 comp, _("the misc-de in this clone is not the program that "
                         "is running"), source, "reinstall")
+
+        # Different is not newer. An old checkout beside a new one - here
+        # ~/Projekte/furios_app beside ~/Projekte/.dev/furios_app - was
+        # offered as an update and would have installed the old code. Only
+        # a clone that contains what is installed is offered.
+        installed = tools.installed_commit()
+        if installed is None:
+            offer()                            # an older install: as before
+            return
+        process.run_async(["git", "-C", source, "merge-base", "--is-ancestor",
+                           installed, "HEAD"],
+                          lambda ok, _out: offer() if ok else None, timeout=30)
 
     def offer_update(self, comp, words, path, state="update"):
         """Write down that this one has something waiting, and count it.

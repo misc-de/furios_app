@@ -100,6 +100,22 @@ PKEXEC = _tool_maybe("pkexec")
 PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
+def installed_commit(package_dir=None):
+    """The commit install.sh installed, or None when it did not say.
+
+    Written beside the package. None for an install from before 6.10.2026,
+    or one made from something that is not a git checkout.
+    """
+    package_dir = package_dir or PACKAGE_DIR
+    try:
+        with open(os.path.join(os.path.dirname(package_dir), "installed-commit"),
+                  encoding="utf-8") as f:
+            text = f.read().strip()
+    except OSError:
+        return None
+    return text or None
+
+
 def source_digest(package_dir):
     """A fingerprint of every .py file under package_dir.
 

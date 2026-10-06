@@ -84,6 +84,12 @@ sudo rm -rf "$PREFIX/lib/misc-de/miscde"
 sudo install -d -m755 "$PREFIX/lib/misc-de"
 sudo cp -r miscde "$PREFIX/lib/misc-de/miscde"
 sudo find "$PREFIX/lib/misc-de/miscde" -name __pycache__ -prune -exec rm -rf {} +
+# Which commit this is. The app offers to reinstall itself when a clone's
+# files differ from the running ones - and without knowing which side is
+# newer, an old checkout beside a new one offered a downgrade. Empty when
+# this is not a git checkout; the app then compares files only, as before.
+commit=$(git -C "$(dirname "$0")" rev-parse HEAD 2>/dev/null) || commit=""
+printf '%s\n' "$commit" | sudo tee "$PREFIX/lib/misc-de/installed-commit" >/dev/null
 sudo chmod -R a+rX "$PREFIX/lib/misc-de"
 
 echo "2) icon"

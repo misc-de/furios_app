@@ -3158,12 +3158,18 @@ class TheWindow(unittest.TestCase):
             fh.write(content)
         return d
 
-    def running_package(self, content):
-        """The tree the app would be running from, for PACKAGE_DIR."""
-        d = tempfile.mkdtemp()
-        self.addCleanup(shutil_real.rmtree, d, True)
+    def running_package(self, content, commit=None):
+        """The tree the app would be running from, for PACKAGE_DIR - inside
+        a directory of its own, where install.sh leaves installed-commit."""
+        outer = tempfile.mkdtemp()
+        self.addCleanup(shutil_real.rmtree, outer, True)
+        d = os.path.join(outer, "miscde")
+        os.mkdir(d)
         with open(os.path.join(d, "window.py"), "wb") as fh:
             fh.write(content)
+        if commit is not None:
+            with open(os.path.join(outer, "installed-commit"), "w") as fh:
+                fh.write(commit + "\n")
         self.addCleanup(setattr, switcher.tools, "PACKAGE_DIR",
                         switcher.tools.PACKAGE_DIR)
         switcher.tools.PACKAGE_DIR = d
@@ -3319,6 +3325,42 @@ class TheWindow(unittest.TestCase):
             switcher.components.clone_elsewhere = real
         self.assertEqual("reinstall", self.win.updates["misc-de"]["mode"])
         self.assertEqual(True, self.win.update_btn.visible)
+
+    def check_against(self, commit, contains):
+        comp = self.app_component()
+        clone_dir = self.clone_with_program(comp["url"], b"another version")
+        self.running_package(b"the installed version", commit=commit)
+        self.win.live["app"] = "/usr/local/bin/misc-de"
+        self.win.update_btn = Recording()
+        asked = []
+
+        def run_async(argv, done, **_kw):
+            asked.append(argv)
+            done(contains, "")
+
+        self.enterContext(mock.patch.object(switcher.process, "run_async", run_async))
+        self.enterContext(mock.patch.object(
+            switcher.components, "clone_elsewhere", lambda url, base=None: clone_dir))
+        self.win.check_app_program(comp)
+        return asked
+
+    def test_an_older_clone_is_not_offered_as_an_update(self):
+        """Different is not newer: ~/Projekte/furios_app, an old checkout
+        beside .dev/furios_app, was offered and would have installed the old
+        code. Only a clone containing the installed commit is newer."""
+        asked = self.check_against("abc123", contains=False)
+        self.assertEqual(["merge-base", "--is-ancestor", "abc123", "HEAD"],
+                         asked[0][3:])
+        self.assertNotIn("misc-de", self.win.updates)
+
+    def test_a_clone_that_contains_what_is_installed_is_offered(self):
+        self.check_against("abc123", contains=True)
+        self.assertEqual("reinstall", self.win.updates["misc-de"]["mode"])
+
+    def test_an_install_that_named_no_commit_compares_files_as_before(self):
+        asked = self.check_against(None, contains=False)
+        self.assertEqual([], asked)
+        self.assertIn("misc-de", self.win.updates)
 
     def test_a_program_that_matches_its_clone_is_not_offered(self):
         comp = self.app_component()
