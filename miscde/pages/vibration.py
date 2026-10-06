@@ -239,7 +239,11 @@ def apply(choices, settings=None, exact=None):
     path = theme_path()
     keep = foreign_entries(path)
     wanted = {e: p for e, p in choices.items() if p not in ("default",)}
-    if not wanted and not keep:
+    # Back to Standard everywhere, but the multiplier still aside (the sudo
+    # that puts it back comes after this, and may be cancelled): the theme
+    # stays with the compensation alone. Taking it off first left FuriOS's
+    # 7-25 ms key and button taps unmultiplied - too short to feel.
+    if not wanted and not keep and not exact:
         state = "off"
         if settings is not None and settings.get_string(KEY) == THEME:
             ident = original.setting_ident(SCHEMA, KEY)
@@ -269,7 +273,8 @@ def apply(choices, settings=None, exact=None):
         settings.set_string(KEY, THEME)       # feedbackd reloads on its own
     else:
         reload_feedbackd()
-    return "on"
+    # Only the compensation in it: nothing chosen, the multiplier wants back.
+    return "on" if wanted or keep else "off"
 
 
 class Player:
@@ -396,6 +401,16 @@ class VibrationPage:
         page.add(info)
         return page
 
+    def sync_vibra_rows(self):
+        """The rows back to what the theme file says."""
+        choices = read_choices()
+        ids = [pid for pid, _t, _fb in PATTERNS]
+        self._vibra_loading = True
+        for event, row in self.vibra_rows.items():
+            pid = choices.get(event, "default")
+            row.set_selected(ids.index("default" if pid == "custom" else pid))
+        self._vibra_loading = False
+
     def vibra_choices(self):
         ids = [pid for pid, _t, _fb in PATTERNS]
         return {event: ids[row.get_selected()]
@@ -409,7 +424,14 @@ class VibrationPage:
         if self.vibra_player.playing() and getattr(self, "_vibra_btn", None) is getattr(row, "play_btn", None):
             self.vibra_player.stop()
             self.vibra_play(row)
-        state = apply(choices, self.vibra_settings)
+        try:
+            state = apply(choices, self.vibra_settings)
+        except OSError as err:
+            # Every other page says so and puts the row back; this one let
+            # the traceback go to stderr and showed a rhythm never written.
+            self.report(str(err))
+            self.sync_vibra_rows()
+            return
         if state == "changed":
             self.toast(_("The theme file was changed by someone else - "
                          "left as it is"))
@@ -430,10 +452,18 @@ class VibrationPage:
             return
         if not ok:
             self.report(out or _("No output."))
+            self.vibra_multiplier_left(aside)
             return
         # The theme again, now with or without the stand-ins for the short
         # defaults - they belong to the multiplier being aside.
         apply(self.vibra_choices(), self.vibra_settings, exact=aside)
+
+    def vibra_multiplier_left(self, aside):
+        """The multiplier did not move. Say so - re-selecting Standard is no
+        change, so the page itself offers no second try."""
+        if not aside and multiplier_aside():
+            self.toast(_("FuriOS's own vibration lengths stay off for now - "
+                         "short taps are kept firm meanwhile"))
 
     def ask_vibra_password(self, aside):
         entry = Adw.PasswordEntryRow(title=_("Your password (for sudo)"))
@@ -457,6 +487,8 @@ class VibrationPage:
             entry.set_text("")
             if response == "go":
                 self.vibra_multiplier(aside, secret)
+            else:
+                self.vibra_multiplier_left(aside)
         dlg.connect("response", done)
         dlg.present(self)
 

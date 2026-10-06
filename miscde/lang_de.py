@@ -83,6 +83,10 @@ TRANSLATIONS = {
     "These packages are missing:\n\n{packages}\n\nInstall them in a terminal with:\n\n{command}":
         "Diese Pakete fehlen:\n\n{packages}\n\nIn einem Terminal installieren mit:\n\n{command}",
     "Something went wrong": "Etwas ist schiefgegangen",
+    "FuriOS's own vibration lengths stay off for now - short taps are kept "
+    "firm meanwhile":
+        "Die eigenen Vibrationslängen von FuriOS bleiben vorerst aus - kurze "
+        "Tipper bleiben so lange kräftig",
     "still running after {seconds} s - waiting for it to finish":
         "läuft nach {seconds} s noch - es wird abgewartet, bis es fertig ist",
     "{program} did not answer within {seconds} seconds":

@@ -5551,8 +5551,29 @@ class TheVibrationTheme(unittest.TestCase):
     def test_stand_ins_are_not_read_as_hand_written(self):
         self.v.apply({"message-new-sms": "double"}, FakeFeedbackdSettings(), exact=True)
         self.assertEqual([], self.v.foreign_entries())
-        self.v.apply({}, FakeFeedbackdSettings(user="misc-de"), exact=True)
+        s = FakeFeedbackdSettings(user="misc-de")
+        self.v.apply({}, s, exact=True)
+        self.v.apply({}, s, exact=False)
         self.assertFalse(os.path.exists(self.v.theme_path()))
+
+    def test_standard_everywhere_keeps_the_taps_until_the_multiplier_is_back(self):
+        """The theme came off before the sudo that puts the multiplier back -
+        and with that password cancelled, FuriOS's 7-25 ms key and button
+        taps stayed unmultiplied: too short to feel."""
+        s = FakeFeedbackdSettings()
+        self.v.apply({"message-new-sms": "double"}, s, exact=True)
+        self.assertEqual("off", self.v.apply({"message-new-sms": "default"}, s,
+                                             exact=True),
+                         "off: the multiplier is wanted back")
+        fbs = {f["event-name"]: f for f in
+               json.load(open(self.v.theme_path()))["profiles"][0]["feedbacks"]}
+        self.assertEqual([50], fbs["key-pressed"]["durations"])
+        self.assertNotIn("message-new-sms", fbs)
+        self.assertEqual("misc-de", s.user, "still the theme feedbackd plays")
+        self.assertEqual("off", self.v.apply({"message-new-sms": "default"}, s,
+                                             exact=False))
+        self.assertFalse(os.path.exists(self.v.theme_path()))
+        self.assertIsNone(s.user)
 
     def test_the_keyboard_stand_in_reads_as_standard(self):
         self.v.apply({"message-new-sms": "double"}, FakeFeedbackdSettings(), exact=True)
