@@ -3,6 +3,7 @@
 """Running a helper without freezing the window."""
 
 import json
+import os
 
 from gi.repository import Gio, GLib
 from .i18n import _
@@ -14,6 +15,20 @@ from .i18n import _
 # after that - and short enough that a phone is not left with a greyed-out
 # window and a pulsing bar until somebody kills the app.
 CALL_TIMEOUT = 90
+
+# Programs after which the work runs as root.
+ROOT_FRONTS = ("pkexec", "sudo")
+
+
+def runs_as_root(argv, env=None):
+    """Whether this call hands its work to root.
+
+    Then the window cannot end it: pkexec and sudo have changed user, and an
+    installer's sudo lines and the apt or make under them are root processes
+    of their own. force_exit() on them fails with EPERM, which GLib ignores.
+    """
+    return (os.path.basename(argv[0]) in ROOT_FRONTS
+            or bool(env and "SUDO_ASKPASS" in env))
 
 
 def run_async(argv, on_done, on_line=None, timeout=CALL_TIMEOUT, cwd=None,
@@ -30,6 +45,13 @@ def run_async(argv, on_done, on_line=None, timeout=CALL_TIMEOUT, cwd=None,
     nothing to ever set it back: the switches stay grey, the progress bar
     keeps pulsing, and the only way out is to kill the window. A bounded wait
     turns that into an error message, which is a state somebody can act on.
+
+    Except for work that runs as root (runs_as_root): the window cannot stop
+    it, and calling it failed would hand the window back while modemctl or an
+    installer is still changing the phone - and a second tap starts a second
+    run beside the first. modemctl nr alone can take over 90 s on a weak
+    signal. Such a call is waited for to its real end; when the time is up
+    on_line hears that it is still running.
     """
     flags = Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_MERGE
     if stdin is not None:
@@ -69,6 +91,13 @@ def run_async(argv, on_done, on_line=None, timeout=CALL_TIMEOUT, cwd=None,
 
     def give_up():
         state["timer"] = 0
+        if state["done"]:
+            return False
+        if runs_as_root(argv, env):
+            if on_line is not None:
+                on_line(_("still running after {seconds} s - waiting for it "
+                          "to finish").format(seconds=timeout))
+            return False
         if not state["done"]:
             # force_exit, not a polite signal: what is being waited on is a
             # program that has already stopped answering.

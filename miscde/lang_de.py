@@ -83,6 +83,8 @@ TRANSLATIONS = {
     "These packages are missing:\n\n{packages}\n\nInstall them in a terminal with:\n\n{command}":
         "Diese Pakete fehlen:\n\n{packages}\n\nIn einem Terminal installieren mit:\n\n{command}",
     "Something went wrong": "Etwas ist schiefgegangen",
+    "still running after {seconds} s - waiting for it to finish":
+        "läuft nach {seconds} s noch - es wird abgewartet, bis es fertig ist",
     "{program} did not answer within {seconds} seconds":
         "{program} hat nicht innerhalb von {seconds} Sekunden geantwortet",
     "reading …": "wird gelesen …",

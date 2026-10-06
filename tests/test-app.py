@@ -716,6 +716,35 @@ class RunsAudioctl(unittest.TestCase):
         self.assertEqual(["one"], lines)
         self.assertEqual([False], done)
 
+    def test_work_handed_to_root_is_waited_for_past_the_timeout(self):
+        """modemctl behind pkexec, or an installer with sudo lines: the
+        window cannot kill it (EPERM), so calling it failed handed the window
+        back while root was still changing the phone, and a second tap ran a
+        second one beside it. It is waited for to its real end now."""
+        for argv, env in ((["/usr/bin/pkexec", "/usr/local/bin/modemctl", "nr", "on"], None),
+                          (["sudo", "-n", "dpkg-divert"], None),
+                          (["./install.sh"], {"SUDO_ASKPASS": "/run/x/askpass"})):
+            with self.subTest(argv=argv[0]):
+                process = self.arrange(lines=["one", "two"])
+                timers = []
+                with mock.patch.object(switcher.GLib, "timeout_add_seconds",
+                                       lambda _s, fn: timers.append(fn) or 7), \
+                        mock.patch.object(switcher.GLib, "source_remove",
+                                          lambda _id: None):
+                    lines, done = [], []
+
+                    def on_line(line):
+                        lines.append(line)
+                        if line == "one":
+                            timers[0]()      # the wait runs out here
+
+                    switcher.process.run_async(argv, lambda ok, out: done.append(ok),
+                                               on_line=on_line, timeout=90, env=env)
+                self.assertFalse(process.killed)
+                self.assertEqual([True], done, "the real end is reported, once")
+                self.assertIn("two", lines)
+                self.assertTrue(any("still running" in l for l in lines))
+
     def test_a_command_that_fails_is_reported_as_such(self):
         self.arrange(lines=["went wrong"], ok=False)
         seen = []
