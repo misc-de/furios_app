@@ -1228,6 +1228,9 @@ class Recording:
     def set_subtitle(self, text):
         self.subtitle = text
 
+    def set_description(self, text):
+        self.description = text
+
     def has_focus(self):
         """The security page refuses to overwrite the network somebody is
         typing into. A stub that always claims focus would hide the refresh
@@ -2126,14 +2129,29 @@ class TheWindow(unittest.TestCase):
         self.win.on_btx(self.win.btx_row, None)
         self.assertEqual(["/usr/bin/audioctl", "bt-extras", "off"], self.ran[-1][0])
 
-    def test_under_pulseaudio_they_are_not_offered(self):
-        """Nothing of ours runs under PulseAudio (decided 29.9.2026)."""
+    def test_under_pulseaudio_they_are_greyed_out(self):
+        """Nothing of ours runs under PulseAudio (decided 29.9.2026); the row
+        stays in view, closed, and says why (asked for 7.10.2026)."""
         self.win.busy = False
         self.win.on_btx_status(True, "bt-extras=on\nprofile=pw-hal\noffered=yes\neffective=all\n")
         self.assertTrue(self.win.btx_row.visible)
         self.win.on_btx_status(True, "bt-extras=on\nprofile=standard\noffered=no\neffective=none\n")
-        self.assertFalse(self.win.btx_row.visible)
+        self.assertTrue(self.win.btx_row.visible)
+        self.assertFalse(self.win.btx_row.sensitive)
+        self.assertIn("PipeWire", self.win.btx_row.subtitle)
         self.assertFalse(self.win.btx_ok)
+        self.win.set_busy(False)
+        self.assertFalse(self.win.btx_row.sensitive)
+
+    def test_under_pulseaudio_the_codec_row_is_greyed_out(self):
+        self.win.busy = False
+        self.win.on_status(True, '{"profile": "standard", "persistent": "standard"}')
+        self.win.on_codec_status(True, "preference=unsupported\n")
+        self.assertTrue(self.win.codec_row.visible)
+        self.assertFalse(self.win.codec_row.sensitive)
+        self.assertIn("PipeWire", self.win.codec_row.subtitle)
+        self.win.set_busy(False)
+        self.assertFalse(self.win.codec_row.sensitive)
 
     # --- the ringback tone ---
 
@@ -2168,7 +2186,8 @@ class TheWindow(unittest.TestCase):
 
     def test_an_older_audioctl_is_judged_by_its_profile(self):
         self.win.on_btx_status(True, "bt-extras=on\nprofile=standard\neffective=basic\n")
-        self.assertFalse(self.win.btx_row.visible)
+        self.assertFalse(self.win.btx_ok)
+        self.assertFalse(self.win.btx_row.sensitive)
         self.win.on_btx_status(True, "bt-extras=on\nprofile=pw-hal\neffective=all\n")
         self.assertTrue(self.win.btx_row.visible)
 
@@ -2191,6 +2210,7 @@ class TheWindow(unittest.TestCase):
         self.assertEqual(before, len(self.ran))
 
     def test_an_older_audioctl_shows_no_helpers_row(self):
+        self.win._audio_profile = "standard"
         self.win.on_btx_status(False, "audioctl: unknown command bt-extras")
         self.assertFalse(self.win.btx_row.visible)
 
@@ -2234,6 +2254,7 @@ class TheWindow(unittest.TestCase):
     def test_no_wireplumber_setting_closes_the_row(self):
         """The shipped profile has no WirePlumber, an older furios_audio
         no setting; "Automatic" would claim a choice that cannot be made."""
+        self.win._audio_profile = "pw-hal"
         self.win.on_codec_status(True, "preference=unsupported\n")
         self.assertFalse(self.win.codec_ok)
         self.assertFalse(self.win.codec_row.sensitive)
@@ -5675,6 +5696,18 @@ class IgnoresTheNetworkSwitch(unittest.TestCase):
         win.on_nwk_mask_confirmed(None, "go")
         self.assertEqual("enable", ran[0][0][3])
         self.assertIn("do nothing", win.sw_nwk_mask.subtitle)
+
+    def test_ignored_sliders_grey_out_what_hangs_off_them(self):
+        """Asked for 7.10.2026: the icons and the extra radios do nothing
+        while the sliders are ignored, so they must not look switchable."""
+        win, _ran = self.window(True, True, [])
+        win.sw_ind_group, win.sw_net_group = Recording(), Recording()
+        win.sync_nwk_mask()
+        self.assertFalse(win.sw_ind_group.sensitive)
+        self.assertFalse(win.sw_net_group.sensitive)
+        win.say_mask_effect(False)
+        self.assertTrue(win.sw_ind_group.sensitive)
+        self.assertTrue(win.sw_net_group.sensitive)
 
     def test_switching_the_sliders_back_on_needs_no_question(self):
         win, ran = self.window(True, True, [(True, "")])

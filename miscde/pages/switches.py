@@ -156,11 +156,14 @@ class SwitchesPage:
         self.sw_nwk_mask.set_subtitle(
             _("On: the camera and network sliders do nothing") if on else
             _("For a loose slider that switches by itself"))
+        # And greyed out (asked for 7.10.2026): a row that can still be
+        # switched reads as one that still does something.
         note = _("Not in effect while the sliders are ignored") if on else ""
         for group in (getattr(self, "sw_ind_group", None),
                       getattr(self, "sw_net_group", None)):
             if group is not None:
                 group.set_description(note)
+                group.set_sensitive(not on)
 
     def on_nwk_mask(self, row, _param):
         if getattr(self, "_loading", False):

@@ -171,6 +171,9 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
             subtitle=_("reading …"),
         )
         self.btx_ok = False
+        self._btx_known = False
+        # The profile audioctl last named; see show_pipewire_only.
+        self._audio_profile = None
         self.btx_row.set_sensitive(False)
         self.btx_row.set_visible(False)
         self.btx_row.connect("notify::active", self.on_btx)

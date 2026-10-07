@@ -316,6 +316,8 @@ class AudioPage:
         # a phone this window knows nothing about - and "off" happens to be
         # the shipped state, so it would be a plausible, wrong one.
         self.audio_ok = profile != "unknown"
+        self._audio_profile = profile
+        self.show_pipewire_only()
         if not self.audio_ok:
             self.row_profile.set_subtitle(_("audioctl did not answer"))
             self.row_server.set_subtitle(server_in_words(server))
@@ -454,9 +456,14 @@ class AudioPage:
         # still says the profile.
         offered = values.get("offered",
                              "yes" if values.get("profile") == "pw-hal" else "no")
-        if not ok or effective not in ("all", "basic", "none") or offered != "yes":
+        self._btx_known = ok and effective in ("all", "basic", "none")
+        if values.get("profile"):
+            self._audio_profile = values["profile"]
+        if not self._btx_known or offered != "yes":
             self.btx_ok = False
+            self.btx_row.set_sensitive(False)
             self.btx_row.set_visible(False)
+            self.show_pipewire_only()
             return
         self.btx_row.set_visible(True)
         self.btx_ok = True
@@ -681,12 +688,38 @@ class AudioPage:
         self.offer("btsave", self.btsave_row, ours, faults.btsave_bites(state))
         self.tidy_bt_group()
 
+    def pulse_running(self):
+        """Whether the phone runs PulseAudio - known, and not pw-hal."""
+        return self._audio_profile not in (
+            None, "unknown", "pw-hal")
+
+    def show_pipewire_only(self):
+        """Under PulseAudio the rows only PipeWire can act on stay in view,
+        greyed and saying why (asked for 7.10.2026). Hidden, they read as
+        gone; this way the choice of server shows what it costs. A row that
+        is closed for another reason - an audioctl without the command -
+        stays hidden as before. Sensitivity is set_busy's, through btx_ok
+        and codec_ok, which are False here."""
+        pulse = self.pulse_running()
+        words = _("Only with PipeWire")
+        if not self.btx_ok:
+            shown = pulse and self._btx_known
+            self.btx_row.set_visible(shown)
+            if shown:
+                self.btx_row.set_subtitle(words)
+        if not self.codec_ok:
+            self.codec_row.set_visible(pulse)
+            if pulse:
+                self.codec_row.set_subtitle(words)
+        self.tidy_bt_group()
+
     def tidy_bt_group(self):
-        """No "Bluetooth" heading over nothing: the codec rows are gone under
-        PulseAudio, and powersave is gone where it repairs nothing."""
+        """No "Bluetooth" heading over nothing: powersave is gone where it
+        repairs nothing, and the codec row is gone where audioctl cannot
+        set one at all."""
         group = getattr(self, "bt_group", None)
         if group is not None:
-            group.set_visible(self.codec_ok
+            group.set_visible(self.codec_ok or self.pulse_running()
                               or "btsave" in self.offered())
 
     def on_codec_status(self, ok, out):
@@ -702,7 +735,7 @@ class AudioPage:
             self.codec_row.set_sensitive(False)
             self.codec_row.set_visible(False)
             self.codec_scope_row.set_visible(False)
-            self.tidy_bt_group()
+            self.show_pipewire_only()
             return
         self.codec_ok = True
         self.codec_row.set_visible(True)

@@ -361,6 +361,7 @@ TRANSLATIONS = {
         "An: Kamera- und Netzschalter bewirken nichts",
     "For a loose slider that switches by itself":
         "Für einen lockeren Schalter, der von selbst umschaltet",
+    "Only with PipeWire": "Nur mit PipeWire",
     "Not in effect while the sliders are ignored":
         "Wirkungslos, solange die Schalter ignoriert werden",
     "Ignore the sliders?": "Schalter ignorieren?",
