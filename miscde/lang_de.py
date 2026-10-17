@@ -153,6 +153,12 @@ TRANSLATIONS = {
         "Solange ein ausgehender Anruf klingelt - bei 4G-Anrufen sendet das Netz keinen Ton",
     "Could not change the ringback tone":
         "Das Freizeichen konnte nicht umgeschaltet werden",
+    "Echo cancellation in apps": "Echounterdrückung in Apps",
+    "For calls in the browser or a messenger over the speaker":
+        "Für Gespräche im Browser oder Messenger über den Lautsprecher",
+    " · after the next restart": " · nach dem nächsten Neustart",
+    "Could not change the echo cancellation":
+        "Die Echounterdrückung konnte nicht umgeschaltet werden",
     "Handsfree echo suppression": "Echounterdrückung beim Freisprechen",
     "Suppresses the echo in speakerphone calls":
         "Unterdrückt das Echo bei Lautsprechertelefonie",

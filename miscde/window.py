@@ -192,6 +192,19 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         self.ringback_row.connect("notify::active", self.on_ringback)
         grp.add(self.ringback_row)
 
+        # Echo cancellation for calls in apps - a browser, a messenger. The
+        # mobile call has the modem's; these had none. Only under pw-hal,
+        # off until switched on (it costs a share of a core while talking).
+        self.ec_row = Adw.SwitchRow(
+            title=_("Echo cancellation in apps"),
+            subtitle=_("For calls in the browser or a messenger over the speaker"),
+        )
+        self.ec_ok = False
+        self.ec_row.set_sensitive(False)
+        self.ec_row.set_visible(False)
+        self.ec_row.connect("notify::active", self.on_ec)
+        grp.add(self.ec_row)
+
         # Echo during a call, above the switch that decides how long a
         # choice lasts - because that switch applies to this one too, and a
         # control has to sit above what qualifies it, not below.
@@ -560,6 +573,8 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
                               self.on_btx_status)
             process.run_async([self.live["audio"], "ringback", "status"],
                               self.on_ringback_status)
+            process.run_async([self.live["audio"], "echo-cancel", "status"],
+                              self.on_ec_status)
             dmnr = tools._tool_maybe(DMNR)
             if dmnr:
                 process.run_async([dmnr, "status"], self.on_dmnr_status)
@@ -688,6 +703,7 @@ class Window(AudioPage, ModemPage, GpsPage, SwitchesPage, BatteryPage,
         self.codec_scope_row.set_sensitive(not busy and self.codec_ok)
         self.btx_row.set_sensitive(not busy and self.btx_ok)
         self.ringback_row.set_sensitive(not busy and self.ringback_ok)
+        self.ec_row.set_sensitive(not busy and self.ec_ok)
         # Sensitive only while there is something behind it. show_update_count
         # owns whether it is there at all; this owns whether it can be
         # pressed, and a batch that is running must not be started twice.

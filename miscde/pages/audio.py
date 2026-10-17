@@ -528,6 +528,47 @@ class AudioPage:
             self.toast(_("Done"))
         self.refresh()
 
+    def on_ec_status(self, ok, out):
+        """audioctl echo-cancel status: echo-cancel=on|off, offered=yes|no,
+        loaded=yes|no. Not offered (PulseAudio) or an audioctl without the
+        command: no row. Not loaded yet: PipeWire has not read the new
+        configuration - the row says it takes a restart."""
+        values = dict(z.split("=", 1) for z in (out or "").splitlines()
+                      if "=" in z)
+        if not ok or values.get("offered") != "yes" \
+                or values.get("echo-cancel") not in ("on", "off"):
+            self.ec_ok = False
+            self.ec_row.set_visible(False)
+            return
+        self.ec_row.set_visible(True)
+        self.ec_ok = True
+        self._syncing = True
+        self.ec_row.set_active(values["echo-cancel"] == "on")
+        self._syncing = False
+        subtitle = _("For calls in the browser or a messenger over the speaker")
+        if values.get("loaded") == "no":
+            subtitle += _(" · after the next restart")
+        self.ec_row.set_subtitle(subtitle)
+        self.ec_row.set_sensitive(not self.busy)
+
+    def on_ec(self, row, _param):
+        if self._syncing or self.busy or not self.ec_ok \
+                or not self.live.get("audio"):
+            return
+        self.set_busy(True)
+        process.run_async([self.live["audio"], "echo-cancel",
+                           "on" if row.get_active() else "off"],
+                          self.on_ec_done)
+
+    def on_ec_done(self, ok, out):
+        self.set_busy(False)
+        if not ok:
+            self.toast(_("Could not change the echo cancellation"))
+            self.report(out or _("No output."))
+        else:
+            self.toast(_("Done"))
+        self.refresh()
+
     def on_dmnr(self, row, _param):
         if self._syncing or self.busy:
             return

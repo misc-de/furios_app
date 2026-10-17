@@ -1520,7 +1520,7 @@ class TheWindow(unittest.TestCase):
         self.win = switcher.Window(switcher.Adw.Application())
         names = ["row_profile", "row_server", "row_sinks", "switch_row",
                  "persist_row", "dmnr_row", "btsave_row", "codec_row",
-                 "codec_scope_row", "btx_row", "ringback_row",
+                 "codec_scope_row", "btx_row", "ringback_row", "ec_row",
                  "update_btn",
                  "progress", "progress_revealer", "toasts"]
         # The modem widgets only exist when the page was built, and the page is
@@ -2174,6 +2174,40 @@ class TheWindow(unittest.TestCase):
         before = len(self.ran)
         self.win.on_ringback_status(True, "ringback=on\navailable=yes\n")
         self.assertEqual(before, len(self.ran))
+
+    # --- echo cancellation in apps ---
+
+    def test_echo_cancel_follows_audioctl_and_switches_through_it(self):
+        self.win.busy = False
+        self.win.live["audio"] = "/usr/bin/audioctl"
+        before = len(self.ran)
+        self.win.on_ec_status(True, "echo-cancel=off\noffered=yes\nloaded=yes\n")
+        self.assertEqual(before, len(self.ran))      # reading switches nothing
+        self.assertTrue(self.win.ec_row.visible)
+        self.assertFalse(self.win.ec_row.get_active())
+        self.assertTrue(self.win.ec_row.sensitive)
+        self.assertNotIn("restart", self.win.ec_row.subtitle)
+        self.win.ec_row.active = True
+        self.win.on_ec(self.win.ec_row, None)
+        self.assertEqual(["/usr/bin/audioctl", "echo-cancel", "on"], self.ran[-1][0])
+        self.win.on_ec_status(True, "echo-cancel=on\noffered=yes\nloaded=no\n")
+        self.assertTrue(self.win.ec_row.get_active())
+        self.assertIn("restart", self.win.ec_row.subtitle)
+
+    def test_no_echo_cancel_row_under_pulseaudio_or_an_older_audioctl(self):
+        self.win.on_ec_status(True, "echo-cancel=off\noffered=no\nloaded=no\n")
+        self.assertFalse(self.win.ec_row.visible)
+        self.win.on_ec_status(False, "audioctl - switch the audio stack\n")
+        self.assertFalse(self.win.ec_row.visible)
+        self.assertFalse(self.win.ec_ok)
+        before = len(self.ran)
+        self.win.on_ec(self.win.ec_row, None)          # runs nothing
+        self.assertEqual(before, len(self.ran))
+
+    def test_echo_cancel_failure_is_reported(self):
+        self.win.busy = True
+        self.win.on_ec_done(False, "boom")
+        self.assertFalse(self.win.busy)
 
     def test_no_ringback_row_without_the_unit_or_the_command(self):
         self.win.on_ringback_status(True, "ringback=off\navailable=no\n")
@@ -2867,9 +2901,9 @@ class TheWindow(unittest.TestCase):
         # Audio is counted like the rest now: audioctl can be missing too, and
         # asking a tool that is not there was how a callback ended up at rows
         # nobody had built.
-        # status, bt-codec status, bt-extras status, ringback status and the
-        # echo helper's
-        expected = ((4 + bool(DMNR) if AUDIOCTL else 0)
+        # status, bt-codec status, bt-extras status, ringback status,
+        # echo-cancel status and the echo helper's
+        expected = ((5 + bool(DMNR) if AUDIOCTL else 0)
                     # profile, status, sim and nr
                     + (4 if MODEMCTL else 0)
                     # status of the contribution tool, and of the Firefox
